@@ -1,4 +1,4 @@
-// Client channel: the team view the browser renders, and the POST /api/bot endpoints.
+// Client channel: the team view, POST actions, and the GET browser read poll.
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { questionReply } from './parts.js'
@@ -80,7 +80,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -301,12 +301,17 @@ export function install(rt) {
         case 'repo-stars':
           return ok(await rt.repoStars())
         // The Desktop window's long poll for read_browser, and its answers.
+        case 'browser-pages':
         case 'browser-wait': {
           if (rt.browserChannel === undefined) return fail('Bot browsers are off on this host', 'bot/browser-off')
           const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 100) : ''
           if (clientId === '') return fail('A browser poll needs a clientId', 'bot/invalid')
           await rt.load()
-          return ok(await rt.browserChannel.wait(clientId, rt.browserOpen(body.open)))
+          if (endpoint === 'browser-pages') {
+            rt.browserChannel.report(clientId, rt.browserOpen(body.open))
+            return ok(true)
+          }
+          return ok(await rt.browserChannel.wait(clientId, body.open === undefined ? undefined : rt.browserOpen(body.open), signal))
         }
         case 'browser-result':
           if (rt.browserChannel === undefined) return fail('Bot browsers are off on this host', 'bot/browser-off')
@@ -333,13 +338,25 @@ export function install(rt) {
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => ctx.connection.fetch.register({
     path: ROUTE,
-    methods: ['POST'],
+    methods: ['GET', 'POST'],
     requestBody: 'buffered',
     fetch: async (request) => {
       let body
-      try { body = await request.json() } catch { body = {} }
+      if (request.method === 'GET') {
+        const params = new URL(request.url).searchParams
+        // Only the read poll can use GET. Page metadata stays in a short POST,
+        // so long polling cannot block Desktop's admitted-write drain at update.
+        if (params.get('endpoint') !== 'browser-wait' || [...params.keys()].some(key => key !== 'endpoint' && key !== 'clientId')
+          || params.getAll('endpoint').length !== 1 || params.getAll('clientId').length !== 1) {
+          return new Response(JSON.stringify(fail('Only browser-wait supports GET', 'bot/invalid')), { status: 400,
+            headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
+        }
+        body = { endpoint: 'browser-wait', payload: { clientId: params.get('clientId') } }
+      } else {
+        try { body = await request.json() } catch { body = {} }
+      }
       const result = await handle(String(body?.endpoint ?? ''), body?.payload, request.signal)
-      return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
     },
   }), 'ds-bot: api route')
 

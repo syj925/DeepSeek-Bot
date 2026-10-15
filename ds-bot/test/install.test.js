@@ -25,7 +25,7 @@ function start(state, { config = {}, services } = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, call, stop, applyResult }
+  return { ctx, call, stop, applyResult, get: (query, signal) => route.fetch(new Request(`http://localhost/api/bot?${query}`, { signal })) }
 }
 
 // Listeners run, and tools are listed, in the order they are registered.
@@ -98,7 +98,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: update check',
     'effect ds-bot: dsh update install',
     'effect ds-bot: api route',
-    'route POST /api/bot',
+    'route GET,POST /api/bot',
     'effect ds-bot: load state',
   ])
 })
@@ -184,4 +184,27 @@ test('config.browser turns Bot browsers off even in the Desktop profile', (t) =>
   const { ctx, stop } = start(TEAM, { config: { browser: false }, services: { profileContext: { name: 'desktop' } } })
   t.after(stop)
   assert.ok(!ctx.calls.includes('tool read_browser'))
+})
+
+test('browser reads use a cancellable GET after a short page report without exposing other actions', async (t) => {
+  const { ctx, call, get, stop } = start(TEAM, { services: { profileContext: { name: 'desktop' } } })
+  t.after(stop)
+  assert.deepEqual(await call('browser-pages', { clientId: 'window-1', open: { b2: { url: 'https://example.com/private?x=1', title: 'Example' } } }), { ok: true, value: true })
+  const polled = get('endpoint=browser-wait&clientId=window-1')
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const reading = ctx.registeredTools.get('read_browser').execute({}, { agent: { id: 'b2' } })
+  const response = await polled
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  const [request] = (await response.json()).value
+  await call('browser-result', { id: request.id, ok: true, page: { url: 'https://example.com/', text: 'Read through GET' } })
+  assert.match(await reading, /Read through GET/)
+  for (const query of ['endpoint=delete-bot&clientId=b2', 'endpoint=browser-wait&clientId=w&open=secret', 'endpoint=browser-wait&clientId=a&clientId=b']) {
+    assert.equal((await get(query)).status, 400)
+  }
+  const abort = new AbortController()
+  const idle = get('endpoint=browser-wait&clientId=window-1', abort.signal)
+  await new Promise(resolve => setTimeout(resolve, 10))
+  abort.abort()
+  assert.deepEqual((await idle).status, 200)
+  assert.equal((await call('state')).value.bots.length, 2)
 })

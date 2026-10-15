@@ -1143,9 +1143,16 @@ ${REST_NOTE}`);
 var ROUTE = "api/bot";
 var REFUSALS = /* @__PURE__ */ new Set(["bot/refused", "bot/invalid", "bot/read-only", "bot/not-found", "bot/browser-off"]);
 var call = async (endpoint, payload, signal) => {
+  const browserPoll = endpoint === "browser-wait";
+  if (browserPoll) await call("browser-pages", payload, signal);
   let response;
   try {
-    response = await fetch(ROUTE, {
+    response = await fetch(browserPoll ? `${ROUTE}?${new URLSearchParams({ endpoint, clientId: payload?.clientId ?? "" })}` : ROUTE, browserPoll ? {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      signal
+    } : {
       method: "POST",
       credentials: "same-origin",
       headers: { "content-type": "application/json" },

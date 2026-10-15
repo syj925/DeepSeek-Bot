@@ -6,10 +6,16 @@ const ROUTE = 'api/bot'
 const REFUSALS = new Set(['bot/refused', 'bot/invalid', 'bot/read-only', 'bot/not-found', 'bot/browser-off'])
 
 export const call = async (endpoint, payload, signal) => {
+  const browserPoll = endpoint === 'browser-wait'
+  // Report page URLs/titles in a short authenticated write; keep them out of
+  // query strings and let the long read poll yield to Desktop update admission.
+  if (browserPoll) await call('browser-pages', payload, signal)
   let response
   try {
     // Document-relative so the Web UI keeps working under a mounted base path.
-    response = await fetch(ROUTE, {
+    response = await fetch(browserPoll ? `${ROUTE}?${new URLSearchParams({ endpoint, clientId: payload?.clientId ?? '' })}` : ROUTE, browserPoll ? {
+      method: 'GET', credentials: 'same-origin', cache: 'no-store', signal,
+    } : {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },

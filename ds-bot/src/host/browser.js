@@ -49,15 +49,22 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
     return items.map(({ sentAt, ...item }) => item)
   }
 
-  /**
-   * One long poll from a window. Resolves with the read requests due for it, at once when
-   * there are some, else when one arrives or a handed-out one is due again, or after
-   * `waitMs`. A newer poll from the same window ends the older one empty.
-   */
-  function wait(clientId, open) {
+  function report(clientId, open) {
     const client = clients.get(clientId) ?? { open: {}, seen: 0, queue: [] }
     clients.set(clientId, client)
     client.open = open && typeof open === 'object' ? open : {}
+    client.seen = now()
+    return client
+  }
+
+  /**
+   * One long poll from a window. Resolves with the read requests due for it, at once when
+   * there are some, else when one arrives or a handed-out one is due again, or after
+   * `waitMs`. A newer poll or cancellation ends the older one empty.
+   */
+  function wait(clientId, open, signal) {
+    if (signal?.aborted) return Promise.resolve([])
+    const client = open === undefined ? clients.get(clientId) ?? report(clientId, {}) : report(clientId, open)
     client.seen = now()
     client.end?.()
     const ready = due(client)
@@ -67,6 +74,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
     return new Promise((resolve) => {
       const finish = (items) => {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', end)
         if (client.end === end) client.wake = client.end = undefined
         client.seen = now()
         resolve(items)
@@ -75,6 +83,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
       const timer = setTimeout(() => finish(due(client)), Math.min(waitMs, resend))
       client.wake = () => finish(due(client))
       client.end = end
+      signal?.addEventListener('abort', end, { once: true })
     })
   }
 
@@ -128,7 +137,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
     clients.clear()
   }
 
-  return { wait, result, read, openPages, dispose }
+  return { report, wait, result, read, openPages, dispose }
 }
 
 const clean = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)

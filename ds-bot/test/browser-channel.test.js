@@ -86,6 +86,26 @@ test('dispose ends polls and pending reads', async () => {
   assert.match((await read).error, /stopped/)
 })
 
+test('a separate page report feeds a cancellable read poll and an old abort cannot stop its replacement', async () => {
+  const channel = createBrowserChannel({ waitMs: 60_000 })
+  const old = new AbortController(), current = new AbortController()
+  channel.report('window-1', { 'bot-a': { url: 'https://example.com/' } })
+  const first = channel.wait('window-1', undefined, old.signal)
+  const replacement = channel.wait('window-1', undefined, current.signal)
+  assert.deepEqual(await first, [])
+  old.abort()
+  const read = channel.read('bot-a')
+  const [request] = await replacement
+  assert.equal(request.botId, 'bot-a')
+  channel.result({ id: request.id, ok: true, page: {} })
+  await read
+  const idle = channel.wait('window-1', undefined, current.signal)
+  current.abort()
+  assert.deepEqual(await idle, [])
+  assert.deepEqual(await channel.wait('window-1', undefined, current.signal), [])
+  channel.dispose()
+})
+
 test('pageText pages long text and lists controls on the first page only', () => {
   const page = {
     url: 'https://example.com/a',
