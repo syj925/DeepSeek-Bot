@@ -32,10 +32,9 @@ Tested with dsh `0.2.0-rc.2` (Web and Desktop) on Linux.
 
 ## Install
 
-The [project page](../README.md#install) has the full steps for dsh Desktop and dsh Web. In short:
+This QibitAI employee canvas fork uses the package name `ds-bot` and the hosted plugin ID `ds-bot`. In QibitAI Desktop, open Plugins → Add plugin and enter `https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz`, or select the hosted DS Bot entry in the plugin catalog. An existing `ds-bot` installation is replaced in place and keeps its team data. A `restart-required` result needs a full quit and reopen of Desktop before the new code runs.
 
-- dsh Desktop: Settings → Plugins → add `ds-bot` (npm), a `.tgz` file, or `github:Fei2411/DeepSeek-Bot#v0.1.5&path:/ds-bot`.
-- Command line: `dsh plugin --profile desktop add ds-bot` (or `--profile web`).
+The public npm package and `Fei2411/DeepSeek-Bot` GitHub releases install the upstream project, without this fork's canvas changes. See the [project page](../README.md#install) for both installation paths.
 
 To work on the plugin from a checkout, add it to a dsh profile as a linked dependency and a bundle:
 
@@ -71,14 +70,13 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own remember calls
     diagnosticsFile: false          # keep the error log in memory only; default <home>/logs/diagnostics.jsonl
-    updateCheck: true               # look for a newer DS Bot when a window opens; default true
-    updateRegistry: https://registry.example/   # ask only this npm registry for updates
+    updateCheck: true               # enable manual hosted update checks; default true
     github: false                   # hide the GitHub connector; default shown in Connectors
 ```
 
-**Updates**: when a window opens, DS Bot asks where it was installed from for a newer release: the npm registry (the one the DSH plugin manager installs from, then its fallbacks), or the latest GitHub release for a `github:…#vX.Y.Z` install. A newer version shows a cloud button at the top right of the sidebar; **Update** reinstalls DS Bot through the DSH plugin manager, and the new version runs from the next DSH start. A linked or local checkout is never offered an update. Settings → About DS Bot shows the same state, with **Check for updates** to ask again at once.
+**Updates**: this fork declares `dsh.update` with source `https://desktop.qibitai.ai`, plugin ID `ds-bot` and channel `stable`. Settings → About DS Bot → **Check for updates** asks the native Desktop plugin manager for the latest release. Opening the page or polling install status does not query the gateway automatically. **Update** passes the selected identity, version and SHA256 to the manager, which revalidates the release and verifies the download before installing. Release notes are shown in About. Failed checks, unpublished releases, incompatible versions and cancellations have separate states; no error falls back to upstream npm/GitHub. Local linked folders remain developer-managed; installed local `.tgz` packages can receive hosted updates.
 
-The same card can carry DSH itself: a DS Bot release may name the DSH release it was verified against (`dsBot.verifiedDsh` in its `package.json`), and only that version is offered — running something newer is a downgrade offer too. A release that names no version offers no DSH update. A DSH installed from npm is swapped by `npm install -g @deepseek-ai/dsh@<version>`. DSH Desktop installs the newest release its own updater finds, so the card shows DSH there only when that release is the verified one, and **Open updates** opens the app's update panel. A release may raise the floor with `dsBot.minBot`: until the bot itself is that new, the DSH row waits.
+This requires a QibitAI Desktop build with `checkPluginUpdates` and `installHostedPlugin`. Older carriers show an unsupported message. The plugin distinguishes an applied update from an installed update awaiting restart. QibitAI Desktop manages its own runtime updates; this fork does not offer upstream DSH replacements. `updateRegistry` only affects legacy packages without a hosted update declaration.
 
 ## Models
 

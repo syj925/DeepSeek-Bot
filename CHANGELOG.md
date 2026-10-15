@@ -4,8 +4,11 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-15
+
 ### Added
 
+- **QibitAI hosted updates**: declare the stable plugin gateway, check releases manually through the native plugin manager, and install the selected version with its verified checksum. About shows release notes and distinguishes check failures, unsupported carriers, cancellation, applied updates and pending restarts. Hosted installs never fall back to upstream npm/GitHub; Desktop keeps control of its own runtime updates.
 - **Employee canvas**: open persistent Bots and real group chats in movable, resizable conversation windows. Pan and zoom the workspace, select and visually group windows, compact them into cards, and reopen them without creating another employee or deleting their history. The canvas uses the existing conversations and collaboration tools; it adds no manual links or workflow execution.
 - **Classic view** remains available from the canvas toolbar, with **Employee canvas** in the sidebar to return. Window layout and the chosen view are saved in the current browser only; employee and group-chat data remain in DSH.
 - **Load conversations on demand**: start with draggable 120×112 employee avatars and 320×200 Room summaries. Click an avatar to open its conversation; dragging only moves it. Multiple manually opened conversations can remain visible. Restoring a saved layout never auto-opens histories. Arrange entries by actual sizes and visual group, or collapse conversations without changing employee work or text drafts.

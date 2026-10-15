@@ -2,33 +2,21 @@
 // the repository. The sidebar's cloud button shows the same update state.
 import { createElement as h, useEffect, useState } from 'react'
 import { GitHubMark } from './connectors.js'
-import { whenText } from './feedback.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { StarLineIcon } from './icons.js'
 import { SPRING_POP } from './motion.js'
 import { BotMark } from './mark.js'
 import { MAIN_LOOK } from './characters.js'
 import { showsDshRow } from './dsh-offer.js'
+import { botUpdateHint } from './update-status.js'
 
 // The length of the mark's `done` hop (bt-done in styles.js).
 const CHEER_MS = 1800
 
 const starCount = count => new Intl.NumberFormat(dateLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(count)
 
-function botHint(update) {
-  if (update.phase === 'installing') return t('Updating DS Bot…')
-  if (update.phase === 'installed') return t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest })
-  if (update.phase === 'failed') return t('The update did not finish: {reason}', { reason: hostText(update.error ?? '') })
-  if (update.available) return t('DS Bot {version} is available', { version: update.latest })
-  if (update.enabled === false) return t('Update checks are off.')
-  if (update.source === 'path') return t('Installed from a local folder; update it there.')
-  if (!update.checkedAt) return null
-  if (!update.latest && update.source !== 'registry') return t('Updates are not offered for this install.')
-  const checked = t('Checked {time}', { time: whenText(update.checkedAt) })
-  return `${update.latest ? t('Up to date') : t('Could not check for updates.')} · ${checked}`
-}
-
 function dshHint(dsh, shown) {
+  if (dsh.managed) return t('QibitAI Desktop manages its own updates.')
   if (dsh.phase === 'installing') return t('Updating DSH…')
   if (dsh.phase === 'installed') return t('Restart DSH to start using DSH {version}.', { version: dsh.installed ?? dsh.verified })
   if (dsh.phase === 'failed') return t('The update did not finish: {reason}', { reason: hostText(dsh.error ?? '') })
@@ -94,7 +82,8 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
       stars === null ? null : h('span', { className: 'bt-star-count' }, starCount(stars))) : null),
     repo ? h('p', { key: 'ask', className: 'bt-about-ask' }, t('If DS Bot helps you, a star on GitHub helps more people find it.')) : null,
     h(Section, { key: 'updates', title: t('Updates') },
-      h(Row, { label: 'DS Bot', hint: botHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
+      h(Row, { label: 'DS Bot', hint: botUpdateHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
+      update.notes ? h('details', { className: 'bt-about-notes' }, h('summary', null, t('Release notes')), h('p', null, update.notes)) : null,
       dsh?.current ? h(Row, { label: 'DeepSeek Harness', hint: dshHint(dsh, dshShown) }, dshControl) : null),
     h(Section, { key: 'links', title: t('Links') },
       repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
@@ -104,6 +93,9 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
 }
 
 export const ABOUT_CSS = `
+.bt-about-notes{font-size:13px;line-height:1.6;color:var(--bt-ink-2)}
+.bt-about-notes summary{cursor:pointer}
+.bt-about-notes p{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto}
 .bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
 .bt-about-mark{flex:none;display:inline-flex;position:relative}
 .bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}

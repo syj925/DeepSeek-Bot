@@ -837,6 +837,11 @@ var ZH = {
   "Up to date": "已是最新版本",
   "Checked {time}": "检查于 {time}",
   "Could not check for updates.": "没能检查更新。",
+  "Could not check for updates: {reason}": "检查更新失败：{reason}",
+  "DS Bot {version} has been applied.": "DS Bot {version} 已应用。",
+  "DS Bot {version} is installed. Quit and reopen QibitAI Desktop to use it.": "DS Bot {version} 已安装，完全退出并重新打开 QibitAI Desktop 后生效。",
+  "Update cancelled.": "已取消更新。",
+  "QibitAI Desktop manages its own updates.": "QibitAI Desktop 的版本更新由桌面端管理。",
   "Update checks are off.": "已关闭更新检查。",
   "Installed from a local folder; update it there.": "从本地文件夹安装，请在那里更新。",
   "Updates are not offered for this install.": "这种安装方式不提供更新。",
@@ -1000,6 +1005,14 @@ var HOST_ERRORS = [
   [/^Memory cannot change now: [\s\S]*$/, "现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队"]
 ];
 var HOST_ZH = {
+  "Use Check for updates to query QibitAI.": "点击“检查更新”查询 QibitAI 插件版本。",
+  "This local checkout is updated from its source files.": "当前使用本地开发目录，请在源文件中更新。",
+  "This host does not support QibitAI hosted plugin updates. Update QibitAI Desktop first.": "当前桌面端不支持 QibitAI 托管插件更新，请先升级 QibitAI Desktop。",
+  "This plugin is not listed in its declared QibitAI update source.": "声明的 QibitAI 更新源中没有找到这个插件。",
+  "No release has been published for this update channel.": "这个更新渠道还没有发布版本。",
+  "The plugin manager does not allow this release to be installed in this profile.": "插件管理器不允许在当前配置中安装此版本。",
+  "The plugin manager returned an invalid update catalog": "插件管理器返回的更新目录无效",
+  "The plugin manager returned an invalid hosted release": "插件管理器返回的托管版本信息无效",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "头像图片必须是 PNG、JPEG、WebP 或 GIF",
@@ -4830,6 +4843,36 @@ function showsDshRow(dsh, app) {
   return dsh.kind === "app" && APP_OFFER.has(app?.phase) && sameVersion(app.version, dsh.verified);
 }
 
+// src/client/time-text.js
+function whenText(time) {
+  const date = new Date(time);
+  const today = (/* @__PURE__ */ new Date()).toDateString() === date.toDateString();
+  const clock4 = date.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
+  return today ? clock4 : `${date.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })} ${clock4}`;
+}
+
+// src/client/update-status.js
+function installedUpdateText(update) {
+  const params = { version: update.installed ?? update.latest };
+  if (update.application === "applied") return t("DS Bot {version} has been applied.", params);
+  return update.source === "hosted" ? t("DS Bot {version} is installed. Quit and reopen QibitAI Desktop to use it.", params) : t("Restart DSH to start using DS Bot {version}.", params);
+}
+function botUpdateHint(update) {
+  if (update.phase === "installing") return t("Updating DS Bot…");
+  if (update.phase === "installed") return installedUpdateText(update);
+  if (update.phase === "failed") return t("The update did not finish: {reason}", { reason: hostText(update.error ?? "") });
+  if (update.phase === "cancelled") return t("Update cancelled.");
+  if (update.checkError) return t("Could not check for updates: {reason}", { reason: hostText(update.checkError) });
+  if (update.available) return t("DS Bot {version} is available", { version: update.latest });
+  if (update.enabled === false) return t("Update checks are off.");
+  if (update.source === "path") return t("Installed from a local folder; update it there.");
+  if (update.unavailableReason) return hostText(update.unavailableReason);
+  if (!update.checkedAt) return null;
+  if (!update.latest && !["registry", "hosted"].includes(update.source)) return t("Updates are not offered for this install.");
+  const checked = t("Checked {time}", { time: whenText(update.checkedAt) });
+  return `${update.latest ? t("Up to date") : t("Could not check for updates.")} · ${checked}`;
+}
+
 // src/client/canvas-session.js
 var import_react8 = require("react");
 var CANVAS_PANEL = "ds-bot-canvas";
@@ -5545,7 +5588,7 @@ function UpdateButton({ useUpdate, actions }) {
     setDshError("");
     void actions.installDshUpdate().catch((failure2) => setDshError(hostText(failure2?.message ?? String(failure2))));
   };
-  const label = phase === "installing" ? t("Updating DS Bot…") : dshPhase === "installing" ? t("Updating DSH…") : phase === "installed" ? t("DS Bot {version} is installed. Restart DSH to use it.", { version: update.installed ?? update.latest }) : dshPhase === "installed" ? t("Restart DSH to start using DSH {version}.", { version: dsh.installed ?? dsh.verified }) : update?.available ? t("DS Bot {version} is available", { version: update.latest }) : t("DSH {version} is available", { version: dsh?.verified });
+  const label = phase === "installing" ? t("Updating DS Bot…") : dshPhase === "installing" ? t("Updating DSH…") : phase === "installed" ? installedUpdateText(update) : dshPhase === "installed" ? t("Restart DSH to start using DSH {version}.", { version: dsh.installed ?? dsh.verified }) : update?.available ? t("DS Bot {version} is available", { version: update.latest }) : phase !== "idle" ? botUpdateHint(update) : t("DSH {version} is available", { version: dsh?.verified });
   const message = error || (phase === "failed" ? update.error : "");
   const dshMessage = dshError || (dshPhase === "failed" ? dsh?.error : "");
   const dshText = dshPhase === "installed" ? t("Restart DSH to start using DSH {version}.", { version: dsh.installed ?? dsh.verified }) : dsh?.available === false && dsh?.blockedBy ? t("Update DS Bot {version} first.", { version: dsh.blockedBy }) : t("You have {version}.", { version: dsh?.current });
@@ -5570,7 +5613,7 @@ function UpdateButton({ useUpdate, actions }) {
         import_react10.Fragment,
         null,
         (0, import_react10.createElement)("div", { className: "bt-update-title" }, phase === "installed" ? t("Update installed") : t("DS Bot {version}", { version: update.latest })),
-        (0, import_react10.createElement)("div", { className: "bt-update-text" }, phase === "installed" ? t("Restart DSH to start using DS Bot {version}.", { version: update.installed ?? update.latest }) : t("You have {version}.", { version: update.current })),
+        (0, import_react10.createElement)("div", { className: "bt-update-text" }, phase === "installed" ? installedUpdateText(update) : phase === "cancelled" || update.checkError || update.unavailableReason ? botUpdateHint(update) : t("You have {version}.", { version: update.current })),
         message ? (0, import_react10.createElement)("div", { className: "bt-update-error", role: "alert" }, t("The update did not finish: {reason}", { reason: message })) : null,
         (0, import_react10.createElement)(
           "div",
@@ -5580,8 +5623,8 @@ function UpdateButton({ useUpdate, actions }) {
             type: "button",
             className: "bt-update-go",
             disabled: phase === "installing",
-            onClick: start
-          }, phase === "installing" ? t("Updating…") : phase === "failed" ? t("Try again") : t("Update"))
+            onClick: update.available ? start : () => void actions.checkUpdate().catch((failure2) => setError(hostText(failure2?.message ?? String(failure2))))
+          }, phase === "installing" ? t("Updating…") : !update.available ? t("Check for updates") : phase === "failed" ? t("Try again") : t("Update"))
         )
       ) : null,
       dshRow ? (0, import_react10.createElement)(
@@ -10698,12 +10741,6 @@ function download(name, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1e3);
 }
 var copy = (text) => navigator.clipboard === void 0 ? Promise.resolve(false) : navigator.clipboard.writeText(text).then(() => true, () => false);
-function whenText(time) {
-  const date = new Date(time);
-  const today = (/* @__PURE__ */ new Date()).toDateString() === date.toDateString();
-  const clock4 = date.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
-  return today ? clock4 : `${date.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })} ${clock4}`;
-}
 function entrySummary(entry) {
   if (entry.source === "turn") return failureLabel(entry.code, entry.text);
   return entry.text;
@@ -10869,19 +10906,8 @@ var FEEDBACK_CSS = `
 var import_react29 = require("react");
 var CHEER_MS = 1800;
 var starCount = (count) => new Intl.NumberFormat(dateLocale(), { notation: "compact", maximumFractionDigits: 1 }).format(count);
-function botHint(update) {
-  if (update.phase === "installing") return t("Updating DS Bot…");
-  if (update.phase === "installed") return t("Restart DSH to start using DS Bot {version}.", { version: update.installed ?? update.latest });
-  if (update.phase === "failed") return t("The update did not finish: {reason}", { reason: hostText(update.error ?? "") });
-  if (update.available) return t("DS Bot {version} is available", { version: update.latest });
-  if (update.enabled === false) return t("Update checks are off.");
-  if (update.source === "path") return t("Installed from a local folder; update it there.");
-  if (!update.checkedAt) return null;
-  if (!update.latest && update.source !== "registry") return t("Updates are not offered for this install.");
-  const checked = t("Checked {time}", { time: whenText(update.checkedAt) });
-  return `${update.latest ? t("Up to date") : t("Could not check for updates.")} · ${checked}`;
-}
 function dshHint(dsh, shown) {
+  if (dsh.managed) return t("QibitAI Desktop manages its own updates.");
   if (dsh.phase === "installing") return t("Updating DSH…");
   if (dsh.phase === "installed") return t("Restart DSH to start using DSH {version}.", { version: dsh.installed ?? dsh.verified });
   if (dsh.phase === "failed") return t("The update did not finish: {reason}", { reason: hostText(dsh.error ?? "") });
@@ -10966,7 +10992,8 @@ function AboutPage({ useUpdate, actions, run, Section, Row: Row3 }) {
     (0, import_react29.createElement)(
       Section,
       { key: "updates", title: t("Updates") },
-      (0, import_react29.createElement)(Row3, { label: "DS Bot", hint: botHint(update) }, botControl, update.available && update.notesUrl ? (0, import_react29.createElement)("a", linkProps(update.notesUrl), t("What's new")) : null),
+      (0, import_react29.createElement)(Row3, { label: "DS Bot", hint: botUpdateHint(update) }, botControl, update.available && update.notesUrl ? (0, import_react29.createElement)("a", linkProps(update.notesUrl), t("What's new")) : null),
+      update.notes ? (0, import_react29.createElement)("details", { className: "bt-about-notes" }, (0, import_react29.createElement)("summary", null, t("Release notes")), (0, import_react29.createElement)("p", null, update.notes)) : null,
       dsh?.current ? (0, import_react29.createElement)(Row3, { label: "DeepSeek Harness", hint: dshHint(dsh, dshShown) }, dshControl) : null
     ),
     (0, import_react29.createElement)(
@@ -10979,6 +11006,9 @@ function AboutPage({ useUpdate, actions, run, Section, Row: Row3 }) {
   ];
 }
 var ABOUT_CSS = `
+.bt-about-notes{font-size:13px;line-height:1.6;color:var(--bt-ink-2)}
+.bt-about-notes summary{cursor:pointer}
+.bt-about-notes p{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto}
 .bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
 .bt-about-mark{flex:none;display:inline-flex;position:relative}
 .bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}

@@ -5,13 +5,14 @@ import { afterEach, test } from 'node:test'
 import { install } from '../src/host/dsh-update.js'
 
 const PKG = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const LEGACY_PKG = { ...PKG, repository: 'https://github.com/Fei2411/DeepSeek-Bot.git', dsh: { ...PKG.dsh, update: undefined } }
 const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve() }
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
 // The dsh-update module alone: a stub loader says the running DSH version, a
 // stub plugin manager says how the bot was installed, and fetch is scripted.
-function start({ current = '0.1.0', source, answers = {}, app = false, spawn, config = {}, profileDir }) {
+function start({ current = '0.1.0', source, answers = {}, app = false, spawn, config = {}, profileDir, pkg = LEGACY_PKG }) {
   const fetched = []
   const spawns = []
   const warnings = []
@@ -37,7 +38,7 @@ function start({ current = '0.1.0', source, answers = {}, app = false, spawn, co
     warn: (...args) => warnings.push(args),
     dshSpawn: spawn ?? ((command, argv) => { spawns.push([command, argv]); return fakeChild(0) }),
   }
-  install(rt)
+  install(rt, pkg)
   return { rt, fetched, spawns, warnings }
 }
 
@@ -141,4 +142,20 @@ test('a failed npm install reports why and can be tried again', async () => {
   rt.dshUpdateStart()
   await flush()
   assert.equal((await rt.dshUpdateCheck()).phase, 'installed')
+})
+
+test('a hosted plugin never offers an upstream DSH runtime replacement', async () => {
+  const pkg = { ...PKG, dsBot: { verifiedDsh: '9.9.9' }, dsh: { ...PKG.dsh, update: { url: 'https://desktop.qibitai.ai', pluginId: 'ds-bot' } } }
+  for (const source of ['ds-bot@0.1.0', 'file:C:/plugins/ds-bot.tgz', 'link:/work/ds-bot']) {
+    const { rt, fetched, spawns } = start({ pkg, source, answers: registryLatest({ verifiedDsh: '9.9.9' }) })
+    assert.equal((await rt.dshUpdateCheck()).managed, true)
+    const view = await rt.dshUpdateCheck({ fresh: true })
+    assert.equal(view.current, '0.1.0')
+    assert.equal(view.kind, 'app')
+    assert.equal(view.verified, null)
+    assert.equal(view.available, false)
+    assert.throws(() => rt.dshUpdateStart(), /No DSH update/)
+    assert.deepEqual(fetched, [])
+    assert.deepEqual(spawns, [])
+  }
 })

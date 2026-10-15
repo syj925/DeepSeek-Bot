@@ -95,7 +95,6 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: capabilities',
     'effect ds-bot: usage ledger',
     'on llm/stream',
-    'effect ds-bot: update check',
     'effect ds-bot: dsh update install',
     'effect ds-bot: api route',
     'route GET,POST /api/bot',

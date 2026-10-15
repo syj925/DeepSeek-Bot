@@ -17,6 +17,20 @@ DeepSeek Bot (DS Bot) is a bot plugin for [DeepSeek Harness](https://github.com/
 
 ## Install
 
+### QibitAI employee canvas fork
+
+Version **0.1.6** of this fork is distributed through QibitAI's plugin gateway. In **Plugins → Add plugin**, enter:
+
+```text
+https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz
+```
+
+The package remains `ds-bot`, so an existing installation is replaced in place and keeps its team data. Use **Settings → About DS Bot → Check for updates**, or the desktop plugin manager, to check manually. Confirm **Update** to install the selected release. If the result says a restart is required, quit QibitAI Desktop completely and reopen it. Older Desktop builds without the hosted-plugin API show an unsupported message; upgrade Desktop first. Linked development folders are updated locally.
+
+This fork declares `https://desktop.qibitai.ai` as its update source and does not fall back to upstream npm/GitHub releases. The npm and upstream instructions below install the original DS Bot, without this fork's canvas changes.
+
+### Original DS Bot
+
 First install DSH and set up at least one model in it. DS Bot uses the models from DSH.
 
 **DSH Desktop (Windows, macOS)**
@@ -42,7 +56,7 @@ I strongly recommend that you set up your other bots and group chats by just tal
 
 ## Features
 
-### Employee canvas (unreleased)
+### Employee canvas (0.1.6 fork)
 
 This development branch adds a canvas for persistent employees and group chats. The background fills the workspace, with dark translucent glass panels, a movable, collapsible team list and a centered avatar dock. This glass theme is local to the canvas. Use **Create employee** to configure a new Bot, or open an existing one from **Employee directory**, the team list or the dock. Expanded conversations can move and resize; compacting or closing them preserves the employee, memory and conversation.
 

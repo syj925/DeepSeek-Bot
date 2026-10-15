@@ -11,6 +11,7 @@ import { Shimmer, workPhrase } from './cells.js'
 import { springEasing, SPRING_SHAPE } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { showsDshRow } from './dsh-offer.js'
+import { botUpdateHint, installedUpdateText } from './update-status.js'
 import { CANVAS_PANEL } from './canvas-session.js'
 import { useFloatingTeam, FLOATING_TEAM_CSS } from './floating-team.js'
 
@@ -346,10 +347,10 @@ function UpdateButton({ useUpdate, actions }) {
   }
   const label = phase === 'installing' ? t('Updating DS Bot…')
     : dshPhase === 'installing' ? t('Updating DSH…')
-      : phase === 'installed' ? t('DS Bot {version} is installed. Restart DSH to use it.', { version: update.installed ?? update.latest })
+      : phase === 'installed' ? installedUpdateText(update)
         : dshPhase === 'installed' ? t('Restart DSH to start using DSH {version}.', { version: dsh.installed ?? dsh.verified })
           : update?.available ? t('DS Bot {version} is available', { version: update.latest })
-            : t('DSH {version} is available', { version: dsh?.verified })
+            : phase !== 'idle' ? botUpdateHint(update) : t('DSH {version} is available', { version: dsh?.verified })
   const message = error || (phase === 'failed' ? update.error : '')
   const dshMessage = dshError || (dshPhase === 'failed' ? dsh?.error : '')
   const dshText = dshPhase === 'installed'
@@ -366,14 +367,14 @@ function UpdateButton({ useUpdate, actions }) {
       update?.available || phase !== 'idle' ? h(Fragment, null,
         h('div', { className: 'bt-update-title' }, phase === 'installed' ? t('Update installed') : t('DS Bot {version}', { version: update.latest })),
         h('div', { className: 'bt-update-text' }, phase === 'installed'
-          ? t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest })
-          : t('You have {version}.', { version: update.current })),
+          ? installedUpdateText(update)
+          : phase === 'cancelled' || update.checkError || update.unavailableReason ? botUpdateHint(update) : t('You have {version}.', { version: update.current })),
         message ? h('div', { className: 'bt-update-error', role: 'alert' }, t('The update did not finish: {reason}', { reason: message })) : null,
         h('div', { className: 'bt-update-actions' },
           update.notesUrl ? h('a', { className: 'bt-update-notes', href: update.notesUrl, target: '_blank', rel: 'noopener noreferrer' }, t("What's new")) : null,
           phase === 'installed' ? null : h('button', {
-            type: 'button', className: 'bt-update-go', disabled: phase === 'installing', onClick: start,
-          }, phase === 'installing' ? t('Updating…') : phase === 'failed' ? t('Try again') : t('Update')))) : null,
+            type: 'button', className: 'bt-update-go', disabled: phase === 'installing', onClick: update.available ? start : () => void actions.checkUpdate().catch(failure => setError(hostText(failure?.message ?? String(failure)))),
+          }, phase === 'installing' ? t('Updating…') : !update.available ? t('Check for updates') : phase === 'failed' ? t('Try again') : t('Update')))) : null,
       dshRow ? h('div', { className: 'bt-update-dsh' },
         h('div', { className: 'bt-update-title' }, t('DSH {version}', { version: dsh.verified })),
         h('div', { className: 'bt-update-text' }, dshText),

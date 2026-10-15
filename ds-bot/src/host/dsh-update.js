@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import {
-  CHECK_TTL_MS, cleanVersion, encodeName, fetchJson, installSpecOf,
+  CHECK_TTL_MS, cleanVersion, encodeName, fetchJson, hasHostedUpdate, installSpecOf,
   newer, registryPlan, repoSlug, sourceOf,
 } from './update.js'
 
@@ -19,12 +19,13 @@ const PKG = JSON.parse(readFileSync(new URL('../../package.json', import.meta.ur
 const APP_BOOT = '@deepseek-ai/dsh-app-boot'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 
-export function install(rt) {
+export function install(rt, pkg = PKG) {
   const { ctx, config } = rt
   const enabled = config.updateCheck !== false
+  const managed = hasHostedUpdate(pkg)
 
   const status = {
-    current: null, verified: null, kind: 'npm', blockedBy: null,
+    current: null, verified: null, kind: managed ? 'app' : 'npm', blockedBy: null,
     checkedAt: 0, phase: 'idle', installed: null, error: null,
   }
   let target = null
@@ -32,10 +33,10 @@ export function install(rt) {
   let running = null
 
   // A newer `minBot` than the running bot gates the offer: the bot goes first.
-  const blocked = () => status.blockedBy !== null && newer(status.blockedBy, PKG.version)
+  const blocked = () => status.blockedBy !== null && newer(status.blockedBy, pkg.version)
 
   const view = () => ({
-    current: status.current, verified: status.verified, kind: status.kind, blockedBy: status.blockedBy,
+    current: status.current, verified: status.verified, kind: status.kind, blockedBy: status.blockedBy, managed,
     checkedAt: status.checkedAt, phase: status.phase, installed: status.installed, error: status.error,
     // Nothing is offered without a current version to compare against.
     available: status.phase !== 'installed' && target !== null && status.current !== null
@@ -80,19 +81,19 @@ export function install(rt) {
     if (source.kind === 'registry') {
       for (const registry of await registryPlan(config, ctx.get?.('pluginManager'))) {
         try {
-          const manifest = await fetchJson(`${registry}${encodeName(PKG.name)}/latest`)
+          const manifest = await fetchJson(`${registry}${encodeName(pkg.name)}/latest`)
           if (manifest?.dsBot?.verifiedDsh) return manifest.dsBot
         } catch { /* unreachable or not published there: ask the next one */ }
       }
       return null
     }
-    const repo = repoSlug()
+    const repo = repoSlug(pkg)
     if (!repo) return null
     try {
-      const release = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`, { 'user-agent': `${PKG.name}/${PKG.version}` })
+      const release = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`, { 'user-agent': `${pkg.name}/${pkg.version}` })
       const tag = cleanVersion(release?.tag_name)
       if (!tag) return null
-      const manifest = await fetchJson(`https://raw.githubusercontent.com/${repo}/${release.tag_name}/ds-bot/package.json`, { 'user-agent': `${PKG.name}/${PKG.version}` })
+      const manifest = await fetchJson(`https://raw.githubusercontent.com/${repo}/${release.tag_name}/ds-bot/package.json`, { 'user-agent': `${pkg.name}/${pkg.version}` })
       return manifest?.dsBot?.verifiedDsh ? manifest.dsBot : null
     } catch { return null }
   }
@@ -100,11 +101,17 @@ export function install(rt) {
   async function runCheck() {
     try {
       status.current = await currentDsh()
+      // The hosted fork runs in QibitAI; upstream DSH release declarations must
+      // never offer to replace that carrier with a different application's runtime.
+      if (managed) {
+        status.checkedAt = Date.now()
+        return
+      }
       status.kind = installKind()
       // The release the running package itself verified stays the floor: a bot
       // older than its own declaration has nothing newer to offer.
-      const declared = [{ verifiedDsh: PKG.dsBot?.verifiedDsh }]
-      const released = await releasedDeclaration(sourceOf(await installSpecOf(ctx)))
+      const declared = [{ verifiedDsh: pkg.dsBot?.verifiedDsh }]
+      const released = await releasedDeclaration(sourceOf(await installSpecOf(ctx, pkg)))
       if (released) declared.push(released)
       const newestDeclared = declared
         .filter(entry => cleanVersion(entry.verifiedDsh))
@@ -129,11 +136,11 @@ export function install(rt) {
   /** Read current and verified DSH versions; a fresh check ignores the last answer. */
   async function check({ fresh = false } = {}) {
     if (!enabled) return view()
+    if (managed && !fresh) return view()
     if (checking) return checking
     if (!fresh && Date.now() - status.checkedAt < CHECK_TTL_MS) return view()
-    checking = runCheck().finally(() => { checking = null })
-    await checking
-    return view()
+    checking = runCheck().then(view).finally(() => { checking = null })
+    return checking
   }
 
   /** Swap an npm-installed DSH for the verified version; the answer comes back through `check`. */
