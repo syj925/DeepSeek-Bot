@@ -62,8 +62,9 @@ function cleanReferences(state) {
   for (const value of state.groups) {
     if (!object(value) || !idOf(value.id) || groupIds.has(value.id) || !Array.isArray(value.members)) continue
     const members = unique(value.members).filter(id => all.has(id) && !claimed.has(id))
-    if (members.length < 2) continue
-    groups.push({ id: value.id, name: typeof value.name === 'string' ? value.name.trim().slice(0, 100) || 'Window group' : 'Window group', members })
+    if (members.length < 2 && value.draft !== true) continue
+    groups.push({ id: value.id, name: typeof value.name === 'string' ? value.name.trim().slice(0, 100) || 'Window group' : 'Window group', members,
+      ...(value.draft === true ? { draft: true, x: coordinate(value.x), y: coordinate(value.y) } : {}) })
     groupIds.add(value.id)
     members.forEach(id => claimed.add(id))
   }
@@ -276,6 +277,31 @@ export function groupWindows(state, ids = state.selected, options = {}) {
   return cleanReferences(next)
 }
 
+export function createEmptyGroup(state, position = {}) {
+  const next = normalizeCanvas(state)
+  let serial = 1
+  while (next.groups.some(group => group.id === `canvas-group-${serial}`)) serial++
+  next.groups.push({ id: `canvas-group-${serial}`, name: position.name || 'New group', members: [], draft: true, x: coordinate(position.x), y: coordinate(position.y) })
+  return next
+}
+
+export function addDraftMembers(state, groupId, ids) {
+  const next = normalizeCanvas(state)
+  const group = next.groups.find(value => value.id === groupId && value.draft)
+  if (!group) return next
+  const added = unique(ids).filter(id => next.windows.some(window => window.id === id && window.kind === 'bot'))
+  next.groups.forEach(value => { if (value.id !== groupId) value.members = value.members.filter(id => !added.includes(id)) })
+  group.members = unique([...group.members, ...added])
+  return cleanReferences(next)
+}
+
+export function moveDraftGroup(state, id, dx, dy) {
+  const next = normalizeCanvas(state)
+  const group = next.groups.find(value => value.id === id && value.draft)
+  if (group) { group.x = coordinate(group.x + dx); group.y = coordinate(group.y + dy) }
+  return next
+}
+
 export function ungroupWindows(state, groupIdOrIds) {
   const next = normalizeCanvas(state)
   if (typeof groupIdOrIds === 'string') next.groups = next.groups.filter(group => group.id !== groupIdOrIds)
@@ -317,9 +343,14 @@ export function resizeWindow(state, id, dw, dh, bounds = {}) {
 export function fitViewport(state, viewportSize, padding = 40, ids) {
   const next = normalizeCanvas(state)
   let bounds = windowBounds(next, ids)
+  if (ids === undefined) for (const group of next.groups.filter(group => group.draft)) {
+    const x = Math.min(bounds?.x ?? group.x, group.x), y = Math.min(bounds?.y ?? group.y, group.y)
+    const right = Math.max(bounds?.right ?? group.x, group.x + 280), bottom = Math.max(bounds?.bottom ?? group.y, group.y + 180)
+    bounds = { x, y, right, bottom, width: right - x, height: bottom - y }
+  }
   const width = viewportSize?.width, height = viewportSize?.height
   if (!bounds || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return next
-  if (ids === undefined && next.groups.some(group => next.windows.some(window => window.open && group.members.includes(window.id)))) {
+  if (ids === undefined && next.groups.some(group => !group.draft && next.windows.some(window => window.open && group.members.includes(window.id)))) {
     bounds = { ...bounds, x: bounds.x - 16, y: bounds.y - 45, width: bounds.width + 32, height: bounds.height + 61 }
   }
   const insets = object(padding) ? padding : { left: padding, right: padding, top: padding, bottom: padding }

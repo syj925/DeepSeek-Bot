@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { createCanvasState, openWindow, setCanvasSelection, setWindowCompact } from '../src/client/canvas-state.js'
+import { createCanvasState, openWindow, setCanvasSelection, setWindowCompact, collapseWindow } from '../src/client/canvas-state.js'
 
 const { outputFiles } = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/canvas-workspace.js', import.meta.url))],
@@ -94,7 +94,7 @@ function fixture() {
   const work = { bots: {}, rooms: {}, approvals: [] }
   let state = openWindow(createCanvasState(), { kind: 'bot', id: 'writer' }, { x: 30, y: 70, width: 560, height: 640 })
   state = openWindow(state, { kind: 'room', id: 'planning' }, { x: 430, y: 70 })
-  const calls = { opened: [], selected: [], details: [], settings: [], menus: [], entities: [], newChats: [], exchanges: [], saved: 0, arranged: 0, compacted: 0 }
+  const calls = { opened: [], selected: [], details: [], settings: [], menus: [], entities: [], newChats: [], exchanges: [], created: [], added: [], saved: 0, arranged: 0, compacted: 0 }
   const captures = new Set()
   const root = {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 700 }),
@@ -103,6 +103,8 @@ function fixture() {
     releasePointerCapture: id => captures.delete(id),
   }
   const actions = {
+    createRoom: async (members, options) => { calls.created.push([Array.from(members), { ...options }]); return { id: 'created-room', members: Array.from(members), ...options } },
+    updateRoom: async (id, patch) => { calls.added.push([id, Array.from(patch.add)]); room.members = [...new Set([...room.members, ...patch.add])] },
     updateCanvas: next => { state = typeof next === 'function' ? next(state) : next },
     selectCanvasWindow: (id, selected = true, additive = false) => {
       calls.selected.push([id, selected, additive])
@@ -151,8 +153,135 @@ function fixture() {
     state = openWindow(state, { kind: 'bot', id: bot.id })
     return state.windows.find(value => value.entityId === bot.id)
   }
-  return { draw, cards, card, group, addBot, roster, room, work, calls, captures, actions, get state() { return state }, set state(value) { state = value } }
+  const modal = () => {
+    const node = find(draw(), value => value.type?.name === 'MainAgentGroup')
+    return node ? render.render(node.type, node.props, 'group-dialog') : null
+  }
+  return { draw, cards, card, group, addBot, modal, roster, room, work, calls, captures, actions, get state() { return state }, set state(value) { state = value } }
 }
+
+test('right-drag selects only Main Agents and a short right-click offers group actions', async () => {
+  const app = fixture()
+  app.addBot({ id: 'partner', name: 'Partner' }, false)
+  app.roster.mainBotIds.push('partner')
+  app.addBot({ id: 'child', name: 'Child', ownerId: 'writer' }, false)
+  let tree = app.draw(), stage = find(tree, value => value.type === 'main')
+  stage.props.onPointerDown(pointer({ button: 2, clientX: 0, clientY: 0 }))
+  tree.props.onPointerMove(pointer({ button: 2, clientX: 990, clientY: 500 }))
+  tree.props.onPointerUp(pointer({ button: 2, clientX: 990, clientY: 500, type: 'pointerup' }))
+  assert.deepEqual(Array.from(app.state.selected), Array.from(app.state.windows.filter(window => ['writer', 'partner'].includes(window.entityId)), window => window.id))
+  tree = app.draw()
+  assert.equal(find(tree, value => value.props.role === 'menu'), undefined)
+  const card = app.card(tree)
+  card.props.onContextMenu(pointer({ button: 2 }))
+  tree = app.draw()
+  const menu = find(tree, value => value.props.role === 'menu')
+  assert.ok(button(menu, 'New empty group'))
+  button(menu, 'Create Main Agent group').props.onClick()
+  assert.ok(app.modal())
+  assert.deepEqual(app.calls.created, [])
+  await button(app.modal(), 'Create group chat').props.onClick()
+  assert.deepEqual(app.calls.created[0][0], ['writer', 'partner'])
+})
+
+test('a short background right-click creates an empty, movable group without a backend Room', () => {
+  const app = fixture()
+  let tree = app.draw()
+  find(tree, value => value.type === 'main').props.onPointerDown(pointer({ button: 2, clientX: 600, clientY: 300 }))
+  tree.props.onPointerUp(pointer({ button: 2, type: 'pointerup' }))
+  let menu = find(app.draw(), value => value.props.role === 'menu')
+  button(menu, 'New empty group').props.onClick()
+  assert.equal(app.state.groups[0].draft, true)
+  assert.equal(app.state.groups[0].x, 600)
+  assert.equal(app.state.groups[0].y, 300)
+  assert.deepEqual(app.calls.created, [])
+  tree = app.draw()
+  const node = find(tree, value => value.props['data-group-id'])
+  const title = find(node, value => value.type?.name === 'GroupTitle')
+  title.props.start(pointer(), 'group', app.state.groups[0].id)
+  tree.props.onPointerMove(pointer({ clientX: 140, clientY: 150 }))
+  tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+  assert.equal(app.state.groups[0].x, 640)
+  assert.equal(app.state.groups[0].y, 350)
+})
+
+test('a draft stages one Main Agent, then creates a real group with a second even if the first icon is closed', async () => {
+  const app = fixture()
+  app.addBot({ id: 'partner', name: 'Partner' }, false)
+  app.roster.mainBotIds.push('partner')
+  button(app.draw(), 'New empty group').props.onClick()
+  const drop = id => {
+    const tree = app.draw()
+    button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
+    tree.props.onPointerMove(pointer({ clientX: 530, clientY: 400 }))
+    assert.equal(find(app.draw(), value => value.props['data-group-id']).props['data-drop-target'], true)
+    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+  }
+  const positions = Array.from(app.state.windows, ({ x, y }) => [x, y])
+  drop('writer')
+  await button(app.modal(), 'Add to group').props.onClick()
+  assert.equal(app.calls.created.length, 0)
+  assert.equal(app.state.groups[0].members.length, 1)
+  app.state = collapseWindow(app.state, 'writer')
+  drop('partner')
+  await button(app.modal(), 'Create group chat').props.onClick()
+  assert.deepEqual(app.calls.created[0][0], ['writer', 'partner'])
+  assert.equal(app.calls.created[0][1].mainOnly, true)
+  assert.equal(app.state.groups.length, 0)
+  assert.deepEqual(Array.from(app.state.windows, ({ x, y }) => [x, y]), positions)
+  assert.deepEqual(app.calls.entities, ['created-room'])
+})
+
+test('multi-selection can join an existing Main Agent group; cancellation restores every icon', async () => {
+  for (const cancelled of [true, false]) {
+    const app = fixture()
+    for (const id of ['partner', 'third']) { app.addBot({ id, name: id }, false); app.roster.mainBotIds.push(id) }
+    app.room.mainOnly = true
+    const ids = app.state.windows.filter(window => ['partner', 'third'].includes(window.entityId)).map(window => window.id)
+    app.state = setCanvasSelection(app.state, ids)
+    const positions = app.state.windows.map(({ x, y }) => [x, y])
+    const tree = app.draw()
+    button(app.card(tree, 'partner'), 'Open conversation').props.onPointerDown(pointer())
+    tree.props.onPointerMove(pointer({ clientX: 500, clientY: 140 }))
+    assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], true)
+    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+    assert.deepEqual(Array.from(app.state.windows, ({ x, y }) => [x, y]), positions)
+    const modal = app.modal()
+    await button(modal, cancelled ? 'Cancel' : 'Add to group').props.onClick()
+    assert.deepEqual(app.calls.added, cancelled ? [] : [['planning', ['partner', 'third']]])
+    assert.deepEqual(app.room.members, cancelled ? ['writer'] : ['writer', 'partner', 'third'])
+    assert.deepEqual(app.calls.created, [])
+  }
+})
+
+test('already-present members and failed invitations leave the group unchanged and allow retry', async () => {
+  const app = fixture()
+  app.room.mainOnly = true
+  const invite = id => {
+    const tree = app.draw()
+    button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
+    tree.props.onPointerMove(pointer({ clientX: 500, clientY: 140 }))
+    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+  }
+  invite('writer')
+  let modal = app.modal()
+  assert.equal(button(modal, 'Add to group').props.disabled, true)
+  await button(modal, 'Add to group').props.onClick()
+  assert.deepEqual(app.calls.added, [])
+  button(modal, 'Cancel').props.onClick()
+  app.addBot({ id: 'partner', name: 'Partner' }, false)
+  app.roster.mainBotIds.push('partner')
+  const original = app.actions.updateRoom
+  app.actions.updateRoom = async () => { throw new Error('Offline') }
+  invite('partner')
+  await button(app.modal(), 'Add to group').props.onClick()
+  modal = app.modal()
+  assert.match(textOf(modal), /Offline/)
+  assert.deepEqual(app.room.members, ['writer'])
+  app.actions.updateRoom = original
+  await button(app.modal(), 'Add to group').props.onClick()
+  assert.deepEqual(app.calls.added, [['planning', ['partner']]])
+})
 
 test('employee avatars and Room cards keep management reachable without mounting conversation content', () => {
   const data = fixture(), tree = data.draw(), cards = data.cards(tree)

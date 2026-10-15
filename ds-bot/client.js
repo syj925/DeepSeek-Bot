@@ -42,6 +42,19 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "New group": "新群组",
+  "New empty group": "新建空白群组",
+  "Remove empty group": "移除待建群组",
+  "Add Main Agents to group": "邀请主 Agent 加入群组",
+  "Add to empty group": "加入待建群组",
+  "Add to group": "加入群组",
+  "Add another Main Agent to start a group conversation.": "再加入一名主 Agent，即可创建群聊。",
+  "These Main Agents are already in this group.": "所选主 Agent 已在该群组中。",
+  "Select available Main Agents to continue.": "请选择有效的主 Agent 后继续。",
+  "Drag Main Agents here": "将主 Agent 拖到这里",
+  "Canvas actions": "画布操作",
+  "Clear selection": "取消选择",
+  "Drag to pan · Right-drag to select Main Agents · Drop into a group": "拖动空白处平移 · 右键拖动框选主 Agent · 拖入群组加入",
   "Create Main Agent group": "创建主 Agent 协作群",
   "A new group conversation. Each Main Agent keeps its own children, chats and running tasks.": "新建独立群聊，各主 Agent 的子 Agent、原有会话和运行任务保持不变。",
   "Both members must still be Main Agents.": "成员已变更，请重新选择两个主 Agent。",
@@ -5151,6 +5164,369 @@ body[data-ds-dark-theme] .bt-canvas-frame>.bt-floating-team{border-color:rgba(25
 }
 `;
 
+// src/client/canvas-state.js
+var CANVAS_STORAGE_KEY = "ds-bot:canvas";
+var CANVAS_LIMITS = Object.freeze({
+  coordinate: 1e6,
+  minWidth: 300,
+  minHeight: 280,
+  compactWidth: 320,
+  compactHeight: 200,
+  avatarWidth: 120,
+  avatarHeight: 112,
+  maxSize: 1600,
+  minZoom: 0.2,
+  maxZoom: 2
+});
+var DEFAULT_CANVAS = Object.freeze({
+  version: 1,
+  windows: Object.freeze([]),
+  groups: Object.freeze([]),
+  viewport: Object.freeze({ x: 0, y: 0, zoom: 1 }),
+  selected: Object.freeze([]),
+  active: null
+});
+var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+var idOf = (value) => typeof value === "string" && value.trim() !== "" && value.length <= 512 ? value : null;
+var finite = (value, fallback) => Number.isFinite(value) ? value : fallback;
+var clamp = (value, min, max, fallback) => Math.min(max, Math.max(min, finite(value, fallback)));
+var coordinate = (value) => clamp(value, -CANVAS_LIMITS.coordinate, CANVAS_LIMITS.coordinate, 0);
+var unique = (values) => [...new Set(values)];
+var defaultStorage = () => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return void 0;
+  }
+};
+var windowId = (kind, entityId) => `canvas-${kind}-${entityId}`;
+var matching = (window2, id) => window2.id === id || window2.entityId === id;
+function dimensions(value) {
+  return {
+    width: clamp(value.width, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 420),
+    height: clamp(value.height, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 540)
+  };
+}
+function normalizeWindow(value, index) {
+  if (!object(value) || !["bot", "room"].includes(value.kind) || !idOf(value.entityId)) return null;
+  const compact2 = value.compact === true;
+  return {
+    id: idOf(value.id) ?? windowId(value.kind, value.entityId),
+    kind: value.kind,
+    entityId: value.entityId,
+    x: coordinate(value.x),
+    y: coordinate(value.y),
+    ...dimensions(value),
+    z: clamp(value.z, 0, CANVAS_LIMITS.coordinate, index + 1),
+    open: value.open !== false,
+    compact: compact2
+  };
+}
+function cleanReferences(state) {
+  const all = new Set(state.windows.map((window2) => window2.id));
+  const open = new Set(state.windows.filter((window2) => window2.open).map((window2) => window2.id));
+  const claimed = /* @__PURE__ */ new Set(), groups = [], groupIds = /* @__PURE__ */ new Set();
+  for (const value of state.groups) {
+    if (!object(value) || !idOf(value.id) || groupIds.has(value.id) || !Array.isArray(value.members)) continue;
+    const members = unique(value.members).filter((id) => all.has(id) && !claimed.has(id));
+    if (members.length < 2 && value.draft !== true) continue;
+    groups.push({
+      id: value.id,
+      name: typeof value.name === "string" ? value.name.trim().slice(0, 100) || "Window group" : "Window group",
+      members,
+      ...value.draft === true ? { draft: true, x: coordinate(value.x), y: coordinate(value.y) } : {}
+    });
+    groupIds.add(value.id);
+    members.forEach((id) => claimed.add(id));
+  }
+  state.groups = groups;
+  state.selected = unique(state.selected).filter((id) => open.has(id));
+  if (!open.has(state.active)) {
+    state.active = state.selected.at(-1) ?? state.windows.filter((window2) => window2.open).sort((a, b) => b.z - a.z)[0]?.id ?? null;
+  }
+  return state;
+}
+function entityIds(roster, kind) {
+  const rows = kind === "bot" ? roster.bots : roster.rooms;
+  const index = kind === "bot" ? roster.byId : roster.roomsById;
+  return new Set((Array.isArray(rows) ? rows : Object.values(object(index) ? index : {})).map((row) => row?.id).filter(idOf));
+}
+function createCanvasState(seed = {}) {
+  return normalizeCanvas({ ...seed, version: 1 });
+}
+function normalizeCanvas(saved, options = {}) {
+  const value = object(saved) && saved.version === 1 ? saved : DEFAULT_CANVAS;
+  const ids = /* @__PURE__ */ new Set(), entities = /* @__PURE__ */ new Set(), windows = [];
+  for (const [index, entry] of (Array.isArray(value.windows) ? value.windows : []).entries()) {
+    const window2 = normalizeWindow(entry, index);
+    if (!window2) continue;
+    const entity = `${window2.kind}:${window2.entityId}`;
+    if (ids.has(window2.id) || entities.has(entity)) continue;
+    ids.add(window2.id);
+    entities.add(entity);
+    windows.push(window2);
+  }
+  const viewport = object(value.viewport) ? value.viewport : {};
+  const state = {
+    version: 1,
+    windows,
+    groups: Array.isArray(value.groups) ? value.groups : [],
+    viewport: { x: coordinate(viewport.x), y: coordinate(viewport.y), zoom: clamp(viewport.zoom, CANVAS_LIMITS.minZoom, CANVAS_LIMITS.maxZoom, 1) },
+    selected: Array.isArray(value.selected) ? value.selected : [],
+    active: idOf(value.active)
+  };
+  const { roster } = options;
+  if (object(roster) && (options.rosterReady ?? options.ready ?? roster.ready) === true) {
+    const bots = entityIds(roster, "bot"), rooms = entityIds(roster, "room");
+    state.windows = windows.filter((window2) => (window2.kind === "bot" ? bots : rooms).has(window2.entityId));
+  }
+  return cleanReferences(state);
+}
+function readCanvas(storage = defaultStorage(), options = {}) {
+  try {
+    return compactConversations(normalizeCanvas(JSON.parse(storage?.getItem(CANVAS_STORAGE_KEY) ?? "null"), options));
+  } catch {
+    return createCanvasState();
+  }
+}
+function writeCanvas(storage, state) {
+  try {
+    const target = storage ?? defaultStorage();
+    if (typeof target?.setItem !== "function") return false;
+    target.setItem(CANVAS_STORAGE_KEY, JSON.stringify(normalizeCanvas(state)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+function reconcileCanvas(state, roster, options = {}) {
+  return normalizeCanvas(state, { ...options, roster });
+}
+function bringForward(state, window2) {
+  let max = Math.max(0, ...state.windows.map((item) => item.z));
+  if (max >= CANVAS_LIMITS.coordinate) {
+    [...state.windows].sort((a, b) => a.z - b.z).forEach((item, index) => {
+      item.z = index + 1;
+    });
+    max = state.windows.length;
+  }
+  window2.z = max + 1;
+  state.active = window2.id;
+}
+function nextWindowPosition(state, window2) {
+  const gap = 32;
+  const origin = { x: (40 - state.viewport.x) / state.viewport.zoom, y: (100 - state.viewport.y) / state.viewport.zoom };
+  const width = windowWidth(window2), height = windowHeight(window2);
+  const right = origin.x + Math.max(width, CANVAS_LIMITS.compactWidth * 3 + gap * 2);
+  const occupied = state.windows.filter((item) => item.open).map((item) => ({
+    x: item.x,
+    y: item.y,
+    right: item.x + windowWidth(item),
+    bottom: item.y + windowHeight(item)
+  }));
+  const rows = unique([origin.y, ...occupied.map((item) => item.bottom + gap).filter((y) => y >= origin.y)]).sort((a, b) => a - b);
+  for (const y of rows) {
+    let x = origin.x;
+    while (x + width <= right) {
+      const collision = occupied.find((item) => x < item.right + gap && x + width + gap > item.x && y < item.bottom + gap && y + height + gap > item.y);
+      if (!collision) return { x, y };
+      x = collision.right + gap;
+    }
+  }
+  return origin;
+}
+function openWindow(state, entity, options = {}) {
+  const next = normalizeCanvas(state);
+  const kind = entity?.kind ?? options.kind ?? "bot";
+  const entityId = idOf(entity?.entityId ?? entity?.id);
+  if (!entityId || !["bot", "room"].includes(kind)) return next;
+  let window2 = next.windows.find((item) => item.kind === kind && item.entityId === entityId);
+  if (!window2) {
+    const compact2 = options.compact !== false;
+    const baseId = windowId(kind, entityId);
+    let id = baseId, serial = 1;
+    while (next.windows.some((item) => item.id === id)) id = `${baseId}-${serial++}`;
+    window2 = normalizeWindow({
+      id,
+      kind,
+      entityId,
+      width: options.width,
+      height: options.height,
+      compact: compact2
+    }, next.windows.length);
+    const position = nextWindowPosition(next, window2);
+    window2.x = coordinate(finite(options.x, position.x));
+    window2.y = coordinate(finite(options.y, position.y));
+    next.windows.push(window2);
+  }
+  window2.open = true;
+  window2.compact = options.compact !== false;
+  Object.assign(window2, dimensions(window2));
+  bringForward(next, window2);
+  next.selected = [window2.id];
+  return next;
+}
+function collapseWindow(state, id) {
+  const next = normalizeCanvas(state);
+  const window2 = next.windows.find((item) => matching(item, id));
+  if (window2) window2.open = false;
+  return cleanReferences(next);
+}
+function setWindowCompact(state, id, compact2) {
+  const next = normalizeCanvas(state);
+  const window2 = next.windows.find((item) => matching(item, id));
+  if (window2) {
+    window2.compact = compact2 === true;
+    Object.assign(window2, dimensions(window2));
+  }
+  return next;
+}
+function compactConversations(state) {
+  const next = normalizeCanvas(state);
+  next.windows.forEach((window2) => {
+    window2.compact = true;
+  });
+  return next;
+}
+function arrangeCards(state) {
+  const next = compactConversations(state);
+  const remaining = new Set(next.windows.filter((window2) => window2.open).map((window2) => window2.id));
+  const blocks = next.groups.map((group) => group.members.filter((id) => remaining.has(id))).filter((ids) => ids.length);
+  blocks.flat().forEach((id) => remaining.delete(id));
+  if (remaining.size) blocks.push([...remaining]);
+  let y = 115;
+  for (const ids of blocks) {
+    for (let index = 0; index < ids.length; index += 3) {
+      const row = ids.slice(index, index + 3).map((id) => next.windows.find((window2) => window2.id === id));
+      let x = 42;
+      for (const window2 of row) {
+        window2.x = x;
+        window2.y = y;
+        x += windowWidth(window2) + 32;
+      }
+      y += Math.max(...row.map(windowHeight)) + 32;
+    }
+    y += 48;
+  }
+  return next;
+}
+var windowWidth = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarWidth : CANVAS_LIMITS.compactWidth : window2.width;
+var windowHeight = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarHeight : CANVAS_LIMITS.compactHeight : window2.height;
+function windowBounds(state, ids) {
+  const wanted = ids === void 0 ? null : new Set(ids);
+  const windows = state.windows.filter((window2) => window2.open && (wanted === null || wanted.has(window2.id)));
+  if (!windows.length) return null;
+  const x = Math.min(...windows.map((window2) => window2.x)), y = Math.min(...windows.map((window2) => window2.y));
+  const right = Math.max(...windows.map((window2) => window2.x + windowWidth(window2))), bottom = Math.max(...windows.map((window2) => window2.y + windowHeight(window2)));
+  return { x, y, width: right - x, height: bottom - y, right, bottom };
+}
+function setCanvasSelection(state, ids, active) {
+  const next = normalizeCanvas(state);
+  next.selected = Array.isArray(ids) ? ids : [];
+  if (active !== void 0) next.active = active;
+  const window2 = next.windows.find((item) => item.id === next.active && item.open);
+  if (window2) bringForward(next, window2);
+  return cleanReferences(next);
+}
+function setCanvasViewport(state, viewport) {
+  const next = normalizeCanvas(state);
+  return normalizeCanvas({ ...next, viewport: { ...next.viewport, ...viewport } });
+}
+function groupWindows(state, ids = state.selected, options = {}) {
+  const next = normalizeCanvas(state);
+  const members = unique(Array.isArray(ids) ? ids : []).filter((id2) => next.windows.some((window2) => window2.id === id2));
+  if (members.length < 2) return next;
+  const used = new Set(next.groups.map((group) => group.id));
+  let serial = 1;
+  while (used.has(`canvas-group-${serial}`)) serial += 1;
+  const id = idOf(options.id) ?? `canvas-group-${serial}`;
+  next.groups = next.groups.filter((group) => group.id !== id).map((group) => ({ ...group, members: group.members.filter((member) => !members.includes(member)) }));
+  next.groups.push({ id, name: options.name ?? "Window group", members });
+  return cleanReferences(next);
+}
+function createEmptyGroup(state, position = {}) {
+  const next = normalizeCanvas(state);
+  let serial = 1;
+  while (next.groups.some((group) => group.id === `canvas-group-${serial}`)) serial++;
+  next.groups.push({ id: `canvas-group-${serial}`, name: position.name || "New group", members: [], draft: true, x: coordinate(position.x), y: coordinate(position.y) });
+  return next;
+}
+function addDraftMembers(state, groupId, ids) {
+  const next = normalizeCanvas(state);
+  const group = next.groups.find((value) => value.id === groupId && value.draft);
+  if (!group) return next;
+  const added = unique(ids).filter((id) => next.windows.some((window2) => window2.id === id && window2.kind === "bot"));
+  next.groups.forEach((value) => {
+    if (value.id !== groupId) value.members = value.members.filter((id) => !added.includes(id));
+  });
+  group.members = unique([...group.members, ...added]);
+  return cleanReferences(next);
+}
+function moveDraftGroup(state, id, dx, dy) {
+  const next = normalizeCanvas(state);
+  const group = next.groups.find((value) => value.id === id && value.draft);
+  if (group) {
+    group.x = coordinate(group.x + dx);
+    group.y = coordinate(group.y + dy);
+  }
+  return next;
+}
+function ungroupWindows(state, groupIdOrIds) {
+  const next = normalizeCanvas(state);
+  if (typeof groupIdOrIds === "string") next.groups = next.groups.filter((group) => group.id !== groupIdOrIds);
+  else {
+    const ids = new Set(Array.isArray(groupIdOrIds) ? groupIdOrIds : next.selected);
+    next.groups = next.groups.filter((group) => !group.members.some((id) => ids.has(id)));
+  }
+  return next;
+}
+function moveBounds(value, min, max) {
+  const lower = coordinate(finite(min, -CANVAS_LIMITS.coordinate));
+  const upper = Math.max(lower, coordinate(finite(max, CANVAS_LIMITS.coordinate)));
+  return clamp(value, lower, upper, 0);
+}
+function moveWindow(state, id, dx, dy, bounds = {}) {
+  const next = normalizeCanvas(state);
+  const ids = new Set(Array.isArray(id) ? id : [id]);
+  next.windows.forEach((window2) => {
+    if (!ids.has(window2.id) && !ids.has(window2.entityId)) return;
+    window2.x = moveBounds(window2.x + finite(dx, 0), bounds.minX, bounds.maxX);
+    window2.y = moveBounds(window2.y + finite(dy, 0), bounds.minY, bounds.maxY);
+  });
+  return next;
+}
+function resizeWindow(state, id, dw, dh, bounds = {}) {
+  const next = normalizeCanvas(state);
+  const window2 = next.windows.find((item) => matching(item, id));
+  if (!window2) return next;
+  const minWidth = clamp(bounds.minWidth, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 0);
+  const minHeight = clamp(bounds.minHeight, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 0);
+  window2.width = clamp(window2.width + finite(dw, 0), minWidth, clamp(bounds.maxWidth, minWidth, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.width);
+  window2.height = clamp(window2.height + finite(dh, 0), minHeight, clamp(bounds.maxHeight, minHeight, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.height);
+  return next;
+}
+function fitViewport(state, viewportSize, padding = 40, ids) {
+  const next = normalizeCanvas(state);
+  let bounds = windowBounds(next, ids);
+  if (ids === void 0) for (const group of next.groups.filter((group2) => group2.draft)) {
+    const x = Math.min(bounds?.x ?? group.x, group.x), y = Math.min(bounds?.y ?? group.y, group.y);
+    const right2 = Math.max(bounds?.right ?? group.x, group.x + 280), bottom2 = Math.max(bounds?.bottom ?? group.y, group.y + 180);
+    bounds = { x, y, right: right2, bottom: bottom2, width: right2 - x, height: bottom2 - y };
+  }
+  const width = viewportSize?.width, height = viewportSize?.height;
+  if (!bounds || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return next;
+  if (ids === void 0 && next.groups.some((group) => !group.draft && next.windows.some((window2) => window2.open && group.members.includes(window2.id)))) {
+    bounds = { ...bounds, x: bounds.x - 16, y: bounds.y - 45, width: bounds.width + 32, height: bounds.height + 61 };
+  }
+  const insets = object(padding) ? padding : { left: padding, right: padding, top: padding, bottom: padding };
+  const left = clamp(insets.left, 0, width / 2 - 1, 24), right = clamp(insets.right, 0, width / 2 - 1, 24);
+  const top = clamp(insets.top, 0, height - 2, 80), bottom = clamp(insets.bottom, 0, height - top - 1, 80);
+  const availableWidth = width - left - right, availableHeight = height - top - bottom;
+  const zoom = clamp(Math.min(availableWidth / bounds.width, availableHeight / bounds.height), CANVAS_LIMITS.minZoom, 1, 1);
+  next.viewport = { x: coordinate(left + (availableWidth - bounds.width * zoom) / 2 - bounds.x * zoom), y: coordinate(top + (availableHeight - bounds.height * zoom) / 2 - bounds.y * zoom), zoom };
+  return next;
+}
+
 // src/client/canvas-collaboration.js
 var MAIN_AGENT_DRAG = "application/x-qibitai-main-agent";
 function overlapMain(state, roster, sourceId, excluded = []) {
@@ -5161,6 +5537,20 @@ function overlapMain(state, roster, sourceId, excluded = []) {
 }
 function canvasDropPoint(state, box, clientX, clientY) {
   return { x: (clientX - box.left - state.viewport.x) / state.viewport.zoom - 60, y: (clientY - box.top - state.viewport.y) / state.viewport.zoom - 40 };
+}
+function selectedMains(state, roster, ids, includeClosed = false) {
+  return [...new Set(state.windows.filter((window2) => (window2.open || includeClosed) && window2.kind === "bot" && ids.includes(window2.id) && roster.byId[window2.entityId] && isMainOf(roster, window2.entityId)).map((window2) => window2.entityId))];
+}
+function groupDropTarget(state, roster, ids, point) {
+  if (!ids.length || selectedMains(state, roster, ids).length !== ids.length) return null;
+  const inside = (box) => point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height;
+  const room2 = state.windows.filter((window2) => window2.open && window2.kind === "room" && !ids.includes(window2.id)).sort((a, b) => b.z - a.z).find((window2) => roster.roomsById[window2.entityId]?.mainOnly === true && inside({ ...window2, width: windowWidth(window2), height: windowHeight(window2) }));
+  if (room2) return { kind: "room", id: room2.entityId, windowId: room2.id };
+  const draft = [...state.groups].reverse().find((group) => group.draft && inside({ ...group, width: 280, height: 180 }));
+  return draft ? { kind: "draft", id: draft.id } : null;
+}
+function marqueeWindows(state, roster, rect, mainOnly = false) {
+  return state.windows.filter((window2) => window2.open && (!mainOnly || window2.kind === "bot" && roster.byId[window2.entityId] && isMainOf(roster, window2.entityId)) && window2.x < rect.x + rect.width && window2.x + windowWidth(window2) > rect.x && window2.y < rect.y + rect.height && window2.y + windowHeight(window2) > rect.y).map((window2) => window2.id);
 }
 
 // src/client/sidebar.js
@@ -14330,343 +14720,21 @@ var WALLPAPER_CSS = `
 @media (forced-colors:active){.bt-wallpaper-menu{background:Canvas;color:CanvasText;border-color:CanvasText}.bt-wallpaper-menu :is(p,small,.bt-wallpaper-error,.bt-wallpaper-feedback){color:CanvasText}.bt-wallpaper-menu button,.bt-wallpaper-menu .bt-wallpaper-choose{background:ButtonFace;color:ButtonText;border-color:ButtonText}}
 `;
 
-// src/client/canvas-state.js
-var CANVAS_STORAGE_KEY = "ds-bot:canvas";
-var CANVAS_LIMITS = Object.freeze({
-  coordinate: 1e6,
-  minWidth: 300,
-  minHeight: 280,
-  compactWidth: 320,
-  compactHeight: 200,
-  avatarWidth: 120,
-  avatarHeight: 112,
-  maxSize: 1600,
-  minZoom: 0.2,
-  maxZoom: 2
-});
-var DEFAULT_CANVAS = Object.freeze({
-  version: 1,
-  windows: Object.freeze([]),
-  groups: Object.freeze([]),
-  viewport: Object.freeze({ x: 0, y: 0, zoom: 1 }),
-  selected: Object.freeze([]),
-  active: null
-});
-var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-var idOf = (value) => typeof value === "string" && value.trim() !== "" && value.length <= 512 ? value : null;
-var finite = (value, fallback) => Number.isFinite(value) ? value : fallback;
-var clamp = (value, min, max, fallback) => Math.min(max, Math.max(min, finite(value, fallback)));
-var coordinate = (value) => clamp(value, -CANVAS_LIMITS.coordinate, CANVAS_LIMITS.coordinate, 0);
-var unique = (values) => [...new Set(values)];
-var defaultStorage = () => {
-  try {
-    return globalThis.localStorage;
-  } catch {
-    return void 0;
-  }
-};
-var windowId = (kind, entityId) => `canvas-${kind}-${entityId}`;
-var matching = (window2, id) => window2.id === id || window2.entityId === id;
-function dimensions(value) {
-  return {
-    width: clamp(value.width, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 420),
-    height: clamp(value.height, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 540)
-  };
-}
-function normalizeWindow(value, index) {
-  if (!object(value) || !["bot", "room"].includes(value.kind) || !idOf(value.entityId)) return null;
-  const compact2 = value.compact === true;
-  return {
-    id: idOf(value.id) ?? windowId(value.kind, value.entityId),
-    kind: value.kind,
-    entityId: value.entityId,
-    x: coordinate(value.x),
-    y: coordinate(value.y),
-    ...dimensions(value),
-    z: clamp(value.z, 0, CANVAS_LIMITS.coordinate, index + 1),
-    open: value.open !== false,
-    compact: compact2
-  };
-}
-function cleanReferences(state) {
-  const all = new Set(state.windows.map((window2) => window2.id));
-  const open = new Set(state.windows.filter((window2) => window2.open).map((window2) => window2.id));
-  const claimed = /* @__PURE__ */ new Set(), groups = [], groupIds = /* @__PURE__ */ new Set();
-  for (const value of state.groups) {
-    if (!object(value) || !idOf(value.id) || groupIds.has(value.id) || !Array.isArray(value.members)) continue;
-    const members = unique(value.members).filter((id) => all.has(id) && !claimed.has(id));
-    if (members.length < 2) continue;
-    groups.push({ id: value.id, name: typeof value.name === "string" ? value.name.trim().slice(0, 100) || "Window group" : "Window group", members });
-    groupIds.add(value.id);
-    members.forEach((id) => claimed.add(id));
-  }
-  state.groups = groups;
-  state.selected = unique(state.selected).filter((id) => open.has(id));
-  if (!open.has(state.active)) {
-    state.active = state.selected.at(-1) ?? state.windows.filter((window2) => window2.open).sort((a, b) => b.z - a.z)[0]?.id ?? null;
-  }
-  return state;
-}
-function entityIds(roster, kind) {
-  const rows = kind === "bot" ? roster.bots : roster.rooms;
-  const index = kind === "bot" ? roster.byId : roster.roomsById;
-  return new Set((Array.isArray(rows) ? rows : Object.values(object(index) ? index : {})).map((row) => row?.id).filter(idOf));
-}
-function createCanvasState(seed = {}) {
-  return normalizeCanvas({ ...seed, version: 1 });
-}
-function normalizeCanvas(saved, options = {}) {
-  const value = object(saved) && saved.version === 1 ? saved : DEFAULT_CANVAS;
-  const ids = /* @__PURE__ */ new Set(), entities = /* @__PURE__ */ new Set(), windows = [];
-  for (const [index, entry] of (Array.isArray(value.windows) ? value.windows : []).entries()) {
-    const window2 = normalizeWindow(entry, index);
-    if (!window2) continue;
-    const entity = `${window2.kind}:${window2.entityId}`;
-    if (ids.has(window2.id) || entities.has(entity)) continue;
-    ids.add(window2.id);
-    entities.add(entity);
-    windows.push(window2);
-  }
-  const viewport = object(value.viewport) ? value.viewport : {};
-  const state = {
-    version: 1,
-    windows,
-    groups: Array.isArray(value.groups) ? value.groups : [],
-    viewport: { x: coordinate(viewport.x), y: coordinate(viewport.y), zoom: clamp(viewport.zoom, CANVAS_LIMITS.minZoom, CANVAS_LIMITS.maxZoom, 1) },
-    selected: Array.isArray(value.selected) ? value.selected : [],
-    active: idOf(value.active)
-  };
-  const { roster } = options;
-  if (object(roster) && (options.rosterReady ?? options.ready ?? roster.ready) === true) {
-    const bots = entityIds(roster, "bot"), rooms = entityIds(roster, "room");
-    state.windows = windows.filter((window2) => (window2.kind === "bot" ? bots : rooms).has(window2.entityId));
-  }
-  return cleanReferences(state);
-}
-function readCanvas(storage = defaultStorage(), options = {}) {
-  try {
-    return compactConversations(normalizeCanvas(JSON.parse(storage?.getItem(CANVAS_STORAGE_KEY) ?? "null"), options));
-  } catch {
-    return createCanvasState();
-  }
-}
-function writeCanvas(storage, state) {
-  try {
-    const target = storage ?? defaultStorage();
-    if (typeof target?.setItem !== "function") return false;
-    target.setItem(CANVAS_STORAGE_KEY, JSON.stringify(normalizeCanvas(state)));
-    return true;
-  } catch {
-    return false;
-  }
-}
-function reconcileCanvas(state, roster, options = {}) {
-  return normalizeCanvas(state, { ...options, roster });
-}
-function bringForward(state, window2) {
-  let max = Math.max(0, ...state.windows.map((item) => item.z));
-  if (max >= CANVAS_LIMITS.coordinate) {
-    [...state.windows].sort((a, b) => a.z - b.z).forEach((item, index) => {
-      item.z = index + 1;
-    });
-    max = state.windows.length;
-  }
-  window2.z = max + 1;
-  state.active = window2.id;
-}
-function nextWindowPosition(state, window2) {
-  const gap = 32;
-  const origin = { x: (40 - state.viewport.x) / state.viewport.zoom, y: (100 - state.viewport.y) / state.viewport.zoom };
-  const width = windowWidth(window2), height = windowHeight(window2);
-  const right = origin.x + Math.max(width, CANVAS_LIMITS.compactWidth * 3 + gap * 2);
-  const occupied = state.windows.filter((item) => item.open).map((item) => ({
-    x: item.x,
-    y: item.y,
-    right: item.x + windowWidth(item),
-    bottom: item.y + windowHeight(item)
-  }));
-  const rows = unique([origin.y, ...occupied.map((item) => item.bottom + gap).filter((y) => y >= origin.y)]).sort((a, b) => a - b);
-  for (const y of rows) {
-    let x = origin.x;
-    while (x + width <= right) {
-      const collision = occupied.find((item) => x < item.right + gap && x + width + gap > item.x && y < item.bottom + gap && y + height + gap > item.y);
-      if (!collision) return { x, y };
-      x = collision.right + gap;
-    }
-  }
-  return origin;
-}
-function openWindow(state, entity, options = {}) {
-  const next = normalizeCanvas(state);
-  const kind = entity?.kind ?? options.kind ?? "bot";
-  const entityId = idOf(entity?.entityId ?? entity?.id);
-  if (!entityId || !["bot", "room"].includes(kind)) return next;
-  let window2 = next.windows.find((item) => item.kind === kind && item.entityId === entityId);
-  if (!window2) {
-    const compact2 = options.compact !== false;
-    const baseId = windowId(kind, entityId);
-    let id = baseId, serial = 1;
-    while (next.windows.some((item) => item.id === id)) id = `${baseId}-${serial++}`;
-    window2 = normalizeWindow({
-      id,
-      kind,
-      entityId,
-      width: options.width,
-      height: options.height,
-      compact: compact2
-    }, next.windows.length);
-    const position = nextWindowPosition(next, window2);
-    window2.x = coordinate(finite(options.x, position.x));
-    window2.y = coordinate(finite(options.y, position.y));
-    next.windows.push(window2);
-  }
-  window2.open = true;
-  window2.compact = options.compact !== false;
-  Object.assign(window2, dimensions(window2));
-  bringForward(next, window2);
-  next.selected = [window2.id];
-  return next;
-}
-function collapseWindow(state, id) {
-  const next = normalizeCanvas(state);
-  const window2 = next.windows.find((item) => matching(item, id));
-  if (window2) window2.open = false;
-  return cleanReferences(next);
-}
-function setWindowCompact(state, id, compact2) {
-  const next = normalizeCanvas(state);
-  const window2 = next.windows.find((item) => matching(item, id));
-  if (window2) {
-    window2.compact = compact2 === true;
-    Object.assign(window2, dimensions(window2));
-  }
-  return next;
-}
-function compactConversations(state) {
-  const next = normalizeCanvas(state);
-  next.windows.forEach((window2) => {
-    window2.compact = true;
-  });
-  return next;
-}
-function arrangeCards(state) {
-  const next = compactConversations(state);
-  const remaining = new Set(next.windows.filter((window2) => window2.open).map((window2) => window2.id));
-  const blocks = next.groups.map((group) => group.members.filter((id) => remaining.has(id))).filter((ids) => ids.length);
-  blocks.flat().forEach((id) => remaining.delete(id));
-  if (remaining.size) blocks.push([...remaining]);
-  let y = 115;
-  for (const ids of blocks) {
-    for (let index = 0; index < ids.length; index += 3) {
-      const row = ids.slice(index, index + 3).map((id) => next.windows.find((window2) => window2.id === id));
-      let x = 42;
-      for (const window2 of row) {
-        window2.x = x;
-        window2.y = y;
-        x += windowWidth(window2) + 32;
-      }
-      y += Math.max(...row.map(windowHeight)) + 32;
-    }
-    y += 48;
-  }
-  return next;
-}
-var windowWidth = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarWidth : CANVAS_LIMITS.compactWidth : window2.width;
-var windowHeight = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarHeight : CANVAS_LIMITS.compactHeight : window2.height;
-function windowBounds(state, ids) {
-  const wanted = ids === void 0 ? null : new Set(ids);
-  const windows = state.windows.filter((window2) => window2.open && (wanted === null || wanted.has(window2.id)));
-  if (!windows.length) return null;
-  const x = Math.min(...windows.map((window2) => window2.x)), y = Math.min(...windows.map((window2) => window2.y));
-  const right = Math.max(...windows.map((window2) => window2.x + windowWidth(window2))), bottom = Math.max(...windows.map((window2) => window2.y + windowHeight(window2)));
-  return { x, y, width: right - x, height: bottom - y, right, bottom };
-}
-function setCanvasSelection(state, ids, active) {
-  const next = normalizeCanvas(state);
-  next.selected = Array.isArray(ids) ? ids : [];
-  if (active !== void 0) next.active = active;
-  const window2 = next.windows.find((item) => item.id === next.active && item.open);
-  if (window2) bringForward(next, window2);
-  return cleanReferences(next);
-}
-function setCanvasViewport(state, viewport) {
-  const next = normalizeCanvas(state);
-  return normalizeCanvas({ ...next, viewport: { ...next.viewport, ...viewport } });
-}
-function groupWindows(state, ids = state.selected, options = {}) {
-  const next = normalizeCanvas(state);
-  const members = unique(Array.isArray(ids) ? ids : []).filter((id2) => next.windows.some((window2) => window2.id === id2));
-  if (members.length < 2) return next;
-  const used = new Set(next.groups.map((group) => group.id));
-  let serial = 1;
-  while (used.has(`canvas-group-${serial}`)) serial += 1;
-  const id = idOf(options.id) ?? `canvas-group-${serial}`;
-  next.groups = next.groups.filter((group) => group.id !== id).map((group) => ({ ...group, members: group.members.filter((member) => !members.includes(member)) }));
-  next.groups.push({ id, name: options.name ?? "Window group", members });
-  return cleanReferences(next);
-}
-function ungroupWindows(state, groupIdOrIds) {
-  const next = normalizeCanvas(state);
-  if (typeof groupIdOrIds === "string") next.groups = next.groups.filter((group) => group.id !== groupIdOrIds);
-  else {
-    const ids = new Set(Array.isArray(groupIdOrIds) ? groupIdOrIds : next.selected);
-    next.groups = next.groups.filter((group) => !group.members.some((id) => ids.has(id)));
-  }
-  return next;
-}
-function moveBounds(value, min, max) {
-  const lower = coordinate(finite(min, -CANVAS_LIMITS.coordinate));
-  const upper = Math.max(lower, coordinate(finite(max, CANVAS_LIMITS.coordinate)));
-  return clamp(value, lower, upper, 0);
-}
-function moveWindow(state, id, dx, dy, bounds = {}) {
-  const next = normalizeCanvas(state);
-  const ids = new Set(Array.isArray(id) ? id : [id]);
-  next.windows.forEach((window2) => {
-    if (!ids.has(window2.id) && !ids.has(window2.entityId)) return;
-    window2.x = moveBounds(window2.x + finite(dx, 0), bounds.minX, bounds.maxX);
-    window2.y = moveBounds(window2.y + finite(dy, 0), bounds.minY, bounds.maxY);
-  });
-  return next;
-}
-function resizeWindow(state, id, dw, dh, bounds = {}) {
-  const next = normalizeCanvas(state);
-  const window2 = next.windows.find((item) => matching(item, id));
-  if (!window2) return next;
-  const minWidth = clamp(bounds.minWidth, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 0);
-  const minHeight = clamp(bounds.minHeight, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 0);
-  window2.width = clamp(window2.width + finite(dw, 0), minWidth, clamp(bounds.maxWidth, minWidth, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.width);
-  window2.height = clamp(window2.height + finite(dh, 0), minHeight, clamp(bounds.maxHeight, minHeight, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.height);
-  return next;
-}
-function fitViewport(state, viewportSize, padding = 40, ids) {
-  const next = normalizeCanvas(state);
-  let bounds = windowBounds(next, ids);
-  const width = viewportSize?.width, height = viewportSize?.height;
-  if (!bounds || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return next;
-  if (ids === void 0 && next.groups.some((group) => next.windows.some((window2) => window2.open && group.members.includes(window2.id)))) {
-    bounds = { ...bounds, x: bounds.x - 16, y: bounds.y - 45, width: bounds.width + 32, height: bounds.height + 61 };
-  }
-  const insets = object(padding) ? padding : { left: padding, right: padding, top: padding, bottom: padding };
-  const left = clamp(insets.left, 0, width / 2 - 1, 24), right = clamp(insets.right, 0, width / 2 - 1, 24);
-  const top = clamp(insets.top, 0, height - 2, 80), bottom = clamp(insets.bottom, 0, height - top - 1, 80);
-  const availableWidth = width - left - right, availableHeight = height - top - bottom;
-  const zoom = clamp(Math.min(availableWidth / bounds.width, availableHeight / bounds.height), CANVAS_LIMITS.minZoom, 1, 1);
-  next.viewport = { x: coordinate(left + (availableWidth - bounds.width * zoom) / 2 - bounds.x * zoom), y: coordinate(top + (availableHeight - bounds.height * zoom) / 2 - bounds.y * zoom), zoom };
-  return next;
-}
-
 // src/client/main-agent-group.js
 var import_react39 = require("react");
-function MainAgentGroup({ members, roster, actions, onClose }) {
+function MainAgentGroup({ members, roster, actions, onClose, target, onComplete }) {
   const dialog = (0, import_react39.useRef)(null);
   const pending = (0, import_react39.useRef)(false);
   const created = (0, import_react39.useRef)(null);
   const [busy, setBusy] = (0, import_react39.useState)(false);
   const [error, setError] = (0, import_react39.useState)("");
-  const [name, setName] = (0, import_react39.useState)("");
+  const [name, setName] = (0, import_react39.useState)(target?.name ?? "");
   const bots = members.map((id) => roster.byId[id]).filter(Boolean);
-  const valid = bots.length === 2 && new Set(members).size === 2 && members.every((id) => isMainOf(roster, id));
+  const room2 = target?.kind === "room" ? roster.roomsById[target.id] : null;
+  const adding = target?.kind === "room";
+  const staging = target?.kind === "draft" && members.length < 2;
+  const additions = adding ? members.filter((id) => !room2?.members.includes(id)) : members;
+  const valid = bots.length === members.length && new Set(members).size === members.length && members.length >= (target ? 1 : 2) && members.every((id) => isMainOf(roster, id)) && (!adding || room2?.mainOnly === true && additions.length > 0);
   (0, import_react39.useEffect)(() => {
     dialog.current.showModal();
     return () => dialog.current?.close();
@@ -14680,8 +14748,10 @@ function MainAgentGroup({ members, roster, actions, onClose }) {
     setBusy(true);
     setError("");
     try {
-      created.current ??= await actions.createRoom(members, { mainOnly: true, admin: members[0], name: name.trim() });
-      actions.openCanvasEntity(created.current.id);
+      if (adding) await actions.updateRoom(target.id, { add: additions });
+      else if (!staging) created.current ??= await actions.createRoom(members, { mainOnly: true, admin: members[0], name: name.trim() });
+      onComplete?.({ room: adding ? room2 : created.current, members, name: name.trim() });
+      if (adding || created.current) actions.openCanvasEntity(adding ? room2.id : created.current.id);
       onClose();
     } catch (failure2) {
       setError(failure2?.message ?? String(failure2));
@@ -14697,22 +14767,24 @@ function MainAgentGroup({ members, roster, actions, onClose }) {
       close();
     } },
     (0, import_react39.createElement)("div", { className: "bt-main-group-avatars" }, bots.map((bot) => (0, import_react39.createElement)(BotAvatar, { key: bot.id, bot, main: true, size: 56 }))),
-    (0, import_react39.createElement)("h2", { id: "bt-main-group-title" }, t("Create Main Agent group")),
+    (0, import_react39.createElement)("h2", { id: "bt-main-group-title" }, t(adding ? "Add Main Agents to group" : staging ? "Add to empty group" : "Create Main Agent group")),
+    adding ? (0, import_react39.createElement)("strong", null, room2?.name ?? target.name) : null,
     (0, import_react39.createElement)("p", null, bots.map((bot) => bot.name).join(" + ")),
     (0, import_react39.createElement)("p", { className: "bt-note" }, t("A new group conversation. Each Main Agent keeps its own children, chats and running tasks.")),
-    (0, import_react39.createElement)(
+    staging ? (0, import_react39.createElement)("p", { className: "bt-note" }, t("Add another Main Agent to start a group conversation.")) : null,
+    adding ? null : (0, import_react39.createElement)(
       "label",
       { className: "bt-field" },
       (0, import_react39.createElement)("span", { className: "bt-field-label" }, t("Group name")),
       (0, import_react39.createElement)("input", { className: "bt-input", value: name, maxLength: 80, disabled: busy, placeholder: bots.map((bot) => bot.name).join(" + "), onChange: (event) => setName(event.target.value) })
     ),
-    !valid ? (0, import_react39.createElement)("p", { role: "alert" }, t("Both members must still be Main Agents.")) : null,
+    !valid ? (0, import_react39.createElement)("p", { role: "alert" }, t(adding && !additions.length ? "These Main Agents are already in this group." : "Select available Main Agents to continue.")) : null,
     error ? (0, import_react39.createElement)("p", { role: "alert", className: "bt-error" }, error) : null,
     (0, import_react39.createElement)(
       "div",
       { className: "bt-actions" },
       (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", disabled: busy, onClick: close }, t("Cancel")),
-      (0, import_react39.createElement)("button", { type: "button", className: "bt-send", disabled: busy || !valid, onClick: create }, t(busy ? "Creating…" : "Create group chat"))
+      (0, import_react39.createElement)("button", { type: "button", className: "bt-send", disabled: busy || !valid, onClick: create }, t(busy ? "Saving…" : adding || staging ? "Add to group" : "Create group chat"))
     )
   );
 }
@@ -14721,6 +14793,15 @@ var MAIN_GROUP_CSS = `
 .bt-main-group::backdrop{background:#10182855;backdrop-filter:blur(6px)}
 .bt-main-group h2{font-size:21px;margin:20px 0 8px}.bt-main-group p{line-height:1.65}.bt-main-group .bt-field{margin:20px 0}.bt-main-group .bt-actions{justify-content:flex-end;gap:12px;margin-top:24px}
 .bt-main-group-avatars{display:flex;gap:18px}.bt-canvas-window[data-drop-target=true]{outline:2px solid #658aff;border-radius:20px;background:#658aff22;box-shadow:0 0 24px #658aff33}
+.bt-main-group-avatars{flex-wrap:wrap;max-height:180px;overflow:auto}
+.bt-canvas-group.bt-canvas-draft{z-index:1;display:flex;flex-direction:column;align-items:stretch;border-style:dashed;background:var(--bt-card);color:var(--bt-ink);transition:border-color .16s,box-shadow .16s}
+.bt-canvas-draft[data-drop-target=true]{border:2px solid var(--bt-accent);box-shadow:0 0 0 5px color-mix(in srgb,var(--bt-accent) 15%,transparent)}
+.bt-canvas-draft>p{margin:8px 16px;font-size:12px;line-height:1.5;color:var(--bt-muted);text-align:center}
+.bt-canvas-draft>.bt-canvas-button{align-self:center}.bt-canvas-draft-members{display:flex;justify-content:center;gap:8px;min-height:40px;overflow:hidden;padding:6px 16px}
+.bt-canvas-context{position:absolute;z-index:60;width:230px;padding:6px;border:1px solid var(--bt-line-2);border-radius:14px;background:var(--bt-card);color:var(--bt-ink);box-shadow:0 12px 40px #0003}
+.bt-canvas-context .bt-canvas-button{display:flex;justify-content:flex-start;width:100%;min-height:36px;border:0;background:transparent;border-radius:8px}
+.bt-canvas-context .bt-canvas-button:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 12%,transparent)}
+@media(prefers-reduced-motion:reduce){.bt-canvas-group.bt-canvas-draft{transition:none}}
 `;
 
 // src/client/canvas-workspace.js
@@ -14795,11 +14876,11 @@ function GroupTitle({ group, start, actions }) {
   }) : (0, import_react40.createElement)(
     "div",
     { className: "bt-canvas-group-title" },
-    button(group.name || t("Window group"), null, FolderIcon, { onPointerDown: (event) => start(event, "group", group.id), title: t("Visual group only"), onDoubleClick: edit }),
+    button(group.name || t("Window group"), null, FolderIcon, { onPointerDown: (event) => start(event, "group", group.id), title: t(group.draft ? "Drag Main Agents here" : "Visual group only"), onDoubleClick: edit }),
     button(null, edit, PencilIcon, { "aria-label": t("Rename window group"), title: t("Rename window group") })
   );
 }
-function WindowCard({ window: window2, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget }) {
+function WindowCard({ window: window2, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget, canvasMenu }) {
   const entity = entityOf(window2, roster);
   const sessionId = canvasSessionId(window2, roster);
   const preview = useSessions((list) => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId]));
@@ -14822,6 +14903,7 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     actions.openMenu({ id: entity.id, x: event.type === "contextmenu" ? event.clientX : box.right, y: event.type === "contextmenu" ? event.clientY : box.bottom });
   };
   const select = (event) => {
+    if (event.button === 2 && selected) return;
     if (event.target.closest("input[type=checkbox],.bt-canvas-window-title,.bt-canvas-avatar-open")) return;
     actions.selectCanvasWindow(window2.id);
   };
@@ -14847,6 +14929,12 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     onPointerDownCapture: select,
     onFocusCapture: select,
     onContextMenu: (event) => {
+      if (selected && window2.kind === "bot" && isMainOf(roster, entity.id)) {
+        event.preventDefault();
+        event.stopPropagation();
+        canvasMenu(event);
+        return;
+      }
       if (!event.target.closest(".bt-canvas-content")) openMenu(event);
     }
   };
@@ -14935,6 +15023,8 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
   const [marquee, setMarquee] = (0, import_react40.useState)(null);
   const [dropTarget, setDropTarget] = (0, import_react40.useState)(null);
   const [groupMembers, setGroupMembers] = (0, import_react40.useState)(null);
+  const [menu, setMenu] = (0, import_react40.useState)(null);
+  const suppressContext = (0, import_react40.useRef)(false);
   const [size, setSize] = (0, import_react40.useState)({ width: 1e3, height: 700 });
   const visible = state.windows.filter((window2) => window2.open && entityOf(window2, roster));
   const focused = (0, import_react40.useRef)(null);
@@ -14942,7 +15032,20 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
   if (activeBot) focused.current = activeBot.entityId;
   const quickBot = roster.byId[focused.current] ?? roster.byId[roster.mainBotId] ?? roster.bots[0];
   const selectedBots = employeesOf(visible, state.selected, roster);
+  const mains = selectedMains(state, roster, state.selected);
   const update = actions.updateCanvas;
+  (0, import_react40.useEffect)(() => {
+    if (!menu) return;
+    const dismiss = (event) => {
+      if (event.type === "keydown" ? event.key === "Escape" : !event.target.closest(".bt-canvas-context")) setMenu(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismiss);
+    };
+  }, [menu]);
   (0, import_react40.useEffect)(() => {
     const node = root.current;
     const toolbar = node.querySelector(".bt-canvas-toolbar");
@@ -14985,10 +15088,12 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     return setCanvasViewport(current, { zoom: next, x: point.x - (point.x - v.x) * next / v.zoom, y: point.y - (point.y - v.y) * next / v.zoom });
   });
   const start = (event, kind, id) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 && !(event.button === 2 && kind === "marquee")) return;
     event.preventDefault();
     event.stopPropagation();
     let current = latest.current;
+    setMenu(null);
+    suppressContext.current = false;
     const box = root.current.getBoundingClientRect();
     let ids = kind === "group" ? current.groups.find((group) => group.id === id)?.members ?? [] : current.selected.includes(id) ? current.selected : [id];
     ids = ids.filter((value) => current.windows.some((window2) => window2.id === value && window2.open));
@@ -15001,7 +15106,7 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
       current = setCanvasSelection(current, ids, kind === "group" ? ids[0] : id);
       update(current, false);
     }
-    drag.current = { kind, id, ids, startX: event.clientX, startY: event.clientY, state: current, box, moved: false };
+    drag.current = { kind, id, ids, startX: event.clientX, startY: event.clientY, state: current, box, moved: false, right: event.button === 2 };
     root.current.setPointerCapture(event.pointerId);
   };
   const move = (event) => {
@@ -15011,18 +15116,21 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     if (Math.hypot(dx, dy) > 4) current.moved = true;
     if (current.kind === "pan") update(() => setCanvasViewport(current.state, { ...v, x: v.x + dx, y: v.y + dy }), false);
     if (current.kind === "window" || current.kind === "group" || current.kind === "avatar" && current.moved) {
-      const next = current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids });
+      const draft = current.kind === "group" && current.state.groups.find((group) => group.id === current.id && group.draft);
+      const next = draft ? moveDraftGroup(current.state, current.id, dx / v.zoom, dy / v.zoom) : moveWindow({ ...current.state, selected: current.ids }, current.ids, dx / v.zoom, dy / v.zoom);
       current.latest = next;
       update(next, false);
-      setDropTarget(current.ids.length === 1 && ["avatar", "window"].includes(current.kind) ? overlapMain(next, roster, current.id)?.id ?? null : null);
+      current.target = ["avatar", "window"].includes(current.kind) ? groupDropTarget(next, roster, current.ids, { x: (event.clientX - current.box.left - v.x) / v.zoom, y: (event.clientY - current.box.top - v.y) / v.zoom }) : null;
+      setDropTarget(current.target ? current.target.windowId ?? current.target.id : current.ids.length === 1 && ["avatar", "window"].includes(current.kind) ? overlapMain(next, roster, current.id)?.id ?? null : null);
     }
     if (current.kind === "resize") update(() => resizeWindow(current.state, current.id, dx / v.zoom, dy / v.zoom), false);
     if (current.kind === "marquee") {
+      if (current.right && !current.moved) return;
       const left = Math.min(current.startX, event.clientX) - current.box.left, top = Math.min(current.startY, event.clientY) - current.box.top;
       const rect = { left, top, width: Math.abs(dx), height: Math.abs(dy) };
       setMarquee(rect);
       const x = (left - v.x) / v.zoom, y = (top - v.y) / v.zoom;
-      const ids = current.state.windows.filter((window2) => window2.open && window2.x < x + rect.width / v.zoom && window2.x + windowWidth(window2) > x && window2.y < y + rect.height / v.zoom && window2.y + windowHeight(window2) > y).map((window2) => window2.id);
+      const ids = marqueeWindows(current.state, roster, { x, y, width: rect.width / v.zoom, height: rect.height / v.zoom }, current.right);
       update((value) => setCanvasSelection(value, ids), false);
     }
   };
@@ -15033,17 +15141,53 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     setMarquee(null);
     setDropTarget(null);
     if (root.current.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId);
-    actions.saveCanvas();
-    if (event.type !== "pointercancel" && current.moved && current.ids.length === 1 && ["avatar", "window"].includes(current.kind)) {
+    const cancelled = event.type === "pointercancel";
+    const restore = () => update((value) => ({ ...value, groups: current.kind === "group" ? current.state.groups : value.groups, windows: value.windows.map((window2) => {
+      const original = current.state.windows.find((item) => item.id === window2.id);
+      return original && current.ids.includes(window2.id) ? { ...window2, x: original.x, y: original.y, width: original.width, height: original.height } : window2;
+    }) }));
+    if (cancelled) restore();
+    if (current.right) {
+      suppressContext.current = true;
+      if (!cancelled && !current.moved) setMenu({ x: current.startX - current.box.left, y: current.startY - current.box.top });
+    }
+    if (!cancelled && current.moved && current.target) {
+      restore();
+      proposeGroup(selectedMains(current.state, roster, current.ids), current.target);
+    } else if (!cancelled && current.moved && current.ids.length === 1 && ["avatar", "window"].includes(current.kind)) {
       const next = current.latest ?? latest.current;
       const target = overlapMain(next, roster, current.id);
       if (target) {
         const source = next.windows.find((window2) => window2.id === current.id);
-        update((value) => ({ ...value, windows: value.windows.map((window2) => window2.id === current.id ? { ...window2, x: current.state.windows.find((item) => item.id === current.id).x, y: current.state.windows.find((item) => item.id === current.id).y } : window2) }));
-        setGroupMembers([source.entityId, target.entityId]);
+        restore();
+        setGroupMembers({ members: [source.entityId, target.entityId] });
       }
     }
     if (current.kind === "avatar" && !current.moved && event.type !== "pointercancel") actions.openCanvasConversation(current.id);
+    actions.saveCanvas();
+  };
+  const proposeGroup = (members, target) => {
+    if (target?.kind === "draft") {
+      const group = latest.current.groups.find((group2) => group2.id === target.id && group2.draft);
+      if (!group) return;
+      setGroupMembers({ members: [.../* @__PURE__ */ new Set([...selectedMains(latest.current, roster, group.members, true), ...members])], target: { ...target, name: group.name } });
+    } else if (target) setGroupMembers({ members, target: { ...target, name: roster.roomsById[target.id]?.name } });
+    else setGroupMembers({ members });
+    setMenu(null);
+  };
+  const completeGroup = ({ room: room2, members, name }) => {
+    const target = groupMembers?.target;
+    if (target?.kind !== "draft") return;
+    update((current) => {
+      if (room2) return ungroupWindows(current, target.id);
+      const ids = current.windows.filter((window2) => window2.kind === "bot" && members.includes(window2.entityId)).map((window2) => window2.id);
+      const next = addDraftMembers(current, target.id, ids);
+      return { ...next, groups: next.groups.map((group) => group.id === target.id ? { ...group, name: name || group.name } : group) };
+    });
+  };
+  const newEmptyGroup = () => {
+    update((current) => createEmptyGroup(current, { x: ((menu?.x ?? size.width / 2) - current.viewport.x) / current.viewport.zoom, y: ((menu?.y ?? size.height / 2) - current.viewport.y) / current.viewport.zoom, name: t("New group") }));
+    setMenu(null);
   };
   (0, import_react40.useEffect)(() => {
     const node = root.current;
@@ -15064,6 +15208,14 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     const id = event.dataTransfer.getData(MAIN_AGENT_DRAG);
     if (!roster.byId[id] || !isMainOf(roster, id)) return;
     event.preventDefault();
+    const current = latest.current, box = root.current.getBoundingClientRect();
+    const existing = current.windows.find((window2) => window2.kind === "bot" && window2.entityId === id);
+    const target = groupDropTarget({ ...current, windows: existing ? current.windows.map((window2) => window2.id === existing.id ? { ...window2, open: true } : window2) : [...current.windows, { id: "contact-drop", kind: "bot", entityId: id, open: true }] }, roster, [existing?.id ?? "contact-drop"], { x: (event.clientX - box.left - current.viewport.x) / current.viewport.zoom, y: (event.clientY - box.top - current.viewport.y) / current.viewport.zoom });
+    if (target) {
+      if (!existing || !existing.open) actions.placeCanvasMain(id, canvasDropPoint(current, box, event.clientX, event.clientY));
+      proposeGroup([id], target);
+      return;
+    }
     actions.placeCanvasMain(id, canvasDropPoint(latest.current, root.current.getBoundingClientRect(), event.clientX, event.clientY));
   };
   return (0, import_react40.createElement)(
@@ -15085,14 +15237,15 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     },
     (0, import_react40.createElement)("style", null, SPATIAL_WIDGET_CSS),
     (0, import_react40.createElement)("style", null, MAIN_GROUP_CSS),
-    groupMembers ? (0, import_react40.createElement)(MainAgentGroup, { members: groupMembers, roster, actions, onClose: () => setGroupMembers(null) }) : null,
+    groupMembers ? (0, import_react40.createElement)(MainAgentGroup, { ...groupMembers, roster, actions, onComplete: completeGroup, onClose: () => setGroupMembers(null) }) : null,
     (0, import_react40.createElement)(
       "nav",
       { className: "bt-canvas-toolbar", "aria-label": t("Canvas tools") },
       (0, import_react40.createElement)("strong", null, t("Employee canvas")),
       button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon),
       button(t("Create employee"), () => actions.openNewChat("create"), PlusIcon),
-      button(t(selectedBots.length >= 2 ? "Create group with selected" : "Create group chat"), () => actions.openNewChat("group", selectedBots.length >= 2 ? selectedBots : []), ChatsIcon),
+      button(t(selectedBots.length >= 2 ? "Create group with selected" : "Create group chat"), () => mains.length >= 2 && mains.length === selectedBots.length ? proposeGroup(mains) : actions.openNewChat("group", selectedBots.length >= 2 ? selectedBots : []), ChatsIcon),
+      button(t("New empty group"), newEmptyGroup, FolderIcon),
       selectedBots.length === 2 ? button(t("Bot exchange"), () => actions.openExchange(...selectedBots), ChatsIcon) : null,
       button(t("Arrange cards"), () => actions.arrangeCanvasCards(), null, { disabled: visible.length === 0 }),
       button(t("Group windows"), () => update((current) => groupWindows(current, current.selected, { name: t("Window group") })), FolderIcon, { disabled: state.selected.length < 2 }),
@@ -15106,14 +15259,30 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     ),
     (0, import_react40.createElement)(
       "main",
-      { className: "bt-canvas-stage", onPointerDown: (event) => {
-        if (!event.target.closest(".bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]")) start(event, event.shiftKey ? "marquee" : "pan");
+      { className: "bt-canvas-stage", onContextMenu: (event) => {
+        if (event.target.closest(".bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]")) return;
+        event.preventDefault();
+        if (!drag.current && !suppressContext.current) {
+          const box = root.current.getBoundingClientRect();
+          setMenu({ x: event.clientX - box.left, y: event.clientY - box.top });
+        }
+        suppressContext.current = false;
+      }, onPointerDown: (event) => {
+        if (!event.target.closest(".bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]")) start(event, event.button === 2 || event.shiftKey ? "marquee" : "pan");
       } },
       (0, import_react40.createElement)("div", { className: "bt-canvas-background", "aria-hidden": true }),
       (0, import_react40.createElement)(
         "div",
         { className: "bt-canvas-world", style: { transform: `translate(${state.viewport.x}px,${state.viewport.y}px) scale(${state.viewport.zoom})` } },
         state.groups.map((group) => {
+          if (group.draft) return (0, import_react40.createElement)(
+            "section",
+            { key: group.id, className: "bt-canvas-group bt-canvas-draft", "data-group-id": group.id, "data-drop-target": dropTarget === group.id || void 0, style: { left: group.x, top: group.y, width: 280, height: 180 } },
+            (0, import_react40.createElement)("div", { className: "bt-canvas-group-header" }, (0, import_react40.createElement)(GroupTitle, { group, start, actions }), button(null, () => update((current) => ungroupWindows(current, group.id)), CloseIcon, { title: t("Remove empty group"), "aria-label": t("Remove empty group") })),
+            (0, import_react40.createElement)("div", { className: "bt-canvas-draft-members" }, selectedMains(state, roster, group.members, true).map((id) => (0, import_react40.createElement)(BotAvatar, { key: id, bot: roster.byId[id], size: 36, main: true }))),
+            (0, import_react40.createElement)("p", null, t(group.members.length ? "Add another Main Agent to start a group conversation." : "Drag Main Agents here")),
+            selectedMains(state, roster, group.members, true).length >= 2 ? button(t("Create group chat"), () => proposeGroup([], { kind: "draft", id: group.id }), ChatsIcon) : null
+          );
           const members = visible.filter((window2) => group.members.includes(window2.id));
           if (!members.length) return null;
           const x = Math.min(...members.map((window2) => window2.x)) - 16, y = Math.min(...members.map((window2) => window2.y)) - 45;
@@ -15129,10 +15298,23 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
             )
           );
         }),
-        visible.map((window2) => (0, import_react40.createElement)(WindowCard, { key: window2.id, window: window2, roster, selected: state.selected.includes(window2.id), active: state.active === window2.id, dropTarget: dropTarget === window2.id, actions, useSessions, useWork, SessionProvider, renderSlot, start }))
+        visible.map((window2) => (0, import_react40.createElement)(WindowCard, { key: window2.id, window: window2, roster, selected: state.selected.includes(window2.id), active: state.active === window2.id, dropTarget: dropTarget === window2.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, canvasMenu: (event) => {
+          const box = root.current.getBoundingClientRect();
+          setMenu({ x: event.clientX - box.left, y: event.clientY - box.top });
+        } }))
       ),
-      visible.length === 0 ? (0, import_react40.createElement)("div", { className: "bt-canvas-empty" }, (0, import_react40.createElement)("h2", null, t("Your team workspace")), (0, import_react40.createElement)("p", null, t("Open employees from the directory. Their conversations stay with them.")), button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon)) : null
+      visible.length === 0 && !state.groups.some((group) => group.draft) ? (0, import_react40.createElement)("div", { className: "bt-canvas-empty" }, (0, import_react40.createElement)("h2", null, t("Your team workspace")), (0, import_react40.createElement)("p", null, t("Open employees from the directory. Their conversations stay with them.")), button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon)) : null
     ),
+    menu ? (0, import_react40.createElement)(
+      "div",
+      { className: "bt-canvas-context", role: "menu", "aria-label": t("Canvas actions"), style: { left: Math.max(0, Math.min(menu.x, size.width - 230)), top: Math.max(0, Math.min(menu.y, size.height - 150)) }, onContextMenu: (event) => event.preventDefault() },
+      button(t("New empty group"), newEmptyGroup, FolderIcon, { role: "menuitem" }),
+      button(t("Create Main Agent group"), () => proposeGroup(mains), ChatsIcon, { role: "menuitem", disabled: mains.length < 2 }),
+      button(t("Clear selection"), () => {
+        update((current) => setCanvasSelection(current, []));
+        setMenu(null);
+      }, null, { role: "menuitem", disabled: !state.selected.length })
+    ) : null,
     (0, import_react40.createElement)(CanvasQuickMessage, { bot: quickBot, actions }),
     (0, import_react40.createElement)(CanvasAgenda, { roster, actions }),
     marquee ? (0, import_react40.createElement)("div", { className: "bt-canvas-marquee", style: marquee }) : null,
@@ -15143,7 +15325,7 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
       (0, import_react40.createElement)("span", null, entity.name)
     ))),
     (0, import_react40.createElement)("div", { className: "bt-canvas-zoom" }, button("−", () => zoom(1 / 1.15), null, { "aria-label": t("Zoom out") }), (0, import_react40.createElement)("output", null, `${Math.round(state.viewport.zoom * 100)}%`), button("+", () => zoom(1.15), null, { "aria-label": t("Zoom in") }), button(t("Fit windows"), fit)),
-    (0, import_react40.createElement)("div", { className: "bt-canvas-status" }, t("Drag background to pan · Shift-drag to select · Ctrl-scroll to zoom"))
+    (0, import_react40.createElement)("div", { className: "bt-canvas-status" }, t("Drag to pan · Right-drag to select Main Agents · Drop into a group"))
   );
 }
 

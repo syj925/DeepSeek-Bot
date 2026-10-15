@@ -8,9 +8,9 @@ import { memberWork, busyMembers, summaryText } from './member-status.js'
 import { CanvasSession, canvasSessionId } from './canvas-session.js'
 import { CanvasQuickMessage, CanvasAgenda, SPATIAL_WIDGET_CSS, toggleSpatialWidget } from './spatial-widgets.js'
 import { CanvasWallpaper } from './canvas-wallpaper.js'
-import { collapseWindow, fitViewport, groupWindows, moveWindow, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact, ungroupWindows, windowHeight, windowWidth } from './canvas-state.js'
+import { addDraftMembers, createEmptyGroup, collapseWindow, fitViewport, groupWindows, moveDraftGroup, moveWindow, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact, ungroupWindows, windowHeight, windowWidth } from './canvas-state.js'
 import { t } from './i18n.js'
-import { MAIN_AGENT_DRAG, overlapMain, canvasDropPoint } from './canvas-collaboration.js'
+import { MAIN_AGENT_DRAG, overlapMain, canvasDropPoint, groupDropTarget, marqueeWindows, selectedMains } from './canvas-collaboration.js'
 import { MainAgentGroup, MAIN_GROUP_CSS } from './main-agent-group.js'
 
 const button = (label, onClick, icon, extra = {}) => h('button', { type: 'button', className: 'bt-canvas-button', onClick, ...extra }, icon ? h(icon) : null, label)
@@ -49,11 +49,11 @@ function GroupTitle({ group, start, actions }) {
     onChange: event => setName(event.target.value), onBlur: save,
     onKeyDown: event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.blur() } else if (event.key === 'Escape') { event.preventDefault(); cancelled.current = true; setEditing(false) } },
   }) : h('div', { className: 'bt-canvas-group-title' },
-    button(group.name || t('Window group'), null, FolderIcon, { onPointerDown: event => start(event, 'group', group.id), title: t('Visual group only'), onDoubleClick: edit }),
+    button(group.name || t('Window group'), null, FolderIcon, { onPointerDown: event => start(event, 'group', group.id), title: t(group.draft ? 'Drag Main Agents here' : 'Visual group only'), onDoubleClick: edit }),
     button(null, edit, PencilIcon, { 'aria-label': t('Rename window group'), title: t('Rename window group') }))
 }
 
-function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget }) {
+function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget, canvasMenu }) {
   const entity = entityOf(window, roster)
   const sessionId = canvasSessionId(window, roster)
   const preview = useSessions(list => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId]))
@@ -76,6 +76,7 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
     actions.openMenu({ id: entity.id, x: event.type === 'contextmenu' ? event.clientX : box.right, y: event.type === 'contextmenu' ? event.clientY : box.bottom })
   }
   const select = event => {
+    if (event.button === 2 && selected) return
     if (event.target.closest('input[type=checkbox],.bt-canvas-window-title,.bt-canvas-avatar-open')) return
     actions.selectCanvasWindow(window.id)
   }
@@ -94,7 +95,10 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
     'data-mode': window.compact ? 'card' : 'conversation',
     'data-active': active || undefined, 'data-selected': selected || undefined, 'aria-label': entity.name,
     style: { left: window.x, top: window.y, width: windowWidth(window), height: windowHeight(window), zIndex: window.z + 2 },
-    onPointerDownCapture: select, onFocusCapture: select, onContextMenu: event => { if (!event.target.closest('.bt-canvas-content')) openMenu(event) },
+    onPointerDownCapture: select, onFocusCapture: select, onContextMenu: event => {
+      if (selected && window.kind === 'bot' && isMainOf(roster, entity.id)) { event.preventDefault(); event.stopPropagation(); canvasMenu(event); return }
+      if (!event.target.closest('.bt-canvas-content')) openMenu(event)
+    },
   }
   if (window.compact && !room) return h('section', shell,
     h('div', { className: 'bt-canvas-avatar-node' },
@@ -144,6 +148,8 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   const [marquee, setMarquee] = useState(null)
   const [dropTarget, setDropTarget] = useState(null)
   const [groupMembers, setGroupMembers] = useState(null)
+  const [menu, setMenu] = useState(null)
+  const suppressContext = useRef(false)
   const [size, setSize] = useState({ width: 1000, height: 700 })
   const visible = state.windows.filter(window => window.open && entityOf(window, roster))
   const focused = useRef(null)
@@ -151,7 +157,15 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   if (activeBot) focused.current = activeBot.entityId
   const quickBot = roster.byId[focused.current] ?? roster.byId[roster.mainBotId] ?? roster.bots[0]
   const selectedBots = employeesOf(visible, state.selected, roster)
+  const mains = selectedMains(state, roster, state.selected)
   const update = actions.updateCanvas
+  useEffect(() => {
+    if (!menu) return
+    const dismiss = event => { if (event.type === 'keydown' ? event.key === 'Escape' : !event.target.closest('.bt-canvas-context')) setMenu(null) }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', dismiss)
+    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', dismiss) }
+  }, [menu])
   useEffect(() => {
     const node = root.current
     const toolbar = node.querySelector('.bt-canvas-toolbar')
@@ -184,10 +198,12 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     return setCanvasViewport(current, { zoom: next, x: point.x - (point.x - v.x) * next / v.zoom, y: point.y - (point.y - v.y) * next / v.zoom })
   })
   const start = (event, kind, id) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 && !(event.button === 2 && kind === 'marquee')) return
     event.preventDefault()
     event.stopPropagation()
     let current = latest.current
+    setMenu(null)
+    suppressContext.current = false
     const box = root.current.getBoundingClientRect()
     let ids = kind === 'group' ? current.groups.find(group => group.id === id)?.members ?? [] : current.selected.includes(id) ? current.selected : [id]
     ids = ids.filter(value => current.windows.some(window => window.id === value && window.open))
@@ -197,7 +213,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       current = setCanvasSelection(current, ids, kind === 'group' ? ids[0] : id)
       update(current, false)
     }
-    drag.current = { kind, id, ids, startX: event.clientX, startY: event.clientY, state: current, box, moved: false }
+    drag.current = { kind, id, ids, startX: event.clientX, startY: event.clientY, state: current, box, moved: false, right: event.button === 2 }
     root.current.setPointerCapture(event.pointerId)
   }
   const move = event => {
@@ -207,18 +223,21 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     if (Math.hypot(dx, dy) > 4) current.moved = true
     if (current.kind === 'pan') update(() => setCanvasViewport(current.state, { ...v, x: v.x + dx, y: v.y + dy }), false)
     if (current.kind === 'window' || current.kind === 'group' || current.kind === 'avatar' && current.moved) {
-      const next = current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids })
+      const draft = current.kind === 'group' && current.state.groups.find(group => group.id === current.id && group.draft)
+      const next = draft ? moveDraftGroup(current.state, current.id, dx / v.zoom, dy / v.zoom) : moveWindow({ ...current.state, selected: current.ids }, current.ids, dx / v.zoom, dy / v.zoom)
       current.latest = next
       update(next, false)
-      setDropTarget(current.ids.length === 1 && ['avatar', 'window'].includes(current.kind) ? overlapMain(next, roster, current.id)?.id ?? null : null)
+      current.target = ['avatar', 'window'].includes(current.kind) ? groupDropTarget(next, roster, current.ids, { x: (event.clientX - current.box.left - v.x) / v.zoom, y: (event.clientY - current.box.top - v.y) / v.zoom }) : null
+      setDropTarget(current.target ? current.target.windowId ?? current.target.id : current.ids.length === 1 && ['avatar', 'window'].includes(current.kind) ? overlapMain(next, roster, current.id)?.id ?? null : null)
     }
     if (current.kind === 'resize') update(() => resizeWindow(current.state, current.id, dx / v.zoom, dy / v.zoom), false)
     if (current.kind === 'marquee') {
+      if (current.right && !current.moved) return
       const left = Math.min(current.startX, event.clientX) - current.box.left, top = Math.min(current.startY, event.clientY) - current.box.top
       const rect = { left, top, width: Math.abs(dx), height: Math.abs(dy) }
       setMarquee(rect)
       const x = (left - v.x) / v.zoom, y = (top - v.y) / v.zoom
-      const ids = current.state.windows.filter(window => window.open && window.x < x + rect.width / v.zoom && window.x + windowWidth(window) > x && window.y < y + rect.height / v.zoom && window.y + windowHeight(window) > y).map(window => window.id)
+      const ids = marqueeWindows(current.state, roster, { x, y, width: rect.width / v.zoom, height: rect.height / v.zoom }, current.right)
       update(value => setCanvasSelection(value, ids), false)
     }
   }
@@ -229,18 +248,54 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     setMarquee(null)
     setDropTarget(null)
     if (root.current.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId)
-    actions.saveCanvas()
-    if (event.type !== 'pointercancel' && current.moved && current.ids.length === 1 && ['avatar', 'window'].includes(current.kind)) {
+    const cancelled = event.type === 'pointercancel'
+    const restore = () => update(value => ({ ...value, groups: current.kind === 'group' ? current.state.groups : value.groups, windows: value.windows.map(window => {
+      const original = current.state.windows.find(item => item.id === window.id)
+      return original && current.ids.includes(window.id) ? { ...window, x: original.x, y: original.y, width: original.width, height: original.height } : window
+    }) }))
+    if (cancelled) restore()
+    if (current.right) {
+      suppressContext.current = true
+      if (!cancelled && !current.moved) setMenu({ x: current.startX - current.box.left, y: current.startY - current.box.top })
+    }
+    if (!cancelled && current.moved && current.target) {
+      restore()
+      proposeGroup(selectedMains(current.state, roster, current.ids), current.target)
+    } else if (!cancelled && current.moved && current.ids.length === 1 && ['avatar', 'window'].includes(current.kind)) {
       const next = current.latest ?? latest.current
       const target = overlapMain(next, roster, current.id)
       if (target) {
         const source = next.windows.find(window => window.id === current.id)
         // Restore the dragged card so cancelling leaves two independently usable icons.
-        update(value => ({ ...value, windows: value.windows.map(window => window.id === current.id ? { ...window, x: current.state.windows.find(item => item.id === current.id).x, y: current.state.windows.find(item => item.id === current.id).y } : window) }))
-        setGroupMembers([source.entityId, target.entityId])
+        restore()
+        setGroupMembers({ members: [source.entityId, target.entityId] })
       }
     }
     if (current.kind === 'avatar' && !current.moved && event.type !== 'pointercancel') actions.openCanvasConversation(current.id)
+    actions.saveCanvas()
+  }
+  const proposeGroup = (members, target) => {
+    if (target?.kind === 'draft') {
+      const group = latest.current.groups.find(group => group.id === target.id && group.draft)
+      if (!group) return
+      setGroupMembers({ members: [...new Set([...selectedMains(latest.current, roster, group.members, true), ...members])], target: { ...target, name: group.name } })
+    } else if (target) setGroupMembers({ members, target: { ...target, name: roster.roomsById[target.id]?.name } })
+    else setGroupMembers({ members })
+    setMenu(null)
+  }
+  const completeGroup = ({ room, members, name }) => {
+    const target = groupMembers?.target
+    if (target?.kind !== 'draft') return
+    update(current => {
+      if (room) return ungroupWindows(current, target.id)
+      const ids = current.windows.filter(window => window.kind === 'bot' && members.includes(window.entityId)).map(window => window.id)
+      const next = addDraftMembers(current, target.id, ids)
+      return { ...next, groups: next.groups.map(group => group.id === target.id ? { ...group, name: name || group.name } : group) }
+    })
+  }
+  const newEmptyGroup = () => {
+    update(current => createEmptyGroup(current, { x: ((menu?.x ?? size.width / 2) - current.viewport.x) / current.viewport.zoom, y: ((menu?.y ?? size.height / 2) - current.viewport.y) / current.viewport.zoom, name: t('New group') }))
+    setMenu(null)
   }
   useEffect(() => {
     const node = root.current
@@ -261,18 +316,27 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     const id = event.dataTransfer.getData(MAIN_AGENT_DRAG)
     if (!roster.byId[id] || !isMainOf(roster, id)) return
     event.preventDefault()
+    const current = latest.current, box = root.current.getBoundingClientRect()
+    const existing = current.windows.find(window => window.kind === 'bot' && window.entityId === id)
+    const target = groupDropTarget({ ...current, windows: existing ? current.windows.map(window => window.id === existing.id ? { ...window, open: true } : window) : [...current.windows, { id: 'contact-drop', kind: 'bot', entityId: id, open: true }] }, roster, [existing?.id ?? 'contact-drop'], { x: (event.clientX - box.left - current.viewport.x) / current.viewport.zoom, y: (event.clientY - box.top - current.viewport.y) / current.viewport.zoom })
+    if (target) {
+      if (!existing || !existing.open) actions.placeCanvasMain(id, canvasDropPoint(current, box, event.clientX, event.clientY))
+      proposeGroup([id], target)
+      return
+    }
     actions.placeCanvasMain(id, canvasDropPoint(latest.current, root.current.getBoundingClientRect(), event.clientX, event.clientY))
   }
   return h('div', { ref: root, className: 'bt-canvas', 'aria-label': t('Employee canvas'), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish,
     onDragOver: event => { if (Array.from(event.dataTransfer.types).includes(MAIN_AGENT_DRAG)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' } }, onDrop: drop },
     h('style', null, SPATIAL_WIDGET_CSS),
     h('style', null, MAIN_GROUP_CSS),
-    groupMembers ? h(MainAgentGroup, { members: groupMembers, roster, actions, onClose: () => setGroupMembers(null) }) : null,
+    groupMembers ? h(MainAgentGroup, { ...groupMembers, roster, actions, onComplete: completeGroup, onClose: () => setGroupMembers(null) }) : null,
     h('nav', { className: 'bt-canvas-toolbar', 'aria-label': t('Canvas tools') },
       h('strong', null, t('Employee canvas')),
       button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon),
       button(t('Create employee'), () => actions.openNewChat('create'), PlusIcon),
-      button(t(selectedBots.length >= 2 ? 'Create group with selected' : 'Create group chat'), () => actions.openNewChat('group', selectedBots.length >= 2 ? selectedBots : []), ChatsIcon),
+      button(t(selectedBots.length >= 2 ? 'Create group with selected' : 'Create group chat'), () => mains.length >= 2 && mains.length === selectedBots.length ? proposeGroup(mains) : actions.openNewChat('group', selectedBots.length >= 2 ? selectedBots : []), ChatsIcon),
+      button(t('New empty group'), newEmptyGroup, FolderIcon),
       selectedBots.length === 2 ? button(t('Bot exchange'), () => actions.openExchange(...selectedBots), ChatsIcon) : null,
       button(t('Arrange cards'), () => actions.arrangeCanvasCards(), null, { disabled: visible.length === 0 }),
       button(t('Group windows'), () => update(current => groupWindows(current, current.selected, { name: t('Window group') })), FolderIcon, { disabled: state.selected.length < 2 }),
@@ -283,10 +347,20 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       h(CanvasWallpaper, { canvasRef: root }),
       button(t('Settings'), () => actions.openSettings(), GearIcon),
       button(t('Classic view'), () => actions.openClassicSession())),
-    h('main', { className: 'bt-canvas-stage', onPointerDown: event => { if (!event.target.closest('.bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]')) start(event, event.shiftKey ? 'marquee' : 'pan') } },
+    h('main', { className: 'bt-canvas-stage', onContextMenu: event => {
+      if (event.target.closest('.bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]')) return
+      event.preventDefault()
+      if (!drag.current && !suppressContext.current) { const box = root.current.getBoundingClientRect(); setMenu({ x: event.clientX - box.left, y: event.clientY - box.top }) }
+      suppressContext.current = false
+    }, onPointerDown: event => { if (!event.target.closest('.bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]')) start(event, event.button === 2 || event.shiftKey ? 'marquee' : 'pan') } },
       h('div', { className: 'bt-canvas-background', 'aria-hidden': true }),
       h('div', { className: 'bt-canvas-world', style: { transform: `translate(${state.viewport.x}px,${state.viewport.y}px) scale(${state.viewport.zoom})` } },
         state.groups.map(group => {
+          if (group.draft) return h('section', { key: group.id, className: 'bt-canvas-group bt-canvas-draft', 'data-group-id': group.id, 'data-drop-target': dropTarget === group.id || undefined, style: { left: group.x, top: group.y, width: 280, height: 180 } },
+            h('div', { className: 'bt-canvas-group-header' }, h(GroupTitle, { group, start, actions }), button(null, () => update(current => ungroupWindows(current, group.id)), CloseIcon, { title: t('Remove empty group'), 'aria-label': t('Remove empty group') })),
+            h('div', { className: 'bt-canvas-draft-members' }, selectedMains(state, roster, group.members, true).map(id => h(BotAvatar, { key: id, bot: roster.byId[id], size: 36, main: true }))),
+            h('p', null, t(group.members.length ? 'Add another Main Agent to start a group conversation.' : 'Drag Main Agents here')),
+            selectedMains(state, roster, group.members, true).length >= 2 ? button(t('Create group chat'), () => proposeGroup([], { kind: 'draft', id: group.id }), ChatsIcon) : null)
           const members = visible.filter(window => group.members.includes(window.id))
           if (!members.length) return null
           const x = Math.min(...members.map(window => window.x)) - 16, y = Math.min(...members.map(window => window.y)) - 45
@@ -295,13 +369,17 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
               employeesOf(visible, group.members, roster).length >= 2 ? button(null, () => actions.openNewChat('group', employeesOf(visible, group.members, roster)), ChatsIcon, { title: t('Create group chat'), 'aria-label': t('Create group chat') }) : null,
               button(null, () => update(current => ungroupWindows(current, group.id)), CloseIcon, { title: t('Ungroup'), 'aria-label': t('Ungroup') })))
         }),
-        visible.map(window => h(WindowCard, { key: window.id, window, roster, selected: state.selected.includes(window.id), active: state.active === window.id, dropTarget: dropTarget === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start }))),
-      visible.length === 0 ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
+        visible.map(window => h(WindowCard, { key: window.id, window, roster, selected: state.selected.includes(window.id), active: state.active === window.id, dropTarget: dropTarget === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, canvasMenu: event => { const box = root.current.getBoundingClientRect(); setMenu({ x: event.clientX - box.left, y: event.clientY - box.top }) } }))),
+      visible.length === 0 && !state.groups.some(group => group.draft) ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
+    menu ? h('div', { className: 'bt-canvas-context', role: 'menu', 'aria-label': t('Canvas actions'), style: { left: Math.max(0, Math.min(menu.x, size.width - 230)), top: Math.max(0, Math.min(menu.y, size.height - 150)) }, onContextMenu: event => event.preventDefault() },
+      button(t('New empty group'), newEmptyGroup, FolderIcon, { role: 'menuitem' }),
+      button(t('Create Main Agent group'), () => proposeGroup(mains), ChatsIcon, { role: 'menuitem', disabled: mains.length < 2 }),
+      button(t('Clear selection'), () => { update(current => setCanvasSelection(current, [])); setMenu(null) }, null, { role: 'menuitem', disabled: !state.selected.length })) : null,
     h(CanvasQuickMessage, { bot: quickBot, actions }),
     h(CanvasAgenda, { roster, actions }),
     marquee ? h('div', { className: 'bt-canvas-marquee', style: marquee }) : null,
     h('nav', { className: 'bt-canvas-dock', 'aria-label': t('Employees and group chats') }, [...roster.bots, ...roster.rooms].filter(entity => !entity.hidden).map(entity => h('button', { type: 'button', onClick: () => actions.openCanvasEntity(entity.id, size), key: entity.id, className: 'bt-canvas-button bt-canvas-dock-item', 'aria-label': entity.name, title: entity.name, 'aria-pressed': visible.some(window => window.entityId === entity.id && window.id === state.active) },
       roster.roomsById[entity.id] ? h(RoomAvatar, { room: entity, roster, size: 36 }) : h(BotAvatar, { bot: entity, size: 36, main: isMainOf(roster, entity.id) }), h('span', null, entity.name)))),
     h('div', { className: 'bt-canvas-zoom' }, button('−', () => zoom(1 / 1.15), null, { 'aria-label': t('Zoom out') }), h('output', null, `${Math.round(state.viewport.zoom * 100)}%`), button('+', () => zoom(1.15), null, { 'aria-label': t('Zoom in') }), button(t('Fit windows'), fit)),
-    h('div', { className: 'bt-canvas-status' }, t('Drag background to pan · Shift-drag to select · Ctrl-scroll to zoom')))
+    h('div', { className: 'bt-canvas-status' }, t('Drag to pan · Right-drag to select Main Agents · Drop into a group')))
 }

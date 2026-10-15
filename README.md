@@ -54,6 +54,15 @@ The default wallpaper is an original illustration of a misty lake, distant mount
 
 Drag the background to pan, Shift-drag to select windows, and Ctrl-scroll to zoom. **Group windows** arranges windows together; rename its label to organize the layout. Select employees or use a visual group's **Create group chat** action to preselect members in the original group form, then choose its admin and confirm. Room cards expose their admin, reply mode, member avatars and work, and group settings. Employee avatars retain details and the original management menu; selecting exactly two employees also opens their Bot exchange. There are no manual connection lines or workflow actions. Choose **Classic view** in the toolbar for the original conversation pane and sidebar, and **Employee canvas** in the sidebar to return. Layout, panel positions, quick-message drafts and view preference are saved in this browser, without syncing to other devices.
 
+Main Agent groups also support desktop-style gestures:
+
+- Overlap two Main Agent avatars, then confirm to create a group.
+- Right-click empty canvas and choose **New empty group**, or use the toolbar button. Drag its title to move it; double-click the name to rename it.
+- Hold the right mouse button and drag to select Main Agents. Right-click the selection to create a group, or drag any selected avatar to move the selection into an empty group or an existing Main Agent group.
+- Drag one more Main Agent, including one from the employee directory, onto a Main Agent group to add it. A confirmation lists the incoming members; existing members are not added twice.
+
+An empty group or a group with one member is a local draft, saved with the canvas layout. Adding a second Main Agent and confirming creates a real group conversation. Drafts do not send messages. Cancelling an avatar drop restores its original position; failed requests can be retried. These actions do not reassign child Bots, merge private chats or change running tasks and permissions. Ordinary group chats and visual window groups retain their existing behavior.
+
 ### Bot
 
 You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.

@@ -5,6 +5,19 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'New group': '新群组',
+  'New empty group': '新建空白群组',
+  'Remove empty group': '移除待建群组',
+  'Add Main Agents to group': '邀请主 Agent 加入群组',
+  'Add to empty group': '加入待建群组',
+  'Add to group': '加入群组',
+  'Add another Main Agent to start a group conversation.': '再加入一名主 Agent，即可创建群聊。',
+  'These Main Agents are already in this group.': '所选主 Agent 已在该群组中。',
+  'Select available Main Agents to continue.': '请选择有效的主 Agent 后继续。',
+  'Drag Main Agents here': '将主 Agent 拖到这里',
+  'Canvas actions': '画布操作',
+  'Clear selection': '取消选择',
+  'Drag to pan · Right-drag to select Main Agents · Drop into a group': '拖动空白处平移 · 右键拖动框选主 Agent · 拖入群组加入',
   'Create Main Agent group': '创建主 Agent 协作群',
   'A new group conversation. Each Main Agent keeps its own children, chats and running tasks.': '新建独立群聊，各主 Agent 的子 Agent、原有会话和运行任务保持不变。',
   'Both members must still be Main Agents.': '成员已变更，请重新选择两个主 Agent。',
