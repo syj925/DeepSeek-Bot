@@ -15,12 +15,16 @@ const isTypingTarget = node => node instanceof HTMLInputElement || node instance
 
 // A bare letter picks that option and the letter after the last one
 // jumps to the custom answer; never while typing or while a dialog is open.
-function useOptionKeys(count, onPick, ownRef) {
+function useOptionKeys(count, onPick, ownRef, rootRef) {
   const pick = useRef(onPick)
   pick.current = onPick
   useEffect(() => {
     if (count === 0) return undefined
     const onKey = (event) => {
+      const root = rootRef.current
+      if (!root) return
+      const canvasWindow = root.closest('.bt-canvas-window')
+      if (canvasWindow && canvasWindow.dataset.active !== 'true') return
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.length !== 1) return
       if (isTypingTarget(event.target) || isTypingTarget(document.activeElement)) return
       if (document.querySelector('[role="dialog"], [aria-modal="true"]') !== null) return
@@ -35,7 +39,7 @@ function useOptionKeys(count, onPick, ownRef) {
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [count, ownRef])
+  }, [count, ownRef, rootRef])
 }
 
 // A question shows two ways: as a bubble in the transcript, and raised when it
@@ -44,6 +48,7 @@ function QuestionView({ question, onAnswer, onDismiss, ownAnswer = false, raised
   const [own, setOwn] = useState('')
   const [picked, setPicked] = useState([])
   const ownRef = useRef(null)
+  const rootRef = useRef(null)
   const titleId = useId()
   const options = optionsOf(question)
   const multi = question.multiSelect === true
@@ -60,7 +65,7 @@ function QuestionView({ question, onAnswer, onDismiss, ownAnswer = false, raised
     if (!canSubmit) return
     onAnswer({ selected: multi ? picked : [], ...(custom ? { custom } : {}) })
   }
-  useOptionKeys(options.length, index => choose(options[index].label), ownRef)
+  useOptionKeys(options.length, index => choose(options[index].label), ownRef, rootRef)
   const ownLetter = options.length > 0 ? keyLetter(options.length) : undefined
   const field = ownAnswer ? h('textarea', {
     ref: ownRef, rows: 1, value: own, autoComplete: 'off', spellCheck: false, className: 'bt-q-input',
@@ -102,7 +107,7 @@ function QuestionView({ question, onAnswer, onDismiss, ownAnswer = false, raised
     foot = h('div', { className: 'bt-q-foot' }, h('button', { type: 'submit', className: 'bt-q-submit' }, t('Submit')))
   }
   return h('form', {
-    className: raised ? 'bt-q bt-q-raised' : 'bt-q', 'aria-labelledby': titleId,
+    ref: rootRef, className: raised ? 'bt-q bt-q-raised' : 'bt-q', 'aria-labelledby': titleId,
     onSubmit: (event) => { event.preventDefault(); submit() },
   },
     h('div', { className: 'bt-q-head' },

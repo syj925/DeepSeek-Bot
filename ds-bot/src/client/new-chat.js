@@ -7,9 +7,9 @@ import { CreateBot } from './create-bot.js'
 import { QUICK_EDGES, useFlip, useGlide, useMorph } from './motion.js'
 import { t } from './i18n.js'
 
-export function NewChat({ mode, roster, actions }) {
+export function NewChat({ mode, roster, actions, initialMembers = [] }) {
   const [query, setQuery] = useState('')
-  const [picked, setPicked] = useState([])
+  const [picked, setPicked] = useState(() => mode === 'group' ? [...new Set(initialMembers.map(id => roster.byId[id]?.id).filter(Boolean))] : [])
   const [group, setGroup] = useState(mode === 'group')
   // A new group chat picks its admin first, then the other members.
   const [admin, setAdmin] = useState(null)
@@ -24,8 +24,8 @@ export function NewChat({ mode, roster, actions }) {
   useEscape(close)
   const paneLeft = usePaneLeft()
   const wanted = query.trim().toLowerCase()
-  const matches = roster.bots.filter(bot => !picked.includes(bot.id) && bot.id !== admin && (wanted === '' || bot.name.toLowerCase().includes(wanted) || (bot.role ?? '').toLowerCase().includes(wanted)))
   const choosingAdmin = group && admin === null
+  const matches = roster.bots.filter(bot => (choosingAdmin || !picked.includes(bot.id)) && bot.id !== admin && (wanted === '' || bot.name.toLowerCase().includes(wanted) || (bot.role ?? '').toLowerCase().includes(wanted)))
   const exact = roster.bots.some(bot => bot.name.toLowerCase() === wanted)
   const pickedBots = picked.map(id => roster.byId[id]).filter(Boolean)
   const run = async (task) => {
@@ -42,6 +42,7 @@ export function NewChat({ mode, roster, actions }) {
   }
   const chooseAdmin = (bot) => {
     setAdmin(bot.id)
+    setPicked(current => current.filter(id => id !== bot.id))
     setQuery('')
     setCursor(0)
     inputRef.current?.focus()
@@ -79,7 +80,7 @@ export function NewChat({ mode, roster, actions }) {
   const createGroup = () => run(makeGroup)
   const sendMessage = () => run(async () => {
     const text = message.trim()
-    if (group && admin !== null) { await makeGroup(); return }
+    if (group) { if (admin !== null) await makeGroup(); return }
     if (text === '' || picked.length === 0) return
     if (picked.length === 1) {
       await actions.send(picked[0], text)
@@ -176,5 +177,5 @@ export function NewChat({ mode, roster, actions }) {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); sendMessage() }
             },
           }),
-          h('button', { type: 'button', className: 'bt-nc-send', 'aria-label': t('Send message'), disabled: busy || message.trim() === '' || picked.length === 0, onClick: sendMessage }, h(ArrowUpIcon))))))
+          h('button', { type: 'button', className: 'bt-nc-send', 'aria-label': t('Send message'), disabled: busy || message.trim() === '' || picked.length === 0 || choosingAdmin, onClick: sendMessage }, h(ArrowUpIcon))))))
 }

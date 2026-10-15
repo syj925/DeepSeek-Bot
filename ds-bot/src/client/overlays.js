@@ -9,18 +9,22 @@ import { ContextMenu } from './context-menu.js'
 import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
 import { MemoryDialog } from './memory-panel.js'
 import { useLinger } from './motion.js'
+import { CANVAS_PANEL, canvasSessionId } from './canvas-session.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
 const DIALOG_EXIT_MS = 160
 const MENU_EXIT_MS = 120
 
-export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useUpdate, actions }) {
+export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useUpdate, useCanvas, usePanelInfo, actions }) {
   const roster = useRoster(value => value)
   const ui = useUi(value => value)
   useRegistry(value => value)
-  const current = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
-  // An open panel follows the conversation in the main view. Only a change of the
-  // main view moves it, so opening details for another id (Rename) is not undone.
+  const main = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
+  const canvasActive = usePanelInfo(value => value.activePanelId === CANVAS_PANEL)
+  const window = useCanvas(value => value.windows.find(entry => entry.id === value.active && entry.open))
+  const current = canvasActive ? window ? canvasSessionId(window, roster) ?? null : null : main
+  // Only a visible conversation change follows the panel, so Rename can still
+  // open another employee's details without the hidden main view taking over.
   const previous = useRef(current)
   useEffect(() => {
     if (previous.current === current) return
@@ -40,7 +44,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
   return h(Fragment, null,
     pane ? createPortal(h(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
-    ui.newChat ? createPortal(h(NewChat, { key: ui.newChat, mode: ui.newChat, roster, actions }), document.body) : null,
+    ui.newChat ? createPortal(h(NewChat, { key: `${ui.newChat}:${(ui.newChatMembers ?? []).join(',')}`, mode: ui.newChat, initialMembers: ui.newChatMembers, roster, actions }), document.body) : null,
     ui.palette ? createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
     ui.exchange ? createPortal(h(ExchangeDialog, { pair: ui.exchange, roster, actions }), document.body) : null,
     ui.voice ? createPortal(h(VoiceMode, { key: ui.voice, sessionId: ui.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,

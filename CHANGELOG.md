@@ -4,6 +4,16 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Added
+
+- **Employee canvas**: open persistent Bots and real group chats in movable, resizable conversation windows. Pan and zoom the workspace, select and visually group windows, compact them into cards, and reopen them without creating another employee or deleting their history. The canvas uses the existing conversations and collaboration tools; it adds no manual links or workflow execution.
+- **Classic view** remains available from the canvas toolbar, with **Employee canvas** in the sidebar to return. Window layout and the chosen view are saved in the current browser only; employee and group-chat data remain in DSH.
+- **Load conversations on demand**: start with draggable 120×112 employee avatars and 320×200 Room summaries. Click an avatar to open its conversation; dragging only moves it. Multiple manually opened conversations can remain visible. Restoring a saved layout never auto-opens histories. Arrange entries by actual sizes and visual group, or collapse conversations without changing employee work or text drafts.
+- **Floating team panel**: drag, fold and reopen the original team list above the full-width canvas, with a saved position. A canvas-local dark glass theme and centered avatar dock accompany the panels. Classic view restores the original sidebar.
+- **Canvas collaboration controls**: compact entries expose employee management, group admins, reply modes and real member avatars and activity. Selected employees can enter the existing group creation or Bot exchange flows, while visual groups can be renamed independently.
+- **Quick message and Agenda panels**: independently drag and fold the panels. Send to the identified employee through the existing message action without opening history, with a separate saved quick-message draft per employee. Agenda uses the original scheduled-task catalog and settings, including empty and unavailable states.
+- **Local canvas wallpaper**: an original misty lake, mountain and forest illustration is bundled as the offline default. Choose a JPEG, PNG, WebP or AVIF image up to 25 MB from the canvas toolbar to replace it. Resize and compress it locally, save it in the current browser or app profile, and display it centered behind the glass panels without moving with the canvas. Restore the default illustration to delete the saved image. Failed selections preserve the previous wallpaper; no image upload or generation API is used.
+
 ## [0.1.5] - 2026-10-13
 
 ### Added

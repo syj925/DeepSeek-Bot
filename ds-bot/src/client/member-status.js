@@ -119,8 +119,15 @@ export function MemberDock({ sessionId, useRoster, useWork, actions }) {
 function useFlowColumn(ref, active, key) {
   useLayoutEffect(() => {
     const node = ref.current
-    const flow = document.querySelector('[data-chat-flow]')
-    if (!active || !node || !flow) return undefined
+    if (!active || !node) return undefined
+    // Canvas rectangles include its zoom; percentage width stays in local CSS pixels.
+    if (node.closest('.bt-canvas-window')) {
+      node.style.marginInlineStart = '0px'
+      node.style.width = '100%'
+      return undefined
+    }
+    const flow = node.closest('[data-conversation-content]')?.querySelector('[data-chat-flow]')
+    if (!flow) return undefined
     const place = () => {
       node.style.marginInlineStart = '0px'
       const column = flow.getBoundingClientRect()

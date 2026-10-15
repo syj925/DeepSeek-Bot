@@ -42,6 +42,18 @@ I strongly recommend that you set up your other bots and group chats by just tal
 
 ## Features
 
+### Employee canvas (unreleased)
+
+This development branch adds a canvas for persistent employees and group chats. The background fills the workspace, with dark translucent glass panels, a movable, collapsible team list and a centered avatar dock. This glass theme is local to the canvas. Use **Create employee** to configure a new Bot, or open an existing one from **Employee directory**, the team list or the dock. Expanded conversations can move and resize; compacting or closing them preserves the employee, memory and conversation.
+
+Employees start as draggable 120×112 avatar entries; Rooms remain 320×200 summaries with their real members. Click an employee avatar or a Room's **Open conversation** to load its conversation. Several manually opened conversations can stay visible together. Reloading restores compact entries and positions without loading all histories. **Arrange cards** packs entries by their actual sizes and visual groups; **Collapse conversations** keeps their positions. Moving and grouping entries never loads a conversation or stops background work.
+
+**Quick message** and **Agenda** are separate movable, collapsible panels. Quick message identifies its employee recipient and sends through the existing messaging action without opening history; each employee has a separate locally saved quick-message draft. Agenda reads the existing scheduled-task catalog and links to its settings, showing empty or unavailable states when appropriate.
+
+The default wallpaper is an original illustration of a misty lake, distant mountains and forest, bundled for offline use. Choose **Wallpaper → Choose local image** in the canvas toolbar to replace it with a picture from your computer. JPEG, PNG, WebP and AVIF files up to 25 MB are supported. The image fills the workspace, stays centered while you pan or zoom, and has a dark overlay to keep the glass panels readable. It is resized and saved only in the current browser or app profile, with no upload or image-generation API call. **Restore default background** removes the saved image and returns to the lake illustration. A failed selection keeps the previous wallpaper.
+
+Drag the background to pan, Shift-drag to select windows, and Ctrl-scroll to zoom. **Group windows** arranges windows together; rename its label to organize the layout. Select employees or use a visual group's **Create group chat** action to preselect members in the original group form, then choose its admin and confirm. Room cards expose their admin, reply mode, member avatars and work, and group settings. Employee avatars retain details and the original management menu; selecting exactly two employees also opens their Bot exchange. There are no manual connection lines or workflow actions. Choose **Classic view** in the toolbar for the original conversation pane and sidebar, and **Employee canvas** in the sidebar to return. Layout, panel positions, quick-message drafts and view preference are saved in this browser, without syncing to other devices.
+
 ### Bot
 
 You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.
@@ -76,7 +88,7 @@ In **Settings** → **Usage**, you can see token usage by time, by bot and by mo
 
 ## Data
 
-All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.
+Employee, group-chat and conversation data stay on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data. Canvas layout and the selected wallpaper are separate browser-local data; clearing browser storage resets the layout and removes the wallpaper without deleting employees or conversations.
 
 ## Development
 

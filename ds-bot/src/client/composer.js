@@ -57,6 +57,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion())
   })
+  const voiceButton = useRef(null)
   // Reply from a message's hover toolbar quotes it into this composer.
   const quote = useUi(state => (state.quote?.sessionId === sessionId ? state.quote : null))
   useEffect(() => {
@@ -65,7 +66,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
     const excerpt = quote.text.replace(/\s+/g, ' ').trim()
     const line = `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}\n\n`
     inputActions.insertText(line, inputActions.captureInsertion())
-    const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]')
+    const box = voiceButton.current?.closest('[data-conversation-content]')?.querySelector('[role=textbox][contenteditable=true]')
     if (box instanceof HTMLElement) {
       box.focus()
       const selection = window.getSelection()
@@ -83,7 +84,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
       onMouseDown: keepComposerFocus, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()),
     }, h(MicIcon)),
     h('button', {
-      type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
+      ref: voiceButton, type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
       onMouseDown: keepComposerFocus, onClick: () => actions.openVoice(sessionId),
     }, h(WaveIcon, { size: 18 })),
     dictation.note ? h('span', { className: 'bt-mic-note', role: 'status' }, dictation.note) : null)

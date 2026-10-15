@@ -1,7 +1,8 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
-import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon } from './icons.js'
+import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, InfoIcon, MemoryIcon, ClockIcon } from './icons.js'
+import { GlobeIcon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 
@@ -28,6 +29,12 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
   const isTile = roster.mainBotId === menu.id
   const mainCount = (roster.mainBotIds ?? []).length
   const groups = [
+    [
+      [t('Details'), InfoIcon, () => actions.showDetails(entry.id)],
+      bot && roster.memory !== false ? [t('Memory'), MemoryIcon, () => actions.openMemory(bot.id)] : null,
+      [t('Scheduled tasks'), ClockIcon, () => actions.openSettings('schedules', entry.id)],
+      bot && roster.browser === true && actions.openBrowser ? [t('Open browser'), GlobeIcon, () => actions.openBrowser(bot.id)] : null,
+    ],
     [
       isTile ? null : [entry.pinned ? t('Unpin') : t('Pin'), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
       [t('Mark as Unread'), UnreadIcon, () => actions.markUnread(menu.id)],

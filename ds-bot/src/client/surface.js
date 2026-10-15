@@ -4,8 +4,8 @@ import { STORAGE } from './storage.js'
 // 'agent' withdraws every replacement so the shell's own interface comes back.
 // `plain` marks a Bot-mode view whose main view is a plain session — only the
 // conversation replacements come off then, the shell stays.
-export function groupsFor({ mode, plain = false }) {
-  return { shell: mode === 'bot', conversation: mode === 'bot' && !plain }
+export function groupsFor({ mode, plain = false, canvas = false }) {
+  return { shell: mode === 'bot', conversation: mode === 'bot' && (canvas || !plain) }
 }
 
 const GROUPS = ['shell', 'conversation']

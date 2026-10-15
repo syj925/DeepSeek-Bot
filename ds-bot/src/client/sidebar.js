@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon } from './icons.js'
+import { PlusIcon, SearchIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, PeopleIcon, ChevronLeftIcon, ChevronRightIcon } from './icons.js'
 import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
@@ -11,6 +11,8 @@ import { Shimmer, workPhrase } from './cells.js'
 import { springEasing, SPRING_SHAPE } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { showsDshRow } from './dsh-offer.js'
+import { CANVAS_PANEL } from './canvas-session.js'
+import { useFloatingTeam, FLOATING_TEAM_CSS } from './floating-team.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -37,14 +39,18 @@ const workKeys = text => (text === '' ? [] : text.split(',').map((key) => {
 }))
 const workLine = (lead, tool, more) => h(Shimmer, null, `${lead} · ${workPhrase(tool)}…${more > 0 ? ` +${more}` : ''}`)
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useCompletions, useActivity, useWork, canvasActive, canvasEntity, wide, marked }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
   const running = useSessionStatus(map => map.get(part)?.running === true)
-  const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
-  useMarkedUnread(id, active, marked, actions)
+  const retained = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const active = canvasActive ? canvasEntity?.kind === 'bot' && canvasEntity.entityId === id : retained
+  const reading = active && (!canvasActive || !canvasEntity.compact)
+  const completed = useCompletions(value => value[part] === true)
+  const pending = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
+  const unread = completed || pending || (marked && !reading)
+  useMarkedUnread(id, reading, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
   const approval = useApproval(useWork, entry => entry.botId === id)
@@ -62,7 +68,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
-  if (tile && wide) {
+  if (tile && wide && !canvasActive) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
@@ -80,16 +86,19 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), pinned ? h(PinMark) : null),
     awayLine ? h('span', { className: 'bt-row-preview' }, awayLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
-  wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
+  wide && (completed || unread && !reading) ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
 
-function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
+function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, useCompletions, useWork, canvasActive, canvasEntity, wide, marked }) {
   const id = room.id
   const fallback = useSessions(list => previewOf(list, id))
   const preview = room.preview?.replace(/\s+/g, ' ').trim() || fallback
-  const active = useSessionRetainInfo(id, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => map.get(id)?.completionUnread === true) || (marked && !active)
-  useMarkedUnread(id, active, marked, actions)
+  const retained = useSessionRetainInfo(id, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const active = canvasActive ? canvasEntity?.kind === 'room' && canvasEntity.entityId === id : retained
+  const reading = active && (!canvasActive || !canvasEntity.compact)
+  const completed = useCompletions(value => value[id] === true)
+  const unread = completed || (marked && !reading)
+  useMarkedUnread(id, reading, marked, actions)
   const approval = useApproval(useWork, entry => entry.roomId === id)
   const members = workKeys(useGroupWork(useWork, rooms => (rooms[id] ?? []).map(entry => `${entry.botId}|${entry.tool ?? ''}`)))
   const first = roster.byId[members[0]?.id]
@@ -107,8 +116,8 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), pinned ? h(PinMark) : null),
     workingLine ? h('span', { className: 'bt-row-preview' }, workingLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
-  wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
-    : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
+  wide && approval && !reading ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
+    : wide && (completed || unread && !reading) ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
 
 // One expanded DSH Agent Session row: title, relative stamp, rename field, and a
@@ -236,10 +245,16 @@ function useListGlide(listRef, layout, key) {
 }
 
 export function TeamSidebar(props) {
-  const { wide, useRoster, useUi, useSessions, actions } = props
+  const { useRoster, useUi, useSessions, actions } = props
+  const root = useRef(null)
   const listRef = useRef(null)
+  const listId = useId()
   const roster = useRoster(value => value)
   const markedUnread = useUi(value => value.unread)
+  const canvasActive = props.usePanelInfo(value => value.activePanelId === CANVAS_PANEL)
+  const wide = canvasActive || props.wide
+  const floating = useFloatingTeam(canvasActive, root)
+  const canvasEntity = props.useCanvas(value => value.windows.find(window => window.id === value.active && window.open))
   props.useRegistry(value => value)
   const updated = useSessions(list => {
     const stamps = {}
@@ -258,8 +273,8 @@ export function TeamSidebar(props) {
   }, [roster, updated])
   const main = roster.byId[roster.mainBotId]
   useListGlide(listRef, wide, order.map(entry => entry.item.id).join(','))
-  useLandOnMainBot(roster, useSessions, actions)
-  const rowProps = { roster, actions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide }
+  useLandOnMainBot(roster, useSessions, actions, canvasActive)
+  const rowProps = { roster, actions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useCompletions: props.useCompletions, useActivity: props.useActivity, useWork: props.useWork, canvasActive, canvasEntity, wide }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
@@ -267,17 +282,19 @@ export function TeamSidebar(props) {
     event.preventDefault()
     actions.openPalette(event.key)
   }
-  return h('div', { className: wide ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
+  return h('div', { ref: root, className: wide ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     wide ? h('div', { className: 'bt-side-top' },
-      h('span', { className: 'bt-brand' }, h(BrandMark, { size: 22 }), h(BrandName)),
+      canvasActive ? h('button', { type: 'button', className: 'bt-team-grip', 'aria-label': t('Move team panel'), title: t('Drag to move · Arrow keys to adjust · Home to reset'), ...floating.handle }, h(PeopleIcon), h('span', null, t('Team')))
+        : h('span', { className: 'bt-brand' }, h(BrandMark, { size: 22 }), h(BrandName)),
       h(UpdateButton, { useUpdate: props.useUpdate, actions }),
       h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
-      h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)))
+      h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
+      canvasActive ? h('button', { type: 'button', className: 'bt-round bt-team-fold', 'aria-label': t(floating.folded ? 'Expand team panel' : 'Collapse team panel'), title: t(floating.folded ? 'Expand team panel' : 'Collapse team panel'), 'aria-expanded': !floating.folded, 'aria-controls': listId, onClick: floating.toggle }, h(floating.folded ? ChevronRightIcon : ChevronLeftIcon)) : null)
       : h(Fragment, null,
           h(UpdateButton, { useUpdate: props.useUpdate, actions }),
           h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon))),
     wide && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
-    h('div', { ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list') },
+    h('div', { ref: listRef, id: listId, className: 'bt-list', role: 'region', 'aria-label': t('Bot list') },
       main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
       order.map(entry => (entry.kind === 'bot'
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
@@ -374,14 +391,15 @@ function UpdateButton({ useUpdate, actions }) {
 
 // The footer entry to the shell's plugin panel, marked as not yet adapted: the red
 // badge and a hover tip explain that plugin support lands step by step.
-export function ConnectPlugins({ wide, actions }) {
+export function ConnectPlugins({ wide, actions, usePanelInfo }) {
+  const canvasActive = usePanelInfo(value => value.activePanelId === CANVAS_PANEL)
   const tipId = useId()
   const [tip, setTip] = useState(false)
   const timer = useRef(0)
   const button = useRef(null)
   const [box, setBox] = useState(null)
   useEffect(() => () => clearTimeout(timer.current), [])
-  if (!wide) return null
+  if (!wide && !canvasActive) return null
   const show = () => {
     clearTimeout(timer.current)
     timer.current = setTimeout(() => {
@@ -535,13 +553,15 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
 // The view always lands on a Bot rather than an empty New Session page.
 // When a Bot's chat moves on to a fresh part, the shell clears the view of the part
 // it archived; the chat then goes on in the Bot's current part instead.
-function useLandOnMainBot(roster, useSessions, actions) {
+function useLandOnMainBot(roster, useSessions, actions, canvasActive) {
   const mainView = useSessions((list) => {
     const row = Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)
     return row ? `${row.id}|${row.blank ? 1 : 0}` : ''
   })
   const lastBot = useRef(null)
   useEffect(() => {
+    // The retained main view is hidden behind the canvas and must not navigate it.
+    if (canvasActive) { lastBot.current = null; return undefined }
     if (!roster.ready || !roster.mainBotId) return undefined
     const [id, blank] = mainView.split('|')
     const bot = id === '' ? undefined : roster.byId[id]
@@ -558,7 +578,7 @@ function useLandOnMainBot(roster, useSessions, actions) {
     const last = lastBot.current
     const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400)
     return () => clearTimeout(timer)
-  }, [mainView, roster])
+  }, [mainView, roster, canvasActive])
 }
 
 export function FooterAccount(props) {
@@ -600,6 +620,7 @@ export function BrandName() {
 // and Connect plugins; FooterAccount only shows when the seat went to no one. The
 // shell's footer classes are CSS-module names, so they match on their stems.
 export const SIDEBAR_CSS = `
+${FLOATING_TEAM_CSS}
 .bt-side-top .bt-brand{cursor:default;padding-left:6px}
 .bt-side-top .bt-brand:hover{background:none}
 .bt-brand .bt-mark{flex:none}

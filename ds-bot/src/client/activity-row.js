@@ -20,30 +20,34 @@ export function elapsedLabel(ms) {
 }
 export { reducedMotion }
 
-function useRunningHost(active) {
+function useRunningHost(active, rootRef) {
   const [host, setHost] = useState(null)
   useEffect(() => {
     if (!active) { setHost(null); return undefined }
+    const root = rootRef ? rootRef.current : document
+    if (!root) return undefined
     let frame = 0
     const find = () => {
       frame = 0
-      const node = document.querySelector('[data-chat-flow] > [data-chat-running]')
+      const node = root.querySelector('[data-chat-flow] > [data-chat-running]')
       setHost(prev => (prev === node ? prev : node))
     }
     const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
-    observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
+    observer.observe(rootRef ? root : (root.querySelector('[data-conversation-scroll]') ?? document.body), { childList: true, subtree: true })
     find()
     return () => { cancelAnimationFrame(frame); observer.disconnect() }
-  }, [active])
+  }, [active, rootRef])
   return host
 }
 
 // New rows slide in. The first paint of a transcript, history
 // loaded above, and bulk loads arrive without motion.
-function useRowEntrances(replacing) {
+function useRowEntrances(replacing, rootRef) {
   const check = useRef(replacing)
   check.current = replacing
   useEffect(() => {
+    const root = rootRef ? rootRef.current : document
+    if (!root) return undefined
     const seen = new WeakSet()
     const started = Date.now()
     let column = null
@@ -55,11 +59,11 @@ function useRowEntrances(replacing) {
     }
     const scan = () => {
       frame = 0
-      const next = document.querySelector('[data-chat-flow]')
+      const next = root.querySelector('[data-chat-flow]')
       if (next !== column) {
         observer.disconnect()
         column = next
-        if (column) observer.observe(column, { childList: true, subtree: true })
+        observer.observe(rootRef ? root : (column ?? document.body), { childList: true, subtree: true })
       }
       if (!column) return
       const items = [...column.querySelectorAll(':scope > [data-chat-flow-key]')]
@@ -76,12 +80,13 @@ function useRowEntrances(replacing) {
       }
     }
     const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(scan) })
+    observer.observe(rootRef ? root : document.body, { childList: true, subtree: true })
     scan()
     return () => { cancelAnimationFrame(frame); observer.disconnect() }
-  }, [])
+  }, [rootRef])
 }
 
-export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, actions }) {
+export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, actions, rootRef }) {
   const roster = useRoster(value => value)
   const running = useSessionStatus(map => map.get(sessionId)?.running === true)
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
@@ -129,11 +134,12 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     if (visible) { setPhase('in'); return undefined }
     setPhase(current => (current === 'in' ? 'out' : current))
     const timer = setTimeout(() => {
-      shift.current = document.querySelector('[data-conversation-scroll]')?.scrollTop ?? null
+      const root = rootRef ? rootRef.current : document
+      shift.current = root?.querySelector('[data-conversation-scroll]')?.scrollTop ?? null
       setPhase(current => (current === 'out' ? null : current))
     }, 140)
     return () => clearTimeout(timer)
-  }, [visible])
+  }, [visible, rootRef])
   // Removing the row at a pinned tail moves the transcript down; a tail
   // shift eases that collapse instead of jumping.
   useLayoutEffect(() => {
@@ -142,22 +148,23 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     setShown(null)
     const before = shift.current
     shift.current = null
-    const scroller = document.querySelector('[data-conversation-scroll]')
+    const root = rootRef ? rootRef.current : document
+    const scroller = root?.querySelector('[data-conversation-scroll]')
     if (before === null || !scroller || reducedMotion()) return
     const delta = before - scroller.scrollTop
     if (delta > 0) scroller.querySelector('[data-chat-flow]')?.animate([{ transform: `translateY(${-delta}px)` }, { transform: 'none' }], { duration: 140, easing: 'cubic-bezier(.23,1,.32,1)' })
-  }, [phase])
+  }, [phase, rootRef])
   // Cancelled tools never report a result, so their notes end with the run.
   useEffect(() => { if (!running) actions.clearLive(sessionId) }, [running, sessionId])
   // Only rows that take the activity row's place grow out of it.
-  useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300)
+  useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300, rootRef)
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     if (phase !== 'in') return undefined
     const timer = setInterval(() => setNow(Date.now()), 10000)
     return () => clearInterval(timer)
   }, [phase])
-  const host = useRunningHost(running)
+  const host = useRunningHost(running, rootRef)
   if (!host || phase === null || !shown) return null
   const elapsed = now - shown.at >= 60000 ? elapsedLabel(now - shown.at) : null
   return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined, 'aria-hidden': true },

@@ -33,6 +33,11 @@ import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
+import { CANVAS_PANEL, CANVAS_CONVERSATION, CanvasConversation, CanvasLauncher, canvasSessionId } from './canvas-session.js'
+import { CanvasWorkspace } from './canvas-workspace.js'
+import { canvasStyles } from './canvas-styles.js'
+import { watchCompletions } from './completion-unread.js'
+import { readCanvas, writeCanvas, reconcileCanvas, openWindow, setCanvasSelection, fitViewport, setWindowCompact, compactConversations, arrangeCards } from './canvas-state.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -57,6 +62,28 @@ export function apply(ctx) {
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
   const surface = createSource({ mode: readMode(), plain: false })
+  const canvas = createSource(readCanvas())
+  const completions = createSource({})
+  let canvasPreferred = true
+  try { canvasPreferred = localStorage.getItem(STORAGE.workspaceView) !== 'classic' } catch { /* storage unavailable */ }
+  const canvasVisible = () => ctx.layout.panelInfo?.getSnapshot().activePanelId === CANVAS_PANEL
+  let canvasSaveTimer
+  let canvasSize, pendingCanvasFocus
+  const saveCanvas = () => { clearTimeout(canvasSaveTimer); writeCanvas(undefined, canvas.getSnapshot()) }
+  const updateCanvas = (next, persist = true) => {
+    canvas.set(next)
+    if (persist) { clearTimeout(canvasSaveTimer); canvasSaveTimer = setTimeout(saveCanvas, 180) }
+  }
+  ctx.effect(() => {
+    const sync = () => {
+      const current = canvas.getSnapshot(), next = reconcileCanvas(current, roster.getSnapshot())
+      if (JSON.stringify(next) !== JSON.stringify(current)) updateCanvas(next)
+    }
+    const off = roster.subscribe(sync)
+    window.addEventListener('pagehide', saveCanvas)
+    return () => { off(); saveCanvas(); window.removeEventListener('pagehide', saveCanvas) }
+  }, 'ds-bot: canvas layout')
+  ctx.effect(() => watchCompletions({ sessions: ctx.sessions.list, roster, canvas, panels: ctx.layout.panelInfo, completions, canvasSize: () => canvasSize }), 'ds-bot: conversation completions')
   // DSH Agent Session ids from the last pull, so a reload already knows the main
   // view is a plain Session before the team answers.
   let agentSessionCache = new Set()
@@ -344,6 +371,7 @@ export function apply(ctx) {
     openSession: (id) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
+      if (canvasPreferred && (roster.getSnapshot().byId[id] || roster.getSnapshot().roomsById[id])) return actions.openCanvasEntity(id)
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
       setPlain(false)
       const target = partFor(id)
@@ -418,7 +446,7 @@ export function apply(ctx) {
       ctx.uiWorkspace.openSession(target)
     },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },
-    openNewChat: (mode) => { ui.set(state => ({ ...state, newChat: mode, menu: null, palette: null })) },
+    openNewChat: (mode, members = []) => { ui.set(state => ({ ...state, newChat: mode, newChatMembers: mode === 'group' ? [...new Set(members.map(id => roster.getSnapshot().byId[id]?.id).filter(Boolean))] : [], menu: null, palette: null })) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
@@ -455,6 +483,7 @@ export function apply(ctx) {
       if (mode !== 'bot' && mode !== 'agent') return
       if (surface.getSnapshot().mode === mode) return
       if (mode === 'agent') {
+        if (canvasVisible()) ctx.layout.selectPanel(null)
         ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
       }
       writeMode(mode)
@@ -465,6 +494,7 @@ export function apply(ctx) {
       const home = () => {
         const snapshot = roster.getSnapshot()
         if (!snapshot.ready || !snapshot.mainBotId) return
+        if (canvasPreferred) { actions.openCanvas(); return }
         const list = ctx.sessions.list.getSnapshot()
         const main = Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
         if (main !== undefined && snapshot.byId[main] === undefined && snapshot.roomsById[main] === undefined) {
@@ -567,6 +597,76 @@ export function apply(ctx) {
       ui.set(state => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }))
     },
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
+  }
+  actions.updateCanvas = updateCanvas
+  actions.saveCanvas = saveCanvas
+  actions.setCanvasSize = size => {
+    canvasSize = size
+    if (size && pendingCanvasFocus) {
+      updateCanvas(state => fitViewport(state, size, size.insets, pendingCanvasFocus === 'all' ? undefined : [pendingCanvasFocus]))
+      pendingCanvasFocus = undefined
+    }
+  }
+  actions.retainCanvasSession = id => ctx.sessions.retain(id, { source: 'dsBotCanvas' })
+  actions.refreshCanvasSessions = () => ctx.sessions.refresh()
+  actions.compactCanvasConversations = () => updateCanvas(state => compactConversations(state))
+  actions.arrangeCanvasCards = () => updateCanvas(state => {
+    const next = arrangeCards(state)
+    return canvasSize ? fitViewport(next, canvasSize, canvasSize.insets) : next
+  })
+  actions.selectCanvasWindow = (id, selected = true, additive = false) => {
+    const current = canvas.getSnapshot()
+    const ids = additive ? selected ? [...new Set([...current.selected, id])] : current.selected.filter(value => value !== id) : current.selected.includes(id) ? current.selected : [id]
+    if (current.active === id && JSON.stringify(current.selected) === JSON.stringify(ids)) return
+    updateCanvas(setCanvasSelection(current, ids, id))
+  }
+  actions.openCanvasEntity = (id, size) => {
+    const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id]
+    if (!entity) return
+    const kind = snapshot.roomsById[entity.id] ? 'room' : 'bot'
+    const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind })
+    const window = next.windows.find(value => value.entityId === entity.id)
+    updateCanvas(next)
+    actions.openCanvasConversation(window.id, size)
+  }
+  actions.openCanvasConversation = (id, size) => {
+    const current = canvas.getSnapshot()
+    if (!current.windows.some(window => window.id === id && window.open)) return
+    let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
+    const viewport = size ?? canvasSize
+    if (viewport) next = fitViewport(next, viewport, viewport.insets, [id])
+    else pendingCanvasFocus = id
+    updateCanvas(next)
+    actions.openCanvas(false)
+  }
+  actions.openCanvas = (seed = true) => {
+    canvasPreferred = true
+    try { localStorage.setItem(STORAGE.workspaceView, 'canvas') } catch { /* storage unavailable */ }
+    ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null }))
+    if (seed) updateCanvas(state => compactConversations(state))
+    if (seed && canvas.getSnapshot().windows.length === 0) {
+      const snapshot = roster.getSnapshot()
+      let next = canvas.getSnapshot()
+      const entities = [...snapshot.bots.filter(bot => !bot.hidden).map(bot => ({ id: bot.id, kind: 'bot' })), ...snapshot.rooms.filter(room => !room.hidden).map(room => ({ id: room.id, kind: 'room' }))]
+      entities.forEach(entity => {
+        next = openWindow(next, entity)
+      })
+      next = arrangeCards(next)
+      if (next.windows.length) next = setCanvasSelection(next, [next.windows[0].id], next.windows[0].id)
+      pendingCanvasFocus = next.windows.length ? 'all' : undefined
+      updateCanvas(next)
+    }
+    surface.set(state => ({ ...state, canvas: true }))
+    ctx.layout.selectPanel(CANVAS_PANEL)
+  }
+  actions.openClassicSession = id => {
+    canvasPreferred = false
+    try { localStorage.setItem(STORAGE.workspaceView, 'classic') } catch { /* storage unavailable */ }
+    const state = canvas.getSnapshot(), window = state.windows.find(value => value.id === state.active)
+    const target = id ?? (window ? canvasSessionId(window, roster.getSnapshot()) : undefined) ?? roster.getSnapshot().mainBotId
+    surface.set(value => ({ ...value, canvas: false }))
+    if (target) actions.openSession(target)
+    else ctx.layout.selectPanel(null)
   }
   // Without the Desktop bridge these stay undefined, and no browser control renders.
   if (browsers) {
@@ -689,11 +789,15 @@ export function apply(ctx) {
   })
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update, canvas, completions } })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
-    shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
+    shownSession: () => {
+      if (!canvasVisible()) return Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
+      const state = canvas.getSnapshot(), window = state.windows.find(value => value.id === state.active && value.open && !value.compact)
+      return window ? canvasSessionId(window, roster.getSnapshot()) : undefined
+    },
     openSession: id => actions.openSession(id),
   }), 'ds-bot: approval notifications')
   const assistantFace = (sessionId) => {
@@ -759,6 +863,7 @@ export function apply(ctx) {
     installCompiledStyles(ABOUT_CSS, 'about'),
     installCompiledStyles(MEMBER_CSS, 'members'),
     installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
+    installCompiledStyles(canvasStyles, 'canvas'),
     browsers ? installCompiledStyles(BROWSER_CSS, 'browser') : null,
     installTheme(),
     shadow('sidebar.workspaces', { priority: -10, inject: face }, TeamSidebar),
@@ -773,6 +878,9 @@ export function apply(ctx) {
     shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
     shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
     shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
+    shadow('main', { key: CANVAS_PANEL, inject: face, children: { [CANVAS_CONVERSATION]: { kind: 'single', scope: 'session' } } }, CanvasWorkspace),
+    shadow(CANVAS_CONVERSATION, { inject: face }, CanvasConversation),
+    shadow('sidebar.footer.action', { id: 'bot-canvas', order: -250, inject: face }, CanvasLauncher),
   ]
   const installConversation = () => [
     installCompiledStyles(CONVERSATION_CSS, 'conversation'),
@@ -827,7 +935,7 @@ export function apply(ctx) {
       const main = Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
       const plain = isAgentSessionId(main)
       setPlain(plain)
-      if (plain) dropPanels()
+      if (plain && !canvasVisible()) dropPanels()
       if (main === previous) return
       const before = previous
       previous = main
@@ -883,4 +991,21 @@ export function apply(ctx) {
       groups.dispose()
     }
   }, 'ds-bot: surface')
+
+  ctx.effect(() => {
+    const sync = () => {
+      const on = canvasVisible()
+      surface.set(state => state.canvas === on ? state : { ...state, canvas: on })
+    }
+    const off = ctx.layout.panelInfo.subscribe(sync)
+    let initialized = false
+    const restore = () => {
+      if (initialized || !roster.getSnapshot().ready) return
+      initialized = true
+      if (canvasPreferred && surface.getSnapshot().mode === 'bot' && !surface.getSnapshot().plain) actions.openCanvas()
+    }
+    const offRoster = roster.subscribe(restore)
+    restore()
+    return () => { off(); offRoster() }
+  }, 'ds-bot: canvas navigation')
 }
