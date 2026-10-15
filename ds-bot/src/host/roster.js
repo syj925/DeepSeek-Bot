@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
+import { ownerOf, checkRoomMembers } from './ownership.js'
 
 export function install(rt) {
   const { ctx, config, home, defaults, state } = rt
@@ -83,6 +84,7 @@ export function install(rt) {
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
+        ...(!main && ownerOf(state, createdBy) ? { ownerId: ownerOf(state, createdBy) } : {}),
         capabilities: [],
       }
       if (main) state.mainBotIds.push(id)
@@ -269,9 +271,10 @@ export function install(rt) {
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
   }
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, mainOnly = false } = {}) {
     const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
     checkMembers(members)
+    checkRoomMembers(state, members, mainOnly, createdBy)
     const custom = cleanRoomName(roomName ?? '')
     // A Main Bot leads the groups it makes; a group the user makes is led by a Main
     // Bot member when it has one.
@@ -288,6 +291,7 @@ export function install(rt) {
         name: title,
         ...(custom ? { named: true } : {}),
         members,
+        ...(mainOnly ? { mainOnly: true } : {}),
         admin: adminId,
         mode: mode ?? 'admin',
         notice: cleanNotice(notice),
@@ -317,6 +321,7 @@ export function install(rt) {
     for (const member of patch.add ?? []) if (!members.includes(member)) members.push(member)
     members = members.filter(member => !(patch.remove ?? []).includes(member) && rt.botOf(member))
     checkMembers(members)
+    if (room.mainOnly === true) checkRoomMembers(state, members, true, actorId)
     let admin = room.admin ?? null
     if (patch.admin !== undefined) {
       admin = patch.admin || null

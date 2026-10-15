@@ -629,6 +629,14 @@ export function apply(ctx) {
     updateCanvas(next)
     actions.openCanvasConversation(window.id, size)
   }
+  actions.placeCanvasMain = (id, point) => {
+    const snapshot = roster.getSnapshot()
+    if (!snapshot.byId[id] || !snapshot.mainBotIds?.includes(id)) return
+    updateCanvas(state => {
+      const next = openWindow(state, { id, kind: 'bot' })
+      return { ...next, windows: next.windows.map(window => window.entityId === id && window.kind === 'bot' ? { ...window, x: point.x, y: point.y } : window) }
+    })
+  }
   actions.openCanvasConversation = (id, size) => {
     const current = canvas.getSnapshot()
     if (!current.windows.some(window => window.id === id && window.open)) return

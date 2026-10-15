@@ -10,6 +10,8 @@ import { CanvasQuickMessage, CanvasAgenda, SPATIAL_WIDGET_CSS, toggleSpatialWidg
 import { CanvasWallpaper } from './canvas-wallpaper.js'
 import { collapseWindow, fitViewport, groupWindows, moveWindow, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact, ungroupWindows, windowHeight, windowWidth } from './canvas-state.js'
 import { t } from './i18n.js'
+import { MAIN_AGENT_DRAG, overlapMain, canvasDropPoint } from './canvas-collaboration.js'
+import { MainAgentGroup, MAIN_GROUP_CSS } from './main-agent-group.js'
 
 const button = (label, onClick, icon, extra = {}) => h('button', { type: 'button', className: 'bt-canvas-button', onClick, ...extra }, icon ? h(icon) : null, label)
 const entityOf = (window, roster) => window.kind === 'room' ? roster.roomsById[window.entityId] : roster.byId[window.entityId]
@@ -51,7 +53,7 @@ function GroupTitle({ group, start, actions }) {
     button(null, edit, PencilIcon, { 'aria-label': t('Rename window group'), title: t('Rename window group') }))
 }
 
-function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start }) {
+function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget }) {
   const entity = entityOf(window, roster)
   const sessionId = canvasSessionId(window, roster)
   const preview = useSessions(list => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId]))
@@ -88,6 +90,7 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
   const shell = {
     className: 'bt-canvas-window', 'data-window-id': window.id, 'data-entity-id': entity.id,
     'data-kind': window.kind,
+    'data-drop-target': dropTarget || undefined,
     'data-mode': window.compact ? 'card' : 'conversation',
     'data-active': active || undefined, 'data-selected': selected || undefined, 'aria-label': entity.name,
     style: { left: window.x, top: window.y, width: windowWidth(window), height: windowHeight(window), zIndex: window.z + 2 },
@@ -139,6 +142,8 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   const root = useRef(null)
   const drag = useRef(null)
   const [marquee, setMarquee] = useState(null)
+  const [dropTarget, setDropTarget] = useState(null)
+  const [groupMembers, setGroupMembers] = useState(null)
   const [size, setSize] = useState({ width: 1000, height: 700 })
   const visible = state.windows.filter(window => window.open && entityOf(window, roster))
   const focused = useRef(null)
@@ -201,7 +206,12 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     const dx = event.clientX - current.startX, dy = event.clientY - current.startY, v = current.state.viewport
     if (Math.hypot(dx, dy) > 4) current.moved = true
     if (current.kind === 'pan') update(() => setCanvasViewport(current.state, { ...v, x: v.x + dx, y: v.y + dy }), false)
-    if (current.kind === 'window' || current.kind === 'group' || current.kind === 'avatar' && current.moved) update(() => current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids }), false)
+    if (current.kind === 'window' || current.kind === 'group' || current.kind === 'avatar' && current.moved) {
+      const next = current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids })
+      current.latest = next
+      update(next, false)
+      setDropTarget(current.ids.length === 1 && ['avatar', 'window'].includes(current.kind) ? overlapMain(next, roster, current.id)?.id ?? null : null)
+    }
     if (current.kind === 'resize') update(() => resizeWindow(current.state, current.id, dx / v.zoom, dy / v.zoom), false)
     if (current.kind === 'marquee') {
       const left = Math.min(current.startX, event.clientX) - current.box.left, top = Math.min(current.startY, event.clientY) - current.box.top
@@ -217,8 +227,19 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     const current = drag.current
     drag.current = null
     setMarquee(null)
+    setDropTarget(null)
     if (root.current.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId)
     actions.saveCanvas()
+    if (event.type !== 'pointercancel' && current.moved && current.ids.length === 1 && ['avatar', 'window'].includes(current.kind)) {
+      const next = current.latest ?? latest.current
+      const target = overlapMain(next, roster, current.id)
+      if (target) {
+        const source = next.windows.find(window => window.id === current.id)
+        // Restore the dragged card so cancelling leaves two independently usable icons.
+        update(value => ({ ...value, windows: value.windows.map(window => window.id === current.id ? { ...window, x: current.state.windows.find(item => item.id === current.id).x, y: current.state.windows.find(item => item.id === current.id).y } : window) }))
+        setGroupMembers([source.entityId, target.entityId])
+      }
+    }
     if (current.kind === 'avatar' && !current.moved && event.type !== 'pointercancel') actions.openCanvasConversation(current.id)
   }
   useEffect(() => {
@@ -236,8 +257,17 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     return () => node.removeEventListener('wheel', wheel)
   }, [size.width, size.height])
   const fit = () => update(current => fitViewport(current, size, size.insets))
-  return h('div', { ref: root, className: 'bt-canvas', 'aria-label': t('Employee canvas'), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish },
+  const drop = event => {
+    const id = event.dataTransfer.getData(MAIN_AGENT_DRAG)
+    if (!roster.byId[id] || !isMainOf(roster, id)) return
+    event.preventDefault()
+    actions.placeCanvasMain(id, canvasDropPoint(latest.current, root.current.getBoundingClientRect(), event.clientX, event.clientY))
+  }
+  return h('div', { ref: root, className: 'bt-canvas', 'aria-label': t('Employee canvas'), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish,
+    onDragOver: event => { if (Array.from(event.dataTransfer.types).includes(MAIN_AGENT_DRAG)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' } }, onDrop: drop },
     h('style', null, SPATIAL_WIDGET_CSS),
+    h('style', null, MAIN_GROUP_CSS),
+    groupMembers ? h(MainAgentGroup, { members: groupMembers, roster, actions, onClose: () => setGroupMembers(null) }) : null,
     h('nav', { className: 'bt-canvas-toolbar', 'aria-label': t('Canvas tools') },
       h('strong', null, t('Employee canvas')),
       button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon),
@@ -265,7 +295,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
               employeesOf(visible, group.members, roster).length >= 2 ? button(null, () => actions.openNewChat('group', employeesOf(visible, group.members, roster)), ChatsIcon, { title: t('Create group chat'), 'aria-label': t('Create group chat') }) : null,
               button(null, () => update(current => ungroupWindows(current, group.id)), CloseIcon, { title: t('Ungroup'), 'aria-label': t('Ungroup') })))
         }),
-        visible.map(window => h(WindowCard, { key: window.id, window, roster, selected: state.selected.includes(window.id), active: state.active === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start }))),
+        visible.map(window => h(WindowCard, { key: window.id, window, roster, selected: state.selected.includes(window.id), active: state.active === window.id, dropTarget: dropTarget === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start }))),
       visible.length === 0 ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
     h(CanvasQuickMessage, { bot: quickBot, actions }),
     h(CanvasAgenda, { roster, actions }),

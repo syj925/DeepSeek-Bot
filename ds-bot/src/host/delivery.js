@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SOURCE_KIND } from './constants.js'
+import { requestProblem } from './ownership.js'
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -43,6 +44,9 @@ export function install(rt) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
+    const boundary = role === 'request' || role === 'stopped' || role === 'room'
+      ? requestProblem(state, askedBy ?? fromId, toId) : undefined
+    if (boundary) throw new Error(boundary)
     const fromName = from?.name ?? 'You'
     const room = rt.roomOf(roomId)
     // Session events reject `undefined` members, so optional fields are omitted instead.

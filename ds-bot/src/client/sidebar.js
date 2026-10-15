@@ -13,6 +13,7 @@ import { hostText, t } from './i18n.js'
 import { showsDshRow } from './dsh-offer.js'
 import { CANVAS_PANEL } from './canvas-session.js'
 import { useFloatingTeam, FLOATING_TEAM_CSS } from './floating-team.js'
+import { MAIN_AGENT_DRAG } from './canvas-collaboration.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -79,6 +80,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+    draggable: Boolean(canvasActive && main),
+    onDragStart: event => { if (!canvasActive || !main) return; event.dataTransfer.setData(MAIN_AGENT_DRAG, id); event.dataTransfer.effectAllowed = 'copy' },
     'data-bot-id': id, title: wide ? undefined : bot.name, onClick: () => actions.openSession(id), onContextMenu,
   },
   h(BotAvatar, { bot, size: 36, state, main }),

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { COLORS, EXTRA_COLORS, MAX_HOPS, MAX_UNREAD_REQUESTS, ROOM_BOT_ROUNDS, ROOM_MODES, SOURCE_KIND } from './constants.js'
 import { unquote } from './text.js'
+import { ownerOf, requestProblem, manageProblem } from './ownership.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -50,7 +51,8 @@ export function install(rt) {
         const model = bot.appliedModel ?? bot.model
         const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
         const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
-        return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}`
+        const owner = ownerOf(state, bot.id)
+        return `- ${bot.name}${tags ? ` (${tags})` : ''}${owner && owner !== bot.id ? `; owner: ${state.bots[owner].name}` : ''}${job}`
       })
       if (lines.length === 0) return 'No Bots yet.'
       const rooms = visibleRooms(self)
@@ -107,6 +109,8 @@ export function install(rt) {
       const target = rt.findBot(args.to)
       if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
       if (target.id === sender.id) return 'You cannot message yourself.'
+      const boundary = requestProblem(state, sender.id, target.id)
+      if (boundary) refuse(boundary)
       const turn = rt.live.get(exec.agent?.id)
       const hop = Math.max(turn?.info?.hop ?? 0, ...(turn?.joined ?? []).map(joined => joined.info?.hop ?? 0))
       if (hop >= MAX_HOPS) return 'This chain of Bot messages is already long. Stop here and report to the user instead.'
@@ -155,6 +159,8 @@ export function install(rt) {
       const target = rt.findBot(args.bot)
       if (target === undefined) refuse(`No Bot named ${args.bot}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`)
       if (target.id === sender.id) refuse('You cannot stop yourself.')
+      const boundary = manageProblem(state, sender.id, target.id)
+      if (boundary) refuse(boundary)
       const { running } = activeSessions(target.id)
       if (running.length === 0) refuse(`${target.name} is not running right now, so there is nothing to stop. Use message_bot to reach it.`)
       for (const sessionId of running) {
@@ -215,6 +221,8 @@ export function install(rt) {
       const bot = args.bot ? rt.findBot(args.bot) : caller
       if (bot === undefined) return `No Bot named ${args.bot}.`
       if (bot.id !== caller.id && !rt.isMain(self)) return 'Only a Main Bot can change another Bot. Leave out bot to change yourself, or ask a Main Bot with message_bot.'
+      const boundary = manageProblem(state, self, bot.id)
+      if (boundary) return boundary
       try {
         const { name: newName, role, instructions, color, model } = args
         const moving = typeof args.work_dir === 'string'

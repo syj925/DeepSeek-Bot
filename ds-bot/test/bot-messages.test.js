@@ -103,6 +103,31 @@ async function start(seed) {
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
 
+test('independent Main Bots collaborate without changing children or interrupting their tasks', async t => {
+  const seed = team()
+  seed.mainBotIds.push('c')
+  seed.bots.c = { id: 'c', name: 'Partner', sessionId: 'c', createdAt: 3 }
+  seed.bots.b.createdBy = 'c'
+  const app = await start(seed)
+  t.after(app.stop)
+  app.emit('b', 'turn/start', { turn: 1 })
+  const room = await app.call('create-room', { members: ['a', 'c'], mainOnly: true })
+  assert.equal(room.ok, true)
+  assert.equal(room.value.mainOnly, true)
+  assert.deepEqual(room.value.members, ['a', 'c'])
+  assert.equal(app.agents.get('b')?.calls.length ?? 0, 0)
+  await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'direct' }, 'a'), /belongs to Partner/)
+  await assert.rejects(app.tool('stop_bot', { bot: 'Writer' }, 'a'), /belongs to Partner/)
+  assert.match(await app.tool('update_bot', { bot: 'Writer', name: 'Taken' }, 'a'), /belongs to Partner/)
+  const invalid = await app.call('update-room', { id: room.value.id, members: ['a', 'b'] })
+  assert.equal(invalid.ok, false)
+  assert.match(await app.tool('message_bot', { to: 'Partner', message: 'Please ask Writer' }, 'a'), /Delivered to Partner/)
+  assert.match(await app.tool('message_bot', { to: 'Writer', message: 'Work for me' }, 'c'), /Delivered to Writer/)
+  assert.equal(app.agents.get('b').calls.some(([kind]) => kind === 'cancel'), false)
+  const legacy = await app.call('create-room', { members: ['a', 'b'] })
+  assert.equal(legacy.ok, false)
+})
+
 test('message_bot steers by default; on an idle Bot it opens the next turn', async (t) => {
   const { agents, emit, tool, stop } = await start(team())
   t.after(stop)

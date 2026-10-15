@@ -51,6 +51,30 @@ function findAll(node, predicate) {
 const find = (node, predicate) => findAll(node, predicate)[0]
 const button = (node, label) => find(node, value => value.type === 'button' && (value.props['aria-label'] === label || value.children.includes(label)))
 const hasSession = node => findAll(node, value => value.type?.name === 'CanvasSession').length
+
+test('dragging Main avatars together proposes a group; cancellation and multi-selection do not', () => {
+  for (const cancelled of [false, true]) {
+    const app = fixture()
+    const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
+    app.roster.mainBotIds.push('partner')
+    let tree = app.draw()
+    const source = app.state.windows.find(window => window.entityId === 'writer')
+    button(app.card(tree), 'Open conversation').props.onPointerDown(pointer())
+    tree.props.onPointerMove(pointer({ clientX: 100 + other.x - source.x, clientY: 100 + other.y - source.y }))
+    tree = app.draw()
+    assert.equal(app.card(tree, 'partner').props['data-drop-target'], true)
+    tree.props.onPointerUp(pointer({ type: cancelled ? 'pointercancel' : 'pointerup' }))
+    tree = app.draw()
+    const modal = find(tree, value => value.type?.name === 'MainAgentGroup')
+    assert.equal(Boolean(modal), !cancelled)
+    assert.equal(app.calls.opened.length, 0)
+    if (modal) {
+      assert.deepEqual(Array.from(modal.props.members), ['writer', 'partner'])
+      modal.props.onClose()
+      assert.equal(Boolean(find(app.draw(), value => value.type?.name === 'MainAgentGroup')), false)
+    }
+  }
+})
 const textOf = node => typeof node === 'string' ? node : node?.children?.map(textOf).join('') ?? ''
 
 function pointer(options = {}) {

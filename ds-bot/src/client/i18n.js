@@ -5,6 +5,11 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Create Main Agent group': '创建主 Agent 协作群',
+  'A new group conversation. Each Main Agent keeps its own children, chats and running tasks.': '新建独立群聊，各主 Agent 的子 Agent、原有会话和运行任务保持不变。',
+  'Both members must still be Main Agents.': '成员已变更，请重新选择两个主 Agent。',
+  'Independent Main Agent': '独立主 Agent',
+  'Creates and manages its own children. Can join other Main Agents in a group.': '创建并管理自己的子 Agent，也可以与其他主 Agent 建群协作。',
   'Open group chat to collaborate': '打开群聊，与团队协作',
   'Employee canvas': '员工画布',
   'Canvas wallpaper': '画布壁纸',

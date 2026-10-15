@@ -42,6 +42,11 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Create Main Agent group": "创建主 Agent 协作群",
+  "A new group conversation. Each Main Agent keeps its own children, chats and running tasks.": "新建独立群聊，各主 Agent 的子 Agent、原有会话和运行任务保持不变。",
+  "Both members must still be Main Agents.": "成员已变更，请重新选择两个主 Agent。",
+  "Independent Main Agent": "独立主 Agent",
+  "Creates and manages its own children. Can join other Main Agents in a group.": "创建并管理自己的子 Agent，也可以与其他主 Agent 建群协作。",
   "Open group chat to collaborate": "打开群聊，与团队协作",
   "Employee canvas": "员工画布",
   "Canvas wallpaper": "画布壁纸",
@@ -1292,8 +1297,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h38, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h38 / 2}" width="${w}" height="${h38}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h38, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h38 * 0.14}Q0 ${-h38 * 0.42} ${w * 0.62} ${h38 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h39, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h39 / 2}" width="${w}" height="${h39}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h39, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h39 * 0.14}Q0 ${-h39 * 0.42} ${w * 0.62} ${h39 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -1745,12 +1750,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h38 = dt / steps;
+    const h39 = dt / steps;
     let moving = false;
     for (const value of values.values()) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h38;
-        value.x += value.v * h38;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h39;
+        value.x += value.v * h39;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -5146,6 +5151,18 @@ body[data-ds-dark-theme] .bt-canvas-frame>.bt-floating-team{border-color:rgba(25
 }
 `;
 
+// src/client/canvas-collaboration.js
+var MAIN_AGENT_DRAG = "application/x-qibitai-main-agent";
+function overlapMain(state, roster, sourceId, excluded = []) {
+  const source = state.windows.find((window2) => window2.id === sourceId);
+  const eligible = (window2) => window2?.open && window2.compact && window2.kind === "bot" && isMainOf(roster, window2.entityId) && roster.byId[window2.entityId];
+  if (!eligible(source)) return void 0;
+  return state.windows.filter((window2) => window2.id !== sourceId && !excluded.includes(window2.id) && eligible(window2)).map((window2) => ({ window: window2, distance: Math.hypot(window2.x - source.x, window2.y - source.y) })).filter((entry) => entry.distance < 58).sort((a, b) => a.distance - b.distance || b.window.z - a.window.z)[0]?.window;
+}
+function canvasDropPoint(state, box, clientX, clientY) {
+  return { x: (clientX - box.left - state.viewport.x) / state.viewport.zoom - 60, y: (clientY - box.top - state.viewport.y) / state.viewport.zoom - 40 };
+}
+
 // src/client/sidebar.js
 var import_react10 = require("react");
 var import_react_dom3 = require("react-dom");
@@ -5216,6 +5233,12 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       className: "bt-row",
       "aria-label": label,
       "aria-current": active ? "page" : void 0,
+      draggable: Boolean(canvasActive && main),
+      onDragStart: (event) => {
+        if (!canvasActive || !main) return;
+        event.dataTransfer.setData(MAIN_AGENT_DRAG, id);
+        event.dataTransfer.effectAllowed = "copy";
+      },
       "data-bot-id": id,
       title: wide ? void 0 : bot.name,
       onClick: () => actions.openSession(id),
@@ -8626,6 +8649,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [name, setName] = (0, import_react21.useState)(start?.name ?? "");
   const [model, setModel] = (0, import_react21.useState)(() => startModel(roster));
   const [effort, setEffort] = (0, import_react21.useState)(void 0);
+  const [main, setMain] = (0, import_react21.useState)(false);
   const [busy, setBusy] = (0, import_react21.useState)(false);
   const [error, setError] = (0, import_react21.useState)("");
   const fileRef = (0, import_react21.useRef)(null);
@@ -8643,7 +8667,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     setError("");
     setBusy(true);
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model, effort, brief }));
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), ...main ? { main: true } : {} });
       onCreated(bot);
     } catch (failure2) {
       setError(failure2?.message ?? String(failure2));
@@ -8732,6 +8756,18 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
         setEffort(void 0);
       }, onPickEffort: setEffort }),
       (0, import_react21.createElement)("span", { className: "bt-note" }, (roster.models ?? []).length > 0 ? t("The Bot runs on this model. You can change it later in its details.") : t("Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later."))
+    ),
+    (0, import_react21.createElement)(
+      "label",
+      { className: "bt-field" },
+      (0, import_react21.createElement)(
+        "span",
+        null,
+        (0, import_react21.createElement)("input", { type: "checkbox", checked: main, onChange: (event) => setMain(event.target.checked) }),
+        " ",
+        t("Independent Main Agent")
+      ),
+      (0, import_react21.createElement)("span", { className: "bt-note" }, t("Creates and manages its own children. Can join other Main Agents in a group."))
     ),
     error ? (0, import_react21.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null,
     (0, import_react21.createElement)(
@@ -14620,31 +14656,98 @@ function fitViewport(state, viewportSize, padding = 40, ids) {
   return next;
 }
 
-// src/client/canvas-workspace.js
+// src/client/main-agent-group.js
 var import_react39 = require("react");
-var button = (label, onClick, icon2, extra = {}) => (0, import_react39.createElement)("button", { type: "button", className: "bt-canvas-button", onClick, ...extra }, icon2 ? (0, import_react39.createElement)(icon2) : null, label);
+function MainAgentGroup({ members, roster, actions, onClose }) {
+  const dialog = (0, import_react39.useRef)(null);
+  const pending = (0, import_react39.useRef)(false);
+  const created = (0, import_react39.useRef)(null);
+  const [busy, setBusy] = (0, import_react39.useState)(false);
+  const [error, setError] = (0, import_react39.useState)("");
+  const [name, setName] = (0, import_react39.useState)("");
+  const bots = members.map((id) => roster.byId[id]).filter(Boolean);
+  const valid = bots.length === 2 && new Set(members).size === 2 && members.every((id) => isMainOf(roster, id));
+  (0, import_react39.useEffect)(() => {
+    dialog.current.showModal();
+    return () => dialog.current?.close();
+  }, []);
+  const close = () => {
+    if (!pending.current) onClose();
+  };
+  const create = async () => {
+    if (pending.current || !valid) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      created.current ??= await actions.createRoom(members, { mainOnly: true, admin: members[0], name: name.trim() });
+      actions.openCanvasEntity(created.current.id);
+      onClose();
+    } catch (failure2) {
+      setError(failure2?.message ?? String(failure2));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  };
+  return (0, import_react39.createElement)(
+    "dialog",
+    { ref: dialog, className: "bt-main-group", "aria-labelledby": "bt-main-group-title", onCancel: (event) => {
+      event.preventDefault();
+      close();
+    } },
+    (0, import_react39.createElement)("div", { className: "bt-main-group-avatars" }, bots.map((bot) => (0, import_react39.createElement)(BotAvatar, { key: bot.id, bot, main: true, size: 56 }))),
+    (0, import_react39.createElement)("h2", { id: "bt-main-group-title" }, t("Create Main Agent group")),
+    (0, import_react39.createElement)("p", null, bots.map((bot) => bot.name).join(" + ")),
+    (0, import_react39.createElement)("p", { className: "bt-note" }, t("A new group conversation. Each Main Agent keeps its own children, chats and running tasks.")),
+    (0, import_react39.createElement)(
+      "label",
+      { className: "bt-field" },
+      (0, import_react39.createElement)("span", { className: "bt-field-label" }, t("Group name")),
+      (0, import_react39.createElement)("input", { className: "bt-input", value: name, maxLength: 80, disabled: busy, placeholder: bots.map((bot) => bot.name).join(" + "), onChange: (event) => setName(event.target.value) })
+    ),
+    !valid ? (0, import_react39.createElement)("p", { role: "alert" }, t("Both members must still be Main Agents.")) : null,
+    error ? (0, import_react39.createElement)("p", { role: "alert", className: "bt-error" }, error) : null,
+    (0, import_react39.createElement)(
+      "div",
+      { className: "bt-actions" },
+      (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", disabled: busy, onClick: close }, t("Cancel")),
+      (0, import_react39.createElement)("button", { type: "button", className: "bt-send", disabled: busy || !valid, onClick: create }, t(busy ? "Creating…" : "Create group chat"))
+    )
+  );
+}
+var MAIN_GROUP_CSS = `
+.bt-main-group{border:1px solid var(--bt-line-2);border-radius:24px;padding:28px;width:min(440px,90vw);color:var(--bt-ink);background:var(--bt-card);box-shadow:0 24px 90px #0003}
+.bt-main-group::backdrop{background:#10182855;backdrop-filter:blur(6px)}
+.bt-main-group h2{font-size:21px;margin:20px 0 8px}.bt-main-group p{line-height:1.65}.bt-main-group .bt-field{margin:20px 0}.bt-main-group .bt-actions{justify-content:flex-end;gap:12px;margin-top:24px}
+.bt-main-group-avatars{display:flex;gap:18px}.bt-canvas-window[data-drop-target=true]{outline:2px solid #658aff;border-radius:20px;background:#658aff22;box-shadow:0 0 24px #658aff33}
+`;
+
+// src/client/canvas-workspace.js
+var import_react40 = require("react");
+var button = (label, onClick, icon2, extra = {}) => (0, import_react40.createElement)("button", { type: "button", className: "bt-canvas-button", onClick, ...extra }, icon2 ? (0, import_react40.createElement)(icon2) : null, label);
 var entityOf = (window2, roster) => window2.kind === "room" ? roster.roomsById[window2.entityId] : roster.byId[window2.entityId];
 var employeesOf = (windows, ids, roster) => [...new Set(windows.filter((window2) => window2.open && window2.kind === "bot" && ids.includes(window2.id) && roster.byId[window2.entityId]).map((window2) => window2.entityId))];
 function RoomSummary({ room: room2, roster, work, actions }) {
   const admin = roster.byId[room2.admin];
   const mode = t(ROOM_MODES.find(([id]) => id === shownMode(room2, roster))?.[1] ?? "Everyone");
   const members = memberWork(room2, work).filter((entry) => roster.byId[entry.id]);
-  return (0, import_react39.createElement)(
+  return (0, import_react40.createElement)(
     "div",
     { className: "bt-canvas-room-summary" },
-    (0, import_react39.createElement)(
+    (0, import_react40.createElement)(
       "button",
       { type: "button", className: "bt-canvas-room-mode", onClick: () => actions.openSettings("groups", room2.id), title: t("Group settings") },
       mode,
       " · ",
       admin ? t("Admin {name}", { name: admin.name }) : t("No admin")
     ),
-    (0, import_react39.createElement)(
+    (0, import_react40.createElement)(
       "div",
       { className: "bt-canvas-members", "aria-label": t("Members · {count}", { count: members.length }) },
       members.slice(0, 3).map((entry) => {
         const bot = roster.byId[entry.id];
-        return (0, import_react39.createElement)("button", {
+        return (0, import_react40.createElement)("button", {
           type: "button",
           onClick: () => actions.openCanvasEntity(bot.id),
           "aria-label": bot.name,
@@ -14652,16 +14755,16 @@ function RoomSummary({ room: room2, roster, work, actions }) {
           className: "bt-canvas-button bt-canvas-member",
           "data-state": entry.state,
           title: [bot.name, room2.admin === bot.id ? t("Admin") : null, entry.state === "ask" ? t("Waiting for your approval") : entry.state === "work" ? t("Working") : t("Available")].filter(Boolean).join(" · ")
-        }, (0, import_react39.createElement)(BotAvatar, { bot, size: 28, main: room2.admin === bot.id }), (0, import_react39.createElement)("span", null, bot.name));
+        }, (0, import_react40.createElement)(BotAvatar, { bot, size: 28, main: room2.admin === bot.id }), (0, import_react40.createElement)("span", null, bot.name));
       }),
       members.length > 3 ? button(`+${members.length - 3}`, () => actions.showDetails(room2.id), null, { "aria-label": t("Members · {count}", { count: members.length }) }) : null
     )
   );
 }
 function GroupTitle({ group, start, actions }) {
-  const [editing, setEditing] = (0, import_react39.useState)(false);
-  const [name, setName] = (0, import_react39.useState)(group.name);
-  const cancelled = (0, import_react39.useRef)(false);
+  const [editing, setEditing] = (0, import_react40.useState)(false);
+  const [name, setName] = (0, import_react40.useState)(group.name);
+  const cancelled = (0, import_react40.useRef)(false);
   const edit = () => {
     cancelled.current = false;
     setName(group.name);
@@ -14671,7 +14774,7 @@ function GroupTitle({ group, start, actions }) {
     if (!cancelled.current && name.trim()) actions.updateCanvas((state) => ({ ...state, groups: state.groups.map((value) => value.id === group.id ? { ...value, name: name.trim().slice(0, 100) } : value) }));
     setEditing(false);
   };
-  return editing ? (0, import_react39.createElement)("input", {
+  return editing ? (0, import_react40.createElement)("input", {
     autoFocus: true,
     className: "bt-canvas-group-name",
     "aria-label": t("Window group name"),
@@ -14689,14 +14792,14 @@ function GroupTitle({ group, start, actions }) {
         setEditing(false);
       }
     }
-  }) : (0, import_react39.createElement)(
+  }) : (0, import_react40.createElement)(
     "div",
     { className: "bt-canvas-group-title" },
     button(group.name || t("Window group"), null, FolderIcon, { onPointerDown: (event) => start(event, "group", group.id), title: t("Visual group only"), onDoubleClick: edit }),
     button(null, edit, PencilIcon, { "aria-label": t("Rename window group"), title: t("Rename window group") })
   );
 }
-function WindowCard({ window: window2, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start }) {
+function WindowCard({ window: window2, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget }) {
   const entity = entityOf(window2, roster);
   const sessionId = canvasSessionId(window2, roster);
   const preview = useSessions((list) => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId]));
@@ -14735,6 +14838,7 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     "data-window-id": window2.id,
     "data-entity-id": entity.id,
     "data-kind": window2.kind,
+    "data-drop-target": dropTarget || void 0,
     "data-mode": window2.compact ? "card" : "conversation",
     "data-active": active || void 0,
     "data-selected": selected || void 0,
@@ -14746,49 +14850,49 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
       if (!event.target.closest(".bt-canvas-content")) openMenu(event);
     }
   };
-  if (window2.compact && !room2) return (0, import_react39.createElement)(
+  if (window2.compact && !room2) return (0, import_react40.createElement)(
     "section",
     shell,
-    (0, import_react39.createElement)(
+    (0, import_react40.createElement)(
       "div",
       { className: "bt-canvas-avatar-node" },
-      (0, import_react39.createElement)(
+      (0, import_react40.createElement)(
         "div",
         { className: "bt-canvas-avatar-tools" },
-        (0, import_react39.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
+        (0, import_react40.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
         button(null, openMenu, DotsIcon, { "aria-label": t("{name} actions", { name: entity.name }), title: t("More"), "aria-haspopup": "menu" }),
         button(null, () => actions.updateCanvas((state) => collapseWindow(state, window2.id)), CloseIcon, { "aria-label": t("Close window"), title: t("Close window") })
       ),
-      (0, import_react39.createElement)(
+      (0, import_react40.createElement)(
         "button",
         { type: "button", className: "bt-canvas-avatar-open", "aria-label": t("Open conversation"), title: t("Click to open · Drag to move"), onPointerDown: (event) => start(event, "avatar", window2.id), onClick: (event) => {
           if (event.detail === 0) actions.openCanvasConversation(window2.id);
         }, onKeyDown: keyboard },
-        (0, import_react39.createElement)(BotAvatar, { bot: entity, size: 56, main: isMainOf(roster, entity.id) })
+        (0, import_react40.createElement)(BotAvatar, { bot: entity, size: 56, main: isMainOf(roster, entity.id) })
       ),
-      (0, import_react39.createElement)(
+      (0, import_react40.createElement)(
         "button",
         { type: "button", className: "bt-canvas-window-title", onPointerDown: (event) => start(event, "window", window2.id), onKeyDown: keyboard, "aria-label": t("Move {name}", { name: entity.name }) },
-        (0, import_react39.createElement)("strong", null, entity.name),
-        (0, import_react39.createElement)("span", { className: "bt-canvas-window-meta" }, isMainOf(roster, entity.id) ? t("Main Bot") : entity.role || t("Employee"))
+        (0, import_react40.createElement)("strong", null, entity.name),
+        (0, import_react40.createElement)("span", { className: "bt-canvas-window-meta" }, isMainOf(roster, entity.id) ? t("Main Bot") : entity.role || t("Employee"))
       ),
       button(null, () => actions.showDetails(sessionId), InfoIcon, { className: "bt-canvas-avatar-status", "data-state": statusKind, title: status, "aria-label": t("Details") })
     )
   );
-  return (0, import_react39.createElement)(
+  return (0, import_react40.createElement)(
     "section",
     shell,
-    (0, import_react39.createElement)(
+    (0, import_react40.createElement)(
       "div",
       { className: "bt-canvas-window-header" },
-      (0, import_react39.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
-      (0, import_react39.createElement)(
+      (0, import_react40.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
+      (0, import_react40.createElement)(
         "button",
         { type: "button", className: "bt-canvas-window-title", onPointerDown: (event) => start(event, "window", window2.id), onKeyDown: keyboard, "aria-label": t("Move {name}", { name: entity.name }) },
-        window2.kind === "room" ? (0, import_react39.createElement)(RoomAvatar, { room: entity, roster, size: window2.compact ? 36 : 28 }) : (0, import_react39.createElement)(BotAvatar, { bot: entity, size: window2.compact ? 36 : 28, main: isMainOf(roster, entity.id) }),
-        (0, import_react39.createElement)("span", null, (0, import_react39.createElement)("strong", null, entity.name), (0, import_react39.createElement)("span", { className: "bt-canvas-window-meta" }, window2.kind === "room" ? t("{count} members", { count: entity.members.length }) : [isMainOf(roster, entity.id) ? t("Main Bot") : null, entity.role || t("Employee")].filter(Boolean).join(" · ")))
+        window2.kind === "room" ? (0, import_react40.createElement)(RoomAvatar, { room: entity, roster, size: window2.compact ? 36 : 28 }) : (0, import_react40.createElement)(BotAvatar, { bot: entity, size: window2.compact ? 36 : 28, main: isMainOf(roster, entity.id) }),
+        (0, import_react40.createElement)("span", null, (0, import_react40.createElement)("strong", null, entity.name), (0, import_react40.createElement)("span", { className: "bt-canvas-window-meta" }, window2.kind === "room" ? t("{count} members", { count: entity.members.length }) : [isMainOf(roster, entity.id) ? t("Main Bot") : null, entity.role || t("Employee")].filter(Boolean).join(" · ")))
       ),
-      (0, import_react39.createElement)(
+      (0, import_react40.createElement)(
         "div",
         { className: "bt-canvas-window-actions" },
         window2.compact ? null : button("−", () => actions.updateCanvas((state) => setWindowCompact(state, window2.id, true)), null, { "aria-label": t("Compact window"), title: t("Compact window") }),
@@ -14796,48 +14900,50 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
         button(null, () => actions.updateCanvas((state) => collapseWindow(state, window2.id)), CloseIcon, { "aria-label": t("Close window"), title: t("Close window") })
       )
     ),
-    window2.compact ? null : (0, import_react39.createElement)(
+    window2.compact ? null : (0, import_react40.createElement)(
       "div",
       { className: "bt-canvas-window-meta" },
-      (0, import_react39.createElement)("span", { role: "status", "data-state": statusKind }, status),
+      (0, import_react40.createElement)("span", { role: "status", "data-state": statusKind }, status),
       button(t("Details"), () => actions.showDetails(sessionId)),
       window2.kind === "bot" && roster.memory !== false ? button(t("Memory"), () => actions.openMemory(entity.id)) : null,
       button(t(room2 ? "Group settings" : "Edit Bot"), () => actions.openSettings(room2 ? "groups" : "bots", entity.id)),
       button(t("Scheduled tasks"), () => actions.openSettings("schedules", entity.id))
     ),
-    window2.compact ? (0, import_react39.createElement)(
+    window2.compact ? (0, import_react40.createElement)(
       "div",
       { className: "bt-canvas-compact", "data-has-groups": groups.length > 0 || void 0 },
-      (0, import_react39.createElement)("button", { type: "button", className: "bt-canvas-card-state", "data-state": statusKind, onClick: () => actions.showDetails(sessionId), title: statusText3 }, (0, import_react39.createElement)("span", { "aria-hidden": true }), statusText3),
-      room2 ? (0, import_react39.createElement)(RoomSummary, { room: room2, roster, work, actions }) : (0, import_react39.createElement)("p", null, summary),
-      groups.length > 0 ? (0, import_react39.createElement)("div", { className: "bt-canvas-members" }, groups.slice(0, 2).map((room3) => button(room3.name, () => actions.openCanvasEntity(room3.id), ChatsIcon, { key: room3.id, className: "bt-canvas-button bt-canvas-member", title: room3.name })), groups.length > 2 ? button(`+${groups.length - 2}`, () => actions.showDetails(sessionId)) : null) : null,
-      (0, import_react39.createElement)(
+      (0, import_react40.createElement)("button", { type: "button", className: "bt-canvas-card-state", "data-state": statusKind, onClick: () => actions.showDetails(sessionId), title: statusText3 }, (0, import_react40.createElement)("span", { "aria-hidden": true }), statusText3),
+      room2 ? (0, import_react40.createElement)(RoomSummary, { room: room2, roster, work, actions }) : (0, import_react40.createElement)("p", null, summary),
+      groups.length > 0 ? (0, import_react40.createElement)("div", { className: "bt-canvas-members" }, groups.slice(0, 2).map((room3) => button(room3.name, () => actions.openCanvasEntity(room3.id), ChatsIcon, { key: room3.id, className: "bt-canvas-button bt-canvas-member", title: room3.name })), groups.length > 2 ? button(`+${groups.length - 2}`, () => actions.showDetails(sessionId)) : null) : null,
+      (0, import_react40.createElement)(
         "footer",
         null,
         button(t("Open conversation"), () => actions.openCanvasConversation(window2.id), ChatsIcon, { className: "bt-canvas-button bt-canvas-open-conversation", "aria-expanded": false }),
         button(t(room2 ? "Group settings" : "Details"), () => room2 ? actions.openSettings("groups", entity.id) : actions.showDetails(sessionId))
       )
-    ) : (0, import_react39.createElement)("div", { className: "bt-canvas-content" }, (0, import_react39.createElement)(CanvasSession, { sessionId, actions, useSessions, SessionProvider, renderSlot })),
-    window2.compact ? null : (0, import_react39.createElement)("button", { type: "button", className: "bt-canvas-resize", "aria-label": t("Resize {name}", { name: entity.name }), onPointerDown: (event) => start(event, "resize", window2.id), onKeyDown: (event) => keyboard(event, true) }, "⌟")
+    ) : (0, import_react40.createElement)("div", { className: "bt-canvas-content" }, (0, import_react40.createElement)(CanvasSession, { sessionId, actions, useSessions, SessionProvider, renderSlot })),
+    window2.compact ? null : (0, import_react40.createElement)("button", { type: "button", className: "bt-canvas-resize", "aria-label": t("Resize {name}", { name: entity.name }), onPointerDown: (event) => start(event, "resize", window2.id), onKeyDown: (event) => keyboard(event, true) }, "⌟")
   );
 }
 function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, SessionProvider, renderSlot }) {
   const roster = useRoster((value) => value);
   const state = useCanvas((value) => value);
-  const latest = (0, import_react39.useRef)(state);
+  const latest = (0, import_react40.useRef)(state);
   latest.current = state;
-  const root = (0, import_react39.useRef)(null);
-  const drag = (0, import_react39.useRef)(null);
-  const [marquee, setMarquee] = (0, import_react39.useState)(null);
-  const [size, setSize] = (0, import_react39.useState)({ width: 1e3, height: 700 });
+  const root = (0, import_react40.useRef)(null);
+  const drag = (0, import_react40.useRef)(null);
+  const [marquee, setMarquee] = (0, import_react40.useState)(null);
+  const [dropTarget, setDropTarget] = (0, import_react40.useState)(null);
+  const [groupMembers, setGroupMembers] = (0, import_react40.useState)(null);
+  const [size, setSize] = (0, import_react40.useState)({ width: 1e3, height: 700 });
   const visible = state.windows.filter((window2) => window2.open && entityOf(window2, roster));
-  const focused = (0, import_react39.useRef)(null);
+  const focused = (0, import_react40.useRef)(null);
   const activeBot = visible.find((window2) => window2.id === state.active && window2.kind === "bot");
   if (activeBot) focused.current = activeBot.entityId;
   const quickBot = roster.byId[focused.current] ?? roster.byId[roster.mainBotId] ?? roster.bots[0];
   const selectedBots = employeesOf(visible, state.selected, roster);
   const update = actions.updateCanvas;
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     const node = root.current;
     const toolbar = node.querySelector(".bt-canvas-toolbar");
     const dock = node.querySelector(".bt-canvas-dock");
@@ -14904,7 +15010,12 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     const dx = event.clientX - current.startX, dy = event.clientY - current.startY, v = current.state.viewport;
     if (Math.hypot(dx, dy) > 4) current.moved = true;
     if (current.kind === "pan") update(() => setCanvasViewport(current.state, { ...v, x: v.x + dx, y: v.y + dy }), false);
-    if (current.kind === "window" || current.kind === "group" || current.kind === "avatar" && current.moved) update(() => current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids }), false);
+    if (current.kind === "window" || current.kind === "group" || current.kind === "avatar" && current.moved) {
+      const next = current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids });
+      current.latest = next;
+      update(next, false);
+      setDropTarget(current.ids.length === 1 && ["avatar", "window"].includes(current.kind) ? overlapMain(next, roster, current.id)?.id ?? null : null);
+    }
     if (current.kind === "resize") update(() => resizeWindow(current.state, current.id, dx / v.zoom, dy / v.zoom), false);
     if (current.kind === "marquee") {
       const left = Math.min(current.startX, event.clientX) - current.box.left, top = Math.min(current.startY, event.clientY) - current.box.top;
@@ -14920,11 +15031,21 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     const current = drag.current;
     drag.current = null;
     setMarquee(null);
+    setDropTarget(null);
     if (root.current.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId);
     actions.saveCanvas();
+    if (event.type !== "pointercancel" && current.moved && current.ids.length === 1 && ["avatar", "window"].includes(current.kind)) {
+      const next = current.latest ?? latest.current;
+      const target = overlapMain(next, roster, current.id);
+      if (target) {
+        const source = next.windows.find((window2) => window2.id === current.id);
+        update((value) => ({ ...value, windows: value.windows.map((window2) => window2.id === current.id ? { ...window2, x: current.state.windows.find((item) => item.id === current.id).x, y: current.state.windows.find((item) => item.id === current.id).y } : window2) }));
+        setGroupMembers([source.entityId, target.entityId]);
+      }
+    }
     if (current.kind === "avatar" && !current.moved && event.type !== "pointercancel") actions.openCanvasConversation(current.id);
   };
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     const node = root.current;
     const wheel = (event) => {
       if (event.target.closest(".bt-spatial-widget,.bt-wallpaper-menu")) return;
@@ -14939,14 +15060,36 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     return () => node.removeEventListener("wheel", wheel);
   }, [size.width, size.height]);
   const fit = () => update((current) => fitViewport(current, size, size.insets));
-  return (0, import_react39.createElement)(
+  const drop = (event) => {
+    const id = event.dataTransfer.getData(MAIN_AGENT_DRAG);
+    if (!roster.byId[id] || !isMainOf(roster, id)) return;
+    event.preventDefault();
+    actions.placeCanvasMain(id, canvasDropPoint(latest.current, root.current.getBoundingClientRect(), event.clientX, event.clientY));
+  };
+  return (0, import_react40.createElement)(
     "div",
-    { ref: root, className: "bt-canvas", "aria-label": t("Employee canvas"), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish },
-    (0, import_react39.createElement)("style", null, SPATIAL_WIDGET_CSS),
-    (0, import_react39.createElement)(
+    {
+      ref: root,
+      className: "bt-canvas",
+      "aria-label": t("Employee canvas"),
+      onPointerMove: move,
+      onPointerUp: finish,
+      onPointerCancel: finish,
+      onDragOver: (event) => {
+        if (Array.from(event.dataTransfer.types).includes(MAIN_AGENT_DRAG)) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }
+      },
+      onDrop: drop
+    },
+    (0, import_react40.createElement)("style", null, SPATIAL_WIDGET_CSS),
+    (0, import_react40.createElement)("style", null, MAIN_GROUP_CSS),
+    groupMembers ? (0, import_react40.createElement)(MainAgentGroup, { members: groupMembers, roster, actions, onClose: () => setGroupMembers(null) }) : null,
+    (0, import_react40.createElement)(
       "nav",
       { className: "bt-canvas-toolbar", "aria-label": t("Canvas tools") },
-      (0, import_react39.createElement)("strong", null, t("Employee canvas")),
+      (0, import_react40.createElement)("strong", null, t("Employee canvas")),
       button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon),
       button(t("Create employee"), () => actions.openNewChat("create"), PlusIcon),
       button(t(selectedBots.length >= 2 ? "Create group with selected" : "Create group chat"), () => actions.openNewChat("group", selectedBots.length >= 2 ? selectedBots : []), ChatsIcon),
@@ -14957,50 +15100,50 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
       button(t("Collapse conversations"), () => actions.compactCanvasConversations(), null, { disabled: !visible.some((window2) => !window2.compact) }),
       button(t("Quick message"), () => toggleSpatialWidget("quick"), ChatsIcon),
       button(t("Agenda"), () => toggleSpatialWidget("agenda"), CalendarIcon),
-      (0, import_react39.createElement)(CanvasWallpaper, { canvasRef: root }),
+      (0, import_react40.createElement)(CanvasWallpaper, { canvasRef: root }),
       button(t("Settings"), () => actions.openSettings(), GearIcon),
       button(t("Classic view"), () => actions.openClassicSession())
     ),
-    (0, import_react39.createElement)(
+    (0, import_react40.createElement)(
       "main",
       { className: "bt-canvas-stage", onPointerDown: (event) => {
         if (!event.target.closest(".bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]")) start(event, event.shiftKey ? "marquee" : "pan");
       } },
-      (0, import_react39.createElement)("div", { className: "bt-canvas-background", "aria-hidden": true }),
-      (0, import_react39.createElement)(
+      (0, import_react40.createElement)("div", { className: "bt-canvas-background", "aria-hidden": true }),
+      (0, import_react40.createElement)(
         "div",
         { className: "bt-canvas-world", style: { transform: `translate(${state.viewport.x}px,${state.viewport.y}px) scale(${state.viewport.zoom})` } },
         state.groups.map((group) => {
           const members = visible.filter((window2) => group.members.includes(window2.id));
           if (!members.length) return null;
           const x = Math.min(...members.map((window2) => window2.x)) - 16, y = Math.min(...members.map((window2) => window2.y)) - 45;
-          return (0, import_react39.createElement)(
+          return (0, import_react40.createElement)(
             "section",
             { key: group.id, className: "bt-canvas-group", style: { left: x, top: y, width: Math.max(...members.map((window2) => window2.x + windowWidth(window2))) - x + 16, height: Math.max(...members.map((window2) => window2.y + windowHeight(window2))) - y + 16 } },
-            (0, import_react39.createElement)(
+            (0, import_react40.createElement)(
               "div",
               { className: "bt-canvas-group-header" },
-              (0, import_react39.createElement)(GroupTitle, { group, start, actions }),
+              (0, import_react40.createElement)(GroupTitle, { group, start, actions }),
               employeesOf(visible, group.members, roster).length >= 2 ? button(null, () => actions.openNewChat("group", employeesOf(visible, group.members, roster)), ChatsIcon, { title: t("Create group chat"), "aria-label": t("Create group chat") }) : null,
               button(null, () => update((current) => ungroupWindows(current, group.id)), CloseIcon, { title: t("Ungroup"), "aria-label": t("Ungroup") })
             )
           );
         }),
-        visible.map((window2) => (0, import_react39.createElement)(WindowCard, { key: window2.id, window: window2, roster, selected: state.selected.includes(window2.id), active: state.active === window2.id, actions, useSessions, useWork, SessionProvider, renderSlot, start }))
+        visible.map((window2) => (0, import_react40.createElement)(WindowCard, { key: window2.id, window: window2, roster, selected: state.selected.includes(window2.id), active: state.active === window2.id, dropTarget: dropTarget === window2.id, actions, useSessions, useWork, SessionProvider, renderSlot, start }))
       ),
-      visible.length === 0 ? (0, import_react39.createElement)("div", { className: "bt-canvas-empty" }, (0, import_react39.createElement)("h2", null, t("Your team workspace")), (0, import_react39.createElement)("p", null, t("Open employees from the directory. Their conversations stay with them.")), button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon)) : null
+      visible.length === 0 ? (0, import_react40.createElement)("div", { className: "bt-canvas-empty" }, (0, import_react40.createElement)("h2", null, t("Your team workspace")), (0, import_react40.createElement)("p", null, t("Open employees from the directory. Their conversations stay with them.")), button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon)) : null
     ),
-    (0, import_react39.createElement)(CanvasQuickMessage, { bot: quickBot, actions }),
-    (0, import_react39.createElement)(CanvasAgenda, { roster, actions }),
-    marquee ? (0, import_react39.createElement)("div", { className: "bt-canvas-marquee", style: marquee }) : null,
-    (0, import_react39.createElement)("nav", { className: "bt-canvas-dock", "aria-label": t("Employees and group chats") }, [...roster.bots, ...roster.rooms].filter((entity) => !entity.hidden).map((entity) => (0, import_react39.createElement)(
+    (0, import_react40.createElement)(CanvasQuickMessage, { bot: quickBot, actions }),
+    (0, import_react40.createElement)(CanvasAgenda, { roster, actions }),
+    marquee ? (0, import_react40.createElement)("div", { className: "bt-canvas-marquee", style: marquee }) : null,
+    (0, import_react40.createElement)("nav", { className: "bt-canvas-dock", "aria-label": t("Employees and group chats") }, [...roster.bots, ...roster.rooms].filter((entity) => !entity.hidden).map((entity) => (0, import_react40.createElement)(
       "button",
       { type: "button", onClick: () => actions.openCanvasEntity(entity.id, size), key: entity.id, className: "bt-canvas-button bt-canvas-dock-item", "aria-label": entity.name, title: entity.name, "aria-pressed": visible.some((window2) => window2.entityId === entity.id && window2.id === state.active) },
-      roster.roomsById[entity.id] ? (0, import_react39.createElement)(RoomAvatar, { room: entity, roster, size: 36 }) : (0, import_react39.createElement)(BotAvatar, { bot: entity, size: 36, main: isMainOf(roster, entity.id) }),
-      (0, import_react39.createElement)("span", null, entity.name)
+      roster.roomsById[entity.id] ? (0, import_react40.createElement)(RoomAvatar, { room: entity, roster, size: 36 }) : (0, import_react40.createElement)(BotAvatar, { bot: entity, size: 36, main: isMainOf(roster, entity.id) }),
+      (0, import_react40.createElement)("span", null, entity.name)
     ))),
-    (0, import_react39.createElement)("div", { className: "bt-canvas-zoom" }, button("−", () => zoom(1 / 1.15), null, { "aria-label": t("Zoom out") }), (0, import_react39.createElement)("output", null, `${Math.round(state.viewport.zoom * 100)}%`), button("+", () => zoom(1.15), null, { "aria-label": t("Zoom in") }), button(t("Fit windows"), fit)),
-    (0, import_react39.createElement)("div", { className: "bt-canvas-status" }, t("Drag background to pan · Shift-drag to select · Ctrl-scroll to zoom"))
+    (0, import_react40.createElement)("div", { className: "bt-canvas-zoom" }, button("−", () => zoom(1 / 1.15), null, { "aria-label": t("Zoom out") }), (0, import_react40.createElement)("output", null, `${Math.round(state.viewport.zoom * 100)}%`), button("+", () => zoom(1.15), null, { "aria-label": t("Zoom in") }), button(t("Fit windows"), fit)),
+    (0, import_react40.createElement)("div", { className: "bt-canvas-status" }, t("Drag background to pan · Shift-drag to select · Ctrl-scroll to zoom"))
   );
 }
 
@@ -16046,6 +16189,14 @@ function apply(ctx) {
     const window2 = next.windows.find((value) => value.entityId === entity.id);
     updateCanvas(next);
     actions.openCanvasConversation(window2.id, size);
+  };
+  actions.placeCanvasMain = (id, point) => {
+    const snapshot = roster.getSnapshot();
+    if (!snapshot.byId[id] || !snapshot.mainBotIds?.includes(id)) return;
+    updateCanvas((state) => {
+      const next = openWindow(state, { id, kind: "bot" });
+      return { ...next, windows: next.windows.map((window2) => window2.entityId === id && window2.kind === "bot" ? { ...window2, x: point.x, y: point.y } : window2) };
+    });
   };
   actions.openCanvasConversation = (id, size) => {
     const current = canvas.getSnapshot();

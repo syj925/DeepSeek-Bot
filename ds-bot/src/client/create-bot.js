@@ -24,6 +24,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [name, setName] = useState(start?.name ?? '')
   const [model, setModel] = useState(() => startModel(roster))
   const [effort, setEffort] = useState(undefined)
+  const [main, setMain] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
@@ -40,7 +41,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model, effort, brief }))
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), ...(main ? { main: true } : {}) })
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -86,6 +87,9 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       h('span', { className: 'bt-note' }, (roster.models ?? []).length > 0
         ? t('The Bot runs on this model. You can change it later in its details.')
         : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))),
+    h('label', { className: 'bt-field' }, h('span', null,
+      h('input', { type: 'checkbox', checked: main, onChange: event => setMain(event.target.checked) }), ' ', t('Independent Main Agent')),
+      h('span', { className: 'bt-note' }, t('Creates and manages its own children. Can join other Main Agents in a group.'))),
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     h('div', { className: 'bt-create-foot' },
       h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),
