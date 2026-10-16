@@ -1,5 +1,3 @@
-import { canvasLandscapeUrl } from './canvas-landscape.js'
-
 export const canvasStyles = `
 :root {
   /* 背景：从上浅到下深 */

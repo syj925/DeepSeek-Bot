@@ -23,7 +23,7 @@ const WallpaperIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 2
   h('circle', { cx: 7.5, cy: 7.5, r: 1.5 }),
   h('path', { d: 'M17 13l-4-4-6 6' }))
 
-function CanvasContextMenu({ menu, roster, actions, leaving }) {
+function CanvasContextMenu({ menu, actions, leaving }) {
   const ref = useRef(null)
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
   const [activeSubmenu, setActiveSubmenu] = useState(null)
