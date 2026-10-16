@@ -1463,4 +1463,126 @@ export const canvasStyles = `
     box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.35) !important;
   }
 }
+
+/* 团队面板内联搜索框 */
+.bt-team-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 14px 10px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  animation: bt-veil-in 0.16s ease-out;
+}
+
+.bt-team-search-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.bt-team-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 18px;
+  padding: 0;
+}
+
+.bt-team-search-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.bt-team-search-clear,
+.bt-team-search-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.bt-team-search-clear:hover,
+.bt-team-search-close:hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.bt-team-search-clear {
+  font-size: 16px;
+  width: 18px;
+  height: 18px;
+}
+
+.bt-team-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.bt-team-global-search-btn {
+  margin: 8px 12px 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+  display: block;
+}
+
+.bt-round-active {
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: #1a73e8 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* 当处于无限画布模式时，将 .bt-pane 优化为居中磨砂玻璃 Modal 弹窗 */
+body:has(.canvas-viewport) .bt-pane {
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 100 !important;
+  padding: 20px !important;
+  box-sizing: border-box !important;
+}
+
+body:has(.canvas-viewport) .bt-pane > .bt-newchat,
+body:has(.canvas-viewport) .bt-pane > .bt-create-card,
+body:has(.canvas-viewport) .bt-pane > div {
+  width: min(560px, 92vw) !important;
+  max-height: min(700px, 88vh) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(30px) !important;
+  -webkit-backdrop-filter: blur(30px) !important;
+  border-radius: 24px !important;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.16) !important;
+  overflow-y: auto !important;
+}
 `

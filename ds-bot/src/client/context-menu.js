@@ -225,6 +225,31 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
   }, [menu.x, menu.y])
   if (menu.kind === 'canvas') return h(CanvasContextMenu, { menu, roster, actions, leaving })
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
+  if (menu.kind === 'team-new') {
+    const items = [
+      [t('Create employee'), PlusIcon, () => actions.openNewChat('create')],
+      [t('Create group chat'), ChatsIcon, () => actions.openNewChat('group')],
+      [t('New chat'), PeopleIcon, () => actions.openNewChat('new')],
+    ]
+    return h('div', {
+      ref,
+      className: 'bt-menu bt-canvas-menu',
+      role: 'menu',
+      'aria-label': t('New…'),
+      style: place,
+      'data-leaving': leaving || undefined,
+    },
+      items.map(([label, Icon, run]) => h('button', {
+        key: label,
+        type: 'button',
+        role: 'menuitem',
+        className: 'bt-menu-item',
+        onClick: () => {
+          actions.closeMenu()
+          if (run) run()
+        },
+      }, h(Icon), h('span', { className: 'bt-menu-label' }, label))))
+  }
   const bot = roster.byId[menu.id]
   const room = roster.roomsById[menu.id]
   const entry = bot ?? room

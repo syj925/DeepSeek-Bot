@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, PeopleIcon, ChevronLeftIcon, ChevronRightIcon } from './icons.js'
+import { PlusIcon, SearchIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, PeopleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from './icons.js'
 import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
@@ -275,6 +275,8 @@ export function TeamSidebar(props) {
   const floating = useFloatingTeam(canvasActive, root)
   const canvasEntity = props.useCanvas(value => value.windows.find(window => window.id === value.active && window.open))
   props.useRegistry(value => value)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const updated = useSessions(list => {
     const stamps = {}
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
@@ -290,8 +292,18 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
+  const q = searchQuery.trim().toLowerCase()
+  const filteredOrder = useMemo(() => {
+    if (!q) return order
+    return order.filter(entry => {
+      const name = (entry.item.name ?? '').toLowerCase()
+      const role = (entry.item.role ?? '').toLowerCase()
+      return name.includes(q) || role.includes(q)
+    })
+  }, [order, q])
   const main = roster.byId[roster.mainBotId]
-  useListGlide(listRef, wide, order.map(entry => entry.item.id).join(','))
+  const showMain = main && (!q || main.name.toLowerCase().includes(q) || (main.role ?? '').toLowerCase().includes(q))
+  useListGlide(listRef, wide, filteredOrder.map(entry => entry.item.id).join(','))
   useLandOnMainBot(roster, useSessions, actions, canvasActive)
   const rowProps = { roster, actions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useCompletions: props.useCompletions, useActivity: props.useActivity, useWork: props.useWork, canvasActive, canvasEntity, wide }
   // Typing while the sidebar has focus starts a search.
@@ -299,27 +311,99 @@ export function TeamSidebar(props) {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     if (event.target instanceof Element && event.target.closest('input,textarea,[contenteditable]')) return
     event.preventDefault()
-    actions.openPalette(event.key)
+    setSearchOpen(true)
+    setSearchQuery(event.key)
+  }
+  const onNewClick = (event) => {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    actions.openMenu({ kind: 'team-new', x: rect.left, y: rect.bottom + 6 })
   }
   return h('div', { ref: root, className: wide ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     wide ? h('div', { className: 'bt-side-top' },
       canvasActive ? h('button', { type: 'button', className: 'bt-team-grip', 'aria-label': t('Move team panel'), title: t('Drag to move · Arrow keys to adjust · Home to reset'), ...floating.handle }, h(PeopleIcon), h('span', null, t('Team')))
         : h('span', { className: 'bt-brand' }, h(BrandMark, { size: 22 }), h(BrandName)),
       h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-      h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
-      h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
+      h('button', {
+        type: 'button',
+        className: searchOpen ? 'bt-round bt-round-active' : 'bt-round',
+        'aria-label': t('Search'),
+        title: t('Search'),
+        onClick: () => {
+          setSearchOpen(v => !v)
+          if (searchOpen) setSearchQuery('')
+        },
+      }, h(SearchIcon)),
+      h('button', {
+        type: 'button',
+        className: 'bt-round',
+        'aria-label': t('New…'),
+        title: t('New…'),
+        onClick: onNewClick,
+      }, h(PlusIcon)),
       canvasActive ? h('button', { type: 'button', className: 'bt-round bt-team-fold', 'aria-label': t(floating.folded ? 'Expand team panel' : 'Collapse team panel'), title: t(floating.folded ? 'Expand team panel' : 'Collapse team panel'), 'aria-expanded': !floating.folded, 'aria-controls': listId, onClick: floating.toggle }, h(floating.folded ? ChevronRightIcon : ChevronLeftIcon)) : null)
       : h(Fragment, null,
           h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-          h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon))),
+          h('button', {
+            type: 'button',
+            className: 'bt-round',
+            'aria-label': t('New…'),
+            title: t('New…'),
+            onClick: onNewClick,
+          }, h(PlusIcon))),
+    wide && searchOpen ? h('div', { className: 'bt-team-search' },
+      h('span', { className: 'bt-team-search-icon', 'aria-hidden': true }, h(SearchIcon)),
+      h('input', {
+        type: 'text',
+        className: 'bt-team-search-input',
+        value: searchQuery,
+        placeholder: t('Search team members…'),
+        autoFocus: true,
+        onChange: event => setSearchQuery(event.target.value),
+        onKeyDown: event => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            setSearchOpen(false)
+            setSearchQuery('')
+          } else if (event.key === 'Enter' && searchQuery.trim()) {
+            actions.openPalette(searchQuery.trim())
+          }
+        },
+      }),
+      searchQuery ? h('button', {
+        type: 'button',
+        className: 'bt-team-search-clear',
+        'aria-label': t('Clear search'),
+        title: t('Clear search'),
+        onClick: () => setSearchQuery(''),
+      }, '×') : null,
+      h('button', {
+        type: 'button',
+        className: 'bt-team-search-close',
+        'aria-label': t('Close search'),
+        title: t('Close search'),
+        onClick: () => { setSearchOpen(false); setSearchQuery('') },
+      }, h(CloseIcon))) : null,
     wide && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', { ref: listRef, id: listId, className: 'bt-list', role: 'region', 'aria-label': t('Bot list') },
-      main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
-      order.map(entry => (entry.kind === 'bot'
+      showMain ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
+      filteredOrder.map(entry => (entry.kind === 'bot'
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
         : entry.kind === 'room'
           ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true })
-          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))))
+          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))),
+      q && filteredOrder.length === 0 && !showMain ? h('div', { className: 'bt-team-empty' },
+        h('span', null, t('No matching members')),
+        h('button', {
+          type: 'button',
+          className: 'bt-team-global-search-btn glass-button',
+          onClick: () => actions.openPalette(q),
+        }, t('Search in all messages “{query}”', { query: q }))) : null,
+      q && (filteredOrder.length > 0 || showMain) ? h('button', {
+        type: 'button',
+        className: 'bt-team-global-search-btn glass-button',
+        onClick: () => actions.openPalette(q),
+      }, t('Search in all messages “{query}”', { query: q })) : null))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —

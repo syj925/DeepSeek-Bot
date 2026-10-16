@@ -144,6 +144,10 @@ var ZH = {
   Search: "搜索",
   "New chat": "新对话",
   "New…": "新建",
+  "Search team members…": "搜索团队成员…",
+  "No matching members": "未找到相关成员",
+  "Search in all messages “{query}”": "在所有消息中搜索 “{query}”",
+  "Close search": "关闭搜索",
   "Animation": "动画",
   "Bot animation": "Bot 动画",
   "Quiet": "安静",
@@ -5546,6 +5550,8 @@ function TeamSidebar(props) {
   const floating = useFloatingTeam(canvasActive, root);
   const canvasEntity = props.useCanvas((value) => value.windows.find((window2) => window2.id === value.active && window2.open));
   props.useRegistry((value) => value);
+  const [searchOpen, setSearchOpen] = (0, import_react10.useState)(false);
+  const [searchQuery, setSearchQuery] = (0, import_react10.useState)("");
   const updated = useSessions((list) => {
     const stamps = {};
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0;
@@ -5561,15 +5567,31 @@ function TeamSidebar(props) {
     ];
     return entries2.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at);
   }, [roster, updated]);
+  const q = searchQuery.trim().toLowerCase();
+  const filteredOrder = (0, import_react10.useMemo)(() => {
+    if (!q) return order;
+    return order.filter((entry) => {
+      const name = (entry.item.name ?? "").toLowerCase();
+      const role = (entry.item.role ?? "").toLowerCase();
+      return name.includes(q) || role.includes(q);
+    });
+  }, [order, q]);
   const main = roster.byId[roster.mainBotId];
-  useListGlide(listRef, wide, order.map((entry) => entry.item.id).join(","));
+  const showMain = main && (!q || main.name.toLowerCase().includes(q) || (main.role ?? "").toLowerCase().includes(q));
+  useListGlide(listRef, wide, filteredOrder.map((entry) => entry.item.id).join(","));
   useLandOnMainBot(roster, useSessions, actions, canvasActive);
   const rowProps = { roster, actions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useCompletions: props.useCompletions, useActivity: props.useActivity, useWork: props.useWork, canvasActive, canvasEntity, wide };
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     if (event.target instanceof Element && event.target.closest("input,textarea,[contenteditable]")) return;
     event.preventDefault();
-    actions.openPalette(event.key);
+    setSearchOpen(true);
+    setSearchQuery(event.key);
+  };
+  const onNewClick = (event) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    actions.openMenu({ kind: "team-new", x: rect.left, y: rect.bottom + 6 });
   };
   return (0, import_react10.createElement)(
     "div",
@@ -5579,21 +5601,96 @@ function TeamSidebar(props) {
       { className: "bt-side-top" },
       canvasActive ? (0, import_react10.createElement)("button", { type: "button", className: "bt-team-grip", "aria-label": t("Move team panel"), title: t("Drag to move · Arrow keys to adjust · Home to reset"), ...floating.handle }, (0, import_react10.createElement)(PeopleIcon), (0, import_react10.createElement)("span", null, t("Team"))) : (0, import_react10.createElement)("span", { className: "bt-brand" }, (0, import_react10.createElement)(BrandMark, { size: 22 }), (0, import_react10.createElement)(BrandName)),
       (0, import_react10.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
-      (0, import_react10.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Search"), title: t("Search"), onClick: () => actions.openPalette() }, (0, import_react10.createElement)(SearchIcon)),
-      (0, import_react10.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react10.createElement)(PlusIcon)),
+      (0, import_react10.createElement)("button", {
+        type: "button",
+        className: searchOpen ? "bt-round bt-round-active" : "bt-round",
+        "aria-label": t("Search"),
+        title: t("Search"),
+        onClick: () => {
+          setSearchOpen((v) => !v);
+          if (searchOpen) setSearchQuery("");
+        }
+      }, (0, import_react10.createElement)(SearchIcon)),
+      (0, import_react10.createElement)("button", {
+        type: "button",
+        className: "bt-round",
+        "aria-label": t("New…"),
+        title: t("New…"),
+        onClick: onNewClick
+      }, (0, import_react10.createElement)(PlusIcon)),
       canvasActive ? (0, import_react10.createElement)("button", { type: "button", className: "bt-round bt-team-fold", "aria-label": t(floating.folded ? "Expand team panel" : "Collapse team panel"), title: t(floating.folded ? "Expand team panel" : "Collapse team panel"), "aria-expanded": !floating.folded, "aria-controls": listId, onClick: floating.toggle }, (0, import_react10.createElement)(floating.folded ? ChevronRightIcon : ChevronLeftIcon)) : null
     ) : (0, import_react10.createElement)(
       import_react10.Fragment,
       null,
       (0, import_react10.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
-      (0, import_react10.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react10.createElement)(PlusIcon))
+      (0, import_react10.createElement)("button", {
+        type: "button",
+        className: "bt-round",
+        "aria-label": t("New…"),
+        title: t("New…"),
+        onClick: onNewClick
+      }, (0, import_react10.createElement)(PlusIcon))
     ),
+    wide && searchOpen ? (0, import_react10.createElement)(
+      "div",
+      { className: "bt-team-search" },
+      (0, import_react10.createElement)("span", { className: "bt-team-search-icon", "aria-hidden": true }, (0, import_react10.createElement)(SearchIcon)),
+      (0, import_react10.createElement)("input", {
+        type: "text",
+        className: "bt-team-search-input",
+        value: searchQuery,
+        placeholder: t("Search team members…"),
+        autoFocus: true,
+        onChange: (event) => setSearchQuery(event.target.value),
+        onKeyDown: (event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            setSearchOpen(false);
+            setSearchQuery("");
+          } else if (event.key === "Enter" && searchQuery.trim()) {
+            actions.openPalette(searchQuery.trim());
+          }
+        }
+      }),
+      searchQuery ? (0, import_react10.createElement)("button", {
+        type: "button",
+        className: "bt-team-search-clear",
+        "aria-label": t("Clear search"),
+        title: t("Clear search"),
+        onClick: () => setSearchQuery("")
+      }, "×") : null,
+      (0, import_react10.createElement)("button", {
+        type: "button",
+        className: "bt-team-search-close",
+        "aria-label": t("Close search"),
+        title: t("Close search"),
+        onClick: () => {
+          setSearchOpen(false);
+          setSearchQuery("");
+        }
+      }, (0, import_react10.createElement)(CloseIcon))
+    ) : null,
     wide && roster.readOnly ? (0, import_react10.createElement)("div", { className: "bt-hint bt-read-only", role: "status" }, hostText(roster.readOnly)) : null,
     (0, import_react10.createElement)(
       "div",
       { ref: listRef, id: listId, className: "bt-list", role: "region", "aria-label": t("Bot list") },
-      main ? (0, import_react10.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react10.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
-      order.map((entry) => entry.kind === "bot" ? (0, import_react10.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "room" ? (0, import_react10.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true }) : (0, import_react10.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))
+      showMain ? (0, import_react10.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react10.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
+      filteredOrder.map((entry) => entry.kind === "bot" ? (0, import_react10.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "room" ? (0, import_react10.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true }) : (0, import_react10.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })),
+      q && filteredOrder.length === 0 && !showMain ? (0, import_react10.createElement)(
+        "div",
+        { className: "bt-team-empty" },
+        (0, import_react10.createElement)("span", null, t("No matching members")),
+        (0, import_react10.createElement)("button", {
+          type: "button",
+          className: "bt-team-global-search-btn glass-button",
+          onClick: () => actions.openPalette(q)
+        }, t("Search in all messages “{query}”", { query: q }))
+      ) : null,
+      q && (filteredOrder.length > 0 || showMain) ? (0, import_react10.createElement)("button", {
+        type: "button",
+        className: "bt-team-global-search-btn glass-button",
+        onClick: () => actions.openPalette(q)
+      }, t("Search in all messages “{query}”", { query: q })) : null
     )
   );
 }
@@ -9033,7 +9130,9 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
   if (draft) {
     return (0, import_react22.createElement)(
       "div",
-      { className: "bt-pane", style: { left: paneLeft } },
+      { className: "bt-pane", style: { left: paneLeft }, onMouseDown: (event) => {
+        if (event.target === event.currentTarget) close();
+      } },
       (0, import_react22.createElement)(CreateBot, {
         roster,
         actions,
@@ -9057,7 +9156,9 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
   };
   return (0, import_react22.createElement)(
     "div",
-    { className: "bt-pane", style: { left: paneLeft } },
+    { className: "bt-pane", style: { left: paneLeft }, onMouseDown: (event) => {
+      if (event.target === event.currentTarget) close();
+    } },
     (0, import_react22.createElement)(
       "div",
       { className: "bt-newchat", role: "dialog", "aria-label": mode === "search" ? t("Search") : t("New chat") },
@@ -13483,6 +13584,34 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
   }, [menu.x, menu.y]);
   if (menu.kind === "canvas") return (0, import_react35.createElement)(CanvasContextMenu, { menu, roster, actions, leaving });
   if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react35.createElement)(AgentMenu, { menu, roster, actions, leaving });
+  if (menu.kind === "team-new") {
+    const items = [
+      [t("Create employee"), PlusIcon, () => actions.openNewChat("create")],
+      [t("Create group chat"), ChatsIcon, () => actions.openNewChat("group")],
+      [t("New chat"), PeopleIcon, () => actions.openNewChat("new")]
+    ];
+    return (0, import_react35.createElement)(
+      "div",
+      {
+        ref,
+        className: "bt-menu bt-canvas-menu",
+        role: "menu",
+        "aria-label": t("New…"),
+        style: place,
+        "data-leaving": leaving || void 0
+      },
+      items.map(([label, Icon, run]) => (0, import_react35.createElement)("button", {
+        key: label,
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onClick: () => {
+          actions.closeMenu();
+          if (run) run();
+        }
+      }, (0, import_react35.createElement)(Icon), (0, import_react35.createElement)("span", { className: "bt-menu-label" }, label)))
+    );
+  }
   const bot = roster.byId[menu.id];
   const room2 = roster.roomsById[menu.id];
   const entry = bot ?? room2;
@@ -17092,6 +17221,128 @@ var canvasStyles = `
     border-color: rgba(255, 255, 255, 0.15) !important;
     box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.35) !important;
   }
+}
+
+/* 团队面板内联搜索框 */
+.bt-team-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 14px 10px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  animation: bt-veil-in 0.16s ease-out;
+}
+
+.bt-team-search-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.bt-team-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 18px;
+  padding: 0;
+}
+
+.bt-team-search-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.bt-team-search-clear,
+.bt-team-search-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.bt-team-search-clear:hover,
+.bt-team-search-close:hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.bt-team-search-clear {
+  font-size: 16px;
+  width: 18px;
+  height: 18px;
+}
+
+.bt-team-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.bt-team-global-search-btn {
+  margin: 8px 12px 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+  display: block;
+}
+
+.bt-round-active {
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: #1a73e8 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* 当处于无限画布模式时，将 .bt-pane 优化为居中磨砂玻璃 Modal 弹窗 */
+body:has(.canvas-viewport) .bt-pane {
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 100 !important;
+  padding: 20px !important;
+  box-sizing: border-box !important;
+}
+
+body:has(.canvas-viewport) .bt-pane > .bt-newchat,
+body:has(.canvas-viewport) .bt-pane > .bt-create-card,
+body:has(.canvas-viewport) .bt-pane > div {
+  width: min(560px, 92vw) !important;
+  max-height: min(700px, 88vh) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(30px) !important;
+  -webkit-backdrop-filter: blur(30px) !important;
+  border-radius: 24px !important;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.16) !important;
+  overflow-y: auto !important;
 }
 `;
 
