@@ -303,7 +303,10 @@ export function TeamSidebar(props) {
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
         : entry.kind === 'room'
           ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true })
-          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))))
+          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))),
+    canvasActive ? h('div', { className: 'bt-team-footer' },
+      h('button', { type: 'button', className: 'bt-team-return', title: t('Open in classic view'), onClick: () => actions.openClassicSession() },
+        h(ChevronLeftIcon), t('Return'))) : null)
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —

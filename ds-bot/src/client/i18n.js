@@ -68,6 +68,7 @@ const ZH = {
   'Collapse team panel': '收起团队面板',
   'Visual group only': '仅整理窗口，不改变群聊',
   'Classic view': '经典界面',
+  Return: '返回',
   'Open in classic view': '在经典界面打开',
   'Employee': '员工',
   'Available': '空闲',
