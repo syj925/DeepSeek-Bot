@@ -16388,7 +16388,7 @@ function apply(ctx) {
     const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind });
     const window2 = next.windows.find((value) => value.entityId === entity.id);
     updateCanvas(next);
-    actions.openCanvasConversation(window2.id, size);
+    actions.openCanvasConversation(window2.id, size, { reveal: true });
   };
   actions.placeCanvasMain = (id, point) => {
     const snapshot = roster.getSnapshot();
@@ -16398,13 +16398,15 @@ function apply(ctx) {
       return { ...next, windows: next.windows.map((window2) => window2.entityId === id && window2.kind === "bot" ? { ...window2, x: point.x, y: point.y } : window2) };
     });
   };
-  actions.openCanvasConversation = (id, size) => {
+  actions.openCanvasConversation = (id, size, { reveal = false } = {}) => {
     const current = canvas.getSnapshot();
     if (!current.windows.some((window2) => window2.id === id && window2.open)) return;
     let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false);
-    const viewport = size ?? canvasSize;
-    if (viewport) next = fitViewport(next, viewport, viewport.insets, [id]);
-    else pendingCanvasFocus = id;
+    if (reveal) {
+      const viewport = size ?? canvasSize;
+      if (viewport) next = fitViewport(next, viewport, viewport.insets, [id]);
+      else pendingCanvasFocus = id;
+    } else pendingCanvasFocus = void 0;
     updateCanvas(next);
     actions.openCanvas(false);
   };

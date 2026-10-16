@@ -627,7 +627,7 @@ export function apply(ctx) {
     const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind })
     const window = next.windows.find(value => value.entityId === entity.id)
     updateCanvas(next)
-    actions.openCanvasConversation(window.id, size)
+    actions.openCanvasConversation(window.id, size, { reveal: true })
   }
   actions.placeCanvasMain = (id, point) => {
     const snapshot = roster.getSnapshot()
@@ -637,13 +637,16 @@ export function apply(ctx) {
       return { ...next, windows: next.windows.map(window => window.entityId === id && window.kind === 'bot' ? { ...window, x: point.x, y: point.y } : window) }
     })
   }
-  actions.openCanvasConversation = (id, size) => {
+  actions.openCanvasConversation = (id, size, { reveal = false } = {}) => {
     const current = canvas.getSnapshot()
     if (!current.windows.some(window => window.id === id && window.open)) return
     let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
-    const viewport = size ?? canvasSize
-    if (viewport) next = fitViewport(next, viewport, viewport.insets, [id])
-    else pendingCanvasFocus = id
+    // Desktop icons open in place; directory and dock navigation can reveal offscreen chats.
+    if (reveal) {
+      const viewport = size ?? canvasSize
+      if (viewport) next = fitViewport(next, viewport, viewport.insets, [id])
+      else pendingCanvasFocus = id
+    } else pendingCanvasFocus = undefined
     updateCanvas(next)
     actions.openCanvas(false)
   }
