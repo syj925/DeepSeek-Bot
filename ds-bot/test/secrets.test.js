@@ -1,15 +1,96 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import fsPromises from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { canUse, normalizeName, redactDeep, redactor, SECRET_NAME } from '../src/host/secrets.js'
+import { canUse, install as installSecrets, normalizeName, redactDeep, redactor, SECRET_NAME } from '../src/host/secrets.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Test values are random on every run, so a leak can only come from this run.
 const fresh = () => `t-${randomBytes(12).toString('hex')}`
+
+test('overlapping readers share a pending secret load and takeover reads fresh keys before saving', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-takeover-'))
+  const path = join(home, 'secrets.json')
+  const writeKeys = names => writeFileSync(path, JSON.stringify({ version: 1, secrets: names.map(name => ({ name, value: fresh(), scope: 'all' })) }))
+  writeKeys(['FIRST_KEY'])
+  const ctx = fakeContext()
+  // Start each read explicitly so the old host's last read can be held across takeover.
+  ctx.effect = () => {}
+  let readOnly = true
+  const rt = { ctx, home, state: {}, readOnly: () => readOnly ? 'another host' : undefined, save: async () => {}, warn() {} }
+  installSecrets(rt)
+
+  const originalRead = fsPromises.readFile
+  let reads = 0
+  let releaseRead
+  let capturedRead
+  let releaseFreshRead
+  let capturedFreshRead
+  const held = new Promise(resolve => { releaseRead = resolve })
+  const captured = new Promise(resolve => { capturedRead = resolve })
+  const freshHeld = new Promise(resolve => { releaseFreshRead = resolve })
+  const freshCaptured = new Promise(resolve => { capturedFreshRead = resolve })
+  const pending = []
+  const track = (promise) => {
+    pending.push(promise)
+    void promise.catch(() => {})
+    return promise
+  }
+  fsPromises.readFile = async (file, ...args) => {
+    if (file !== path) return originalRead(file, ...args)
+    const current = ++reads
+    const contents = await originalRead(file, ...args)
+    if (current === 1) {
+      capturedRead()
+      await held
+    } else if (current === 2) {
+      capturedFreshRead()
+      await freshHeld
+    }
+    return contents
+  }
+  syncBuiltinESMExports()
+  t.after(async () => {
+    releaseRead()
+    releaseFreshRead()
+    await Promise.allSettled(pending)
+    fsPromises.readFile = originalRead
+    syncBuiltinESMExports()
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  const oldRead = track(rt.loadSecrets())
+  await captured
+  const reader = track(rt.loadSecrets())
+  assert.equal(reads, 1, 'concurrent readers must not start a second stale read')
+
+  writeKeys(['FIRST_KEY', 'SECOND_KEY', 'THIRD_KEY'])
+  readOnly = false
+  const saved = track(rt.secretEndpoint('secret-set', { name: 'MINE', value: fresh() }))
+  assert.equal(reads, 1, 'takeover must wait for the pending read before loading its fresh copy')
+  releaseRead()
+  await freshCaptured
+  await new Promise(resolve => setImmediate(resolve))
+  assert.ok(!rt.secretsView().some(entry => entry.name === 'MINE'), 'saving must wait for the fresh takeover read')
+  releaseFreshRead()
+  const [, , secret] = await Promise.all([oldRead, reader, saved])
+  assert.equal(secret.name, 'MINE')
+  assert.equal(reads, 2, 'takeover must refresh the copy read while another host held the lock')
+  const expected = ['FIRST_KEY', 'MINE', 'SECOND_KEY', 'THIRD_KEY']
+  assert.deepEqual(rt.secretsView().map(entry => entry.name), expected)
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).secrets.map(entry => entry.name).sort(), expected)
+
+  readOnly = true
+  writeKeys(['NEW_HOST_KEY'])
+  await rt.loadSecrets()
+  assert.deepEqual(rt.secretsView().map(entry => entry.name), ['NEW_HOST_KEY'])
+})
 
 test('names are normalized, then checked', () => {
   assert.equal(normalizeName(' github-token '), 'GITHUB_TOKEN')

@@ -84,6 +84,7 @@ export function install(rt) {
   /** @type {Map<string, {name:string, value:string, purpose:string, scope:'all'|string[], requestedBy:string|null, createdAt:number, updatedAt:number, lastUsedAt?:number}>} */
   const secrets = new Map()
   let loaded = null
+  let reading = null
   let writing = Promise.resolve()
   let redact = text => text
   let refreshEnv = () => {}
@@ -101,12 +102,20 @@ export function install(rt) {
   // reads it again each time; a copy read then is also read again after taking over,
   // before this host saves anything.
   let loadedReadOnly = false
-  const loadSecrets = () => {
-    if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined)) loaded = null
-    return loaded ??= readSecrets()
+  const loadSecrets = async () => {
+    // A late read must not replace keys that a takeover has already changed. Share
+    // the pending read, then refresh again if ownership changed while it ran.
+    if (reading === null) {
+      if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined)) loaded = null
+      if (loaded !== null) return loaded
+      loaded = reading = readSecrets().finally(() => { reading = null })
+    }
+    await reading
+    if (reading !== null || loadedReadOnly !== (rt.readOnly() !== undefined)) return loadSecrets()
   }
   const readSecrets = async () => {
-    loadedReadOnly = rt.readOnly() !== undefined
+    const readOnly = rt.readOnly() !== undefined
+    loadedReadOnly = readOnly
     try {
       const parsed = JSON.parse(await readFile(path, 'utf8'))
       secrets.clear()
@@ -123,7 +132,7 @@ export function install(rt) {
           ...(Number.isFinite(entry.lastUsedAt) ? { lastUsedAt: entry.lastUsedAt } : {}),
         })
       }
-      if (!loadedReadOnly) await chmod(path, 0o600).catch(() => {})
+      if (!readOnly) await chmod(path, 0o600).catch(() => {})
     } catch (error) {
       if (error?.code === 'ENOENT') secrets.clear()
       else rt.warn('ds-bot: unreadable secrets file %s (%s)', path, reason(error))
