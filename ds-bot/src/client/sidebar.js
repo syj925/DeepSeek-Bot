@@ -69,18 +69,28 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
+  const dragStart = (event, kind) => {
+    try {
+      const payload = JSON.stringify({ id, kind })
+      event.dataTransfer.setData('application/x-ds-bot', payload)
+      event.dataTransfer.setData('text/plain', payload)
+      event.dataTransfer.effectAllowed = 'copyMove'
+    } catch { /* dataTransfer error */ }
+  }
   if (tile && wide && !canvasActive) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
+      draggable: true, onDragStart: event => dragStart(event, 'bot'),
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
   }
   return h('button', {
-    type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+    type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
     'data-bot-id': id, title: wide ? undefined : bot.name, onClick: () => actions.openSession(id), onContextMenu,
+    draggable: true, onDragStart: event => dragStart(event, 'bot'),
   },
   h(BotAvatar, { bot, size: 36, state, main }),
   pinned && !wide ? h(PinMark) : null,
@@ -108,9 +118,17 @@ function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, use
   const pinned = room.pinned === true
   const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
   return h('button', {
-    type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+    type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
     'data-room-id': id, onClick: () => actions.openSession(id),
     onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
+    draggable: true, onDragStart: event => {
+      try {
+        const payload = JSON.stringify({ id, kind: 'room' })
+        event.dataTransfer.setData('application/x-ds-bot', payload)
+        event.dataTransfer.setData('text/plain', payload)
+        event.dataTransfer.effectAllowed = 'copyMove'
+      } catch { /* dataTransfer error */ }
+    },
   },
   h(RoomAvatar, { room, roster, size: 36 }),
   pinned && !wide ? h(PinMark) : null,
@@ -202,7 +220,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
   const open = active && wide
   return h('div', { className: 'bt-agent' },
     h('button', {
-      type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+      type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
       'data-agent-id': agent.id, title: wide ? undefined : 'DSH Agent', onClick: () => actions.openAgent(agent.id),
       onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'agent', id: agent.id, x: event.clientX, y: event.clientY }) },
     },

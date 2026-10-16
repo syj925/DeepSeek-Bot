@@ -161,7 +161,7 @@ test('movement and resize are immutable and bounded without changing entity refe
   assert.equal(resized.windows[0].width, CANVAS_LIMITS.minWidth)
   assert.equal(resized.windows[0].height, CANVAS_LIMITS.maxSize)
   assert.equal(resized.windows[0].entityId, 'chief')
-  assert.equal(state.windows[0].width, 420)
+  assert.equal(state.windows[0].width, 760)
 })
 
 test('compact toggles preserve a window identity and its expanded dimensions', () => {

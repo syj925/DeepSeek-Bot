@@ -598,13 +598,20 @@ export function apply(ctx) {
     },
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
   }
+  const userMovedWindows = new Set()
+  actions.markCanvasWindowMoved = id => { if (id) userMovedWindows.add(id) }
   actions.updateCanvas = updateCanvas
   actions.saveCanvas = saveCanvas
   actions.setCanvasSize = size => {
     canvasSize = size
     if (size && pendingCanvasFocus) {
-      updateCanvas(state => fitViewport(state, size, size.insets, pendingCanvasFocus === 'all' ? undefined : [pendingCanvasFocus]))
+      const focus = pendingCanvasFocus
       pendingCanvasFocus = undefined
+      if (focus === 'all') {
+        updateCanvas(state => fitViewport(state, size, size.insets))
+      } else {
+        actions.openCanvasConversation(focus, size)
+      }
     }
   }
   actions.retainCanvasSession = id => ctx.sessions.retain(id, { source: 'dsBotCanvas' })
@@ -624,8 +631,13 @@ export function apply(ctx) {
     const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id]
     if (!entity) return
     const kind = snapshot.roomsById[entity.id] ? 'room' : 'bot'
-    const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind })
+    const current = canvas.getSnapshot()
+    let next = openWindow(current, { id: entity.id, kind })
     const window = next.windows.find(value => value.entityId === entity.id)
+    if (window) {
+      window.width = 760
+      window.height = 540
+    }
     updateCanvas(next)
     actions.openCanvasConversation(window.id, size)
   }
@@ -633,9 +645,26 @@ export function apply(ctx) {
     const current = canvas.getSnapshot()
     if (!current.windows.some(window => window.id === id && window.open)) return
     let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
-    const viewport = size ?? canvasSize
-    if (viewport) next = fitViewport(next, viewport, viewport.insets, [id])
-    else pendingCanvasFocus = id
+    const window = next.windows.find(item => item.id === id)
+    if (window) {
+      window.width = 760
+      window.height = 540
+      if (!userMovedWindows.has(window.id)) {
+        const viewport = size ?? canvasSize
+        if (viewport) {
+          const v = next.viewport
+          const left = Math.min(Math.max(0, viewport.insets?.left ?? 24), viewport.width / 2 - 1)
+          const right = Math.min(Math.max(0, viewport.insets?.right ?? 24), viewport.width / 2 - 1)
+          const top = Math.min(Math.max(0, viewport.insets?.top ?? 70), viewport.height - 2)
+          const bottom = Math.min(Math.max(0, viewport.insets?.bottom ?? 70), viewport.height - top - 1)
+          const availW = viewport.width - left - right, availH = viewport.height - top - bottom
+          const screenX = left + (availW - window.width * v.zoom) / 2
+          const screenY = top + (availH - window.height * v.zoom) / 2
+          window.x = Math.round((screenX - v.x) / v.zoom)
+          window.y = Math.round((screenY - v.y) / v.zoom)
+        }
+      }
+    }
     updateCanvas(next)
     actions.openCanvas(false)
   }

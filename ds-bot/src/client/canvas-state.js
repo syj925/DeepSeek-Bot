@@ -34,7 +34,7 @@ const matching = (window, id) => window.id === id || window.entityId === id
 
 function dimensions(value) {
   return {
-    width: clamp(value.width, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 420),
+    width: clamp(value.width, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 760),
     height: clamp(value.height, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 540),
   }
 }
@@ -185,6 +185,10 @@ export function openWindow(state, entity, options = {}) {
   }
   window.open = true
   window.compact = options.compact !== false
+  if (!window.compact && (!window.width || window.width <= 500 || (window.width === 760 && window.height === 720))) {
+    window.width = 760
+    window.height = 540
+  }
   Object.assign(window, dimensions(window))
   bringForward(next, window)
   next.selected = [window.id]
@@ -203,6 +207,10 @@ export function setWindowCompact(state, id, compact) {
   const window = next.windows.find(item => matching(item, id))
   if (window) {
     window.compact = compact === true
+    if (!window.compact && (!window.width || window.width <= 500 || (window.width === 760 && window.height === 720))) {
+      window.width = 760
+      window.height = 540
+    }
     Object.assign(window, dimensions(window))
   }
   return next
@@ -326,7 +334,10 @@ export function fitViewport(state, viewportSize, padding = 40, ids) {
   const left = clamp(insets.left, 0, width / 2 - 1, 24), right = clamp(insets.right, 0, width / 2 - 1, 24)
   const top = clamp(insets.top, 0, height - 2, 80), bottom = clamp(insets.bottom, 0, height - top - 1, 80)
   const availableWidth = width - left - right, availableHeight = height - top - bottom
-  const zoom = clamp(Math.min(availableWidth / bounds.width, availableHeight / bounds.height), CANVAS_LIMITS.minZoom, 1, 1)
+  let zoom = clamp(Math.min(availableWidth / bounds.width, availableHeight / bounds.height), CANVAS_LIMITS.minZoom, 1, 1)
+  if (Array.isArray(ids) && ids.length === 1 && availableWidth >= bounds.width && availableHeight >= bounds.height) {
+    zoom = 1
+  }
   next.viewport = { x: coordinate(left + (availableWidth - bounds.width * zoom) / 2 - bounds.x * zoom), y: coordinate(top + (availableHeight - bounds.height * zoom) / 2 - bounds.y * zoom), zoom }
   return next
 }

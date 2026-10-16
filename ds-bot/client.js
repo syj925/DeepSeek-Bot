@@ -45,6 +45,7 @@ var ZH = {
   "Open group chat to collaborate": "打开群聊，与团队协作",
   "Employee canvas": "员工画布",
   "Canvas wallpaper": "画布壁纸",
+  "Canvas options": "画布选项",
   "Wallpaper": "壁纸",
   "Choose a lake, forest or any image you like.": "选择喜欢的湖泊、山林或其他图片。",
   "Choose local image": "选择本地图片",
@@ -121,6 +122,20 @@ var ZH = {
   "Fit windows": "总览",
   "Drag background to pan · Shift-drag to select · Ctrl-scroll to zoom": "拖动空白平移 · Shift 拖动框选 · Ctrl 滚轮缩放",
   "Could not open conversation": "无法打开对话",
+  Collaboration: "协作与创建",
+  "Canvas layout": "画布与布局",
+  "Spatial widgets": "空间挂件",
+  System: "系统",
+  "Click to open · Drag to place on canvas": "点击打开 · 拖拽至画布",
+  "Expand navigation menu": "展开导航菜单",
+  "Collapse navigation menu": "收起导航菜单",
+  View: "查看",
+  Refresh: "刷新画布",
+  "Auto arrange cards": "自动整理卡片",
+  "Reset zoom 100%": "重置缩放 100%",
+  "Collapse all": "全部缩为卡片",
+  Personalize: "个性化壁纸",
+  "Display settings": "显示设置",
   // Shared
   "Main Bot": "主 Bot",
   Working: "工作中",
@@ -309,6 +324,7 @@ var ZH = {
   Model: "模型",
   "Avatar editor": "形象编辑",
   "Avatar source": "形象来源",
+  Preset: "预设形象",
   Upload: "上传",
   "Reset character to default": "恢复默认形象",
   Reset: "恢复默认",
@@ -5058,7 +5074,7 @@ function useFloatingTeam(enabled, root) {
     const column = root.current?.closest('[class*="_sidebarCol"]');
     const frame = column?.parentElement;
     if (!frame) return void 0;
-    column.classList.add("bt-floating-team");
+    column.classList.add("bt-floating-team", "team-panel");
     frame.classList.add("bt-canvas-frame");
     const center = frame.querySelector('[class*="_centerCol"]');
     const toolbar = root.current?.ownerDocument?.querySelector(".bt-canvas-toolbar");
@@ -5077,7 +5093,7 @@ function useFloatingTeam(enabled, root) {
     measure();
     return () => {
       observer.disconnect();
-      column.classList.remove("bt-floating-team");
+      column.classList.remove("bt-floating-team", "team-panel");
       frame.classList.remove("bt-canvas-frame");
       column.removeAttribute("data-folded");
       for (const name of ["--bt-team-x", "--bt-team-y", "--bt-team-height"]) column.style.removeProperty(name);
@@ -5139,50 +5155,63 @@ var FLOATING_TEAM_CSS = `
 .bt-canvas-frame>[class*="_centerCol"]{grid-column:1 / 3;grid-row:1;border-left:0;border-radius:0}
 .bt-canvas-frame>[class*="_rightbarCol"]{grid-column:3;grid-row:1}
 .bt-canvas-frame>[data-side=sidebar]{display:none}
-.bt-canvas-frame>.bt-floating-team{
-  --bt-ink:#f5f8f7;--bt-ink-2:rgba(245,248,247,.76);--bt-ink-3:rgba(245,248,247,.55);
-  --bt-card:#34494b;--bt-main:#293c3f;--bt-sidebar:#293c3f;
-  --bt-line:rgba(255,255,255,.12);--bt-line-2:rgba(255,255,255,.23);
-  --bt-hover:rgba(255,255,255,.1);--bt-active:rgba(255,255,255,.17);--bt-accent:#8de0cc;--bt-accent-ink:#153b33;
-  --bt-tag-bg:rgba(255,255,255,.1);--bt-tag-ink:rgba(245,248,247,.76);
+.bt-canvas-frame>.bt-floating-team,
+.team-panel{
+  --bt-ink:var(--text-primary,#262626);--bt-ink-2:var(--text-secondary,#757575);--bt-ink-3:#8c8c8c;
+  --bt-card:#ffffff;--bt-main:#ffffff;--bt-sidebar:#ffffff;
+  --bt-line:var(--divider,rgba(0,0,0,.06));--bt-line-2:rgba(0,0,0,.1);
+  --bt-hover:rgba(0,0,0,.04);--bt-active:rgba(0,0,0,.08);--bt-accent:#10a37f;--bt-accent-ink:#ffffff;
+  --bt-tag-bg:rgba(0,0,0,.05);--bt-tag-ink:var(--text-secondary,#757575);
   position:absolute;z-index:18;left:var(--bt-team-x,20px);top:var(--bt-team-y,104px);
   width:min(288px,calc(100% - 24px));height:var(--bt-team-height,640px);box-sizing:border-box;
-  border:1px solid rgba(255,255,255,.2)!important;border-radius:26px;
-  background:transparent!important;
-  box-shadow:0 18px 60px -18px rgba(12,30,34,.45),inset 0 1px 0 rgba(255,255,255,.13);
-  color:var(--bt-ink);overflow:hidden;transition:width .18s ease,height .18s ease;
+  border:1px solid var(--glass-border,rgba(255,255,255,.85))!important;border-radius:28px!important;
+  background:#f8f8f8!important;
+  box-shadow:var(--glass-shadow,0 8px 28px rgba(0,0,0,.05),inset 0 1px 0 rgba(255,255,255,.8))!important;
+  color:var(--text-primary,#262626);overflow:hidden;transition:width .18s ease,height .18s ease;
 }
-.bt-floating-team::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:rgba(40,57,60,.62);-webkit-backdrop-filter:blur(32px) saturate(118%);backdrop-filter:blur(32px) saturate(118%)}
-body[data-ds-dark-theme] .bt-floating-team::before{background:rgba(24,39,43,.7)}
-body[data-ds-dark-theme] .bt-canvas-frame>.bt-floating-team{border-color:rgba(255,255,255,.18)!important}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .bt-canvas-frame>.bt-floating-team,
+  .team-panel{
+    background:var(--glass-floating,rgba(255,255,255,.65))!important;
+    -webkit-backdrop-filter:blur(var(--glass-blur,24px));
+    backdrop-filter:blur(var(--glass-blur,24px));
+  }
+}
+.bt-floating-team::before{display:none!important}
 .bt-floating-team>[class*="_root"],.bt-floating-team>[data-slot=sidebar]>[class*="_root"]{width:100%!important;padding:8px!important;background:transparent!important;box-sizing:border-box}
 .bt-floating-team [class*="_regionArea"]{display:flex!important;min-height:0;padding:0!important;margin:0!important}
 .bt-floating-team [class*="_footArea"]{display:flex!important;gap:4px;padding-top:8px;border-top:1px solid var(--bt-line)}
 .bt-floating-team .bt-side{padding:0;overflow:hidden}
 .bt-floating-team .bt-side-top{gap:4px;padding:0 0 8px;min-height:40px;flex:none}
-.bt-floating-team .bt-side-top .bt-round{width:30px;height:30px;flex:none;background:rgba(255,255,255,.08);border-color:var(--bt-line)}
-.bt-team-grip{display:flex;align-items:center;gap:7px;flex:1;min-width:0;height:36px;padding:0 5px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;font-weight:600;cursor:grab;touch-action:none;user-select:none;text-align:start}
+.bt-floating-team .bt-side-top .bt-round{width:30px;height:30px;flex:none;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.9);color:var(--text-primary,#262626);border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.04)}
+.bt-team-grip{display:flex;align-items:center;gap:7px;flex:1;min-width:0;height:36px;padding:0 5px;border:0;border-radius:10px;background:transparent;color:var(--text-primary,#262626);font:inherit;font-size:13px;font-weight:600;cursor:grab;touch-action:none;user-select:none;text-align:start}
 .bt-team-grip:active{cursor:grabbing}
 .bt-team-grip>svg{flex:none;width:17px;height:17px;opacity:.7}
 .bt-team-grip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-team-grip:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-team-grip:focus-visible{outline:2px solid #888;outline-offset:3px}
 .bt-floating-team .bt-list{gap:4px;scrollbar-width:thin}
-.bt-floating-team .bt-row{min-height:58px;border:1px solid transparent;border-radius:15px}
-.bt-floating-team .bt-row:hover{border-color:var(--bt-line);background:rgba(255,255,255,.08)}
-.bt-floating-team .bt-row[aria-current=page]{border-color:rgba(141,224,204,.25);background:rgba(141,224,204,.12)}
-.bt-floating-team .bt-connect{background:rgba(255,255,255,.06)}
-.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,.bt-you,[class*="_footArea"] button){background:rgba(255,255,255,.08)!important;color:#f5f8f7!important;border-color:rgba(255,255,255,.18)!important}
-.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,[class*="_footArea"] button):hover{background:rgba(255,255,255,.15)!important}
-.bt-floating-team[data-folded=true]{width:min(164px,calc(100% - 24px));border-radius:18px}
+.bt-floating-team .bt-row{min-height:52px;border:1px solid transparent;border-radius:14px;color:var(--text-primary,#262626);transition:background-color .12s ease,box-shadow .12s ease}
+.bt-floating-team .bt-row:hover{border-color:var(--bt-line);background:rgba(0,0,0,.04)}
+.bt-floating-team .bt-row:is([aria-current=page],[aria-selected="true"]),
+.team-item[aria-selected="true"]{
+  background:rgba(255,255,255,.95)!important;
+  border-radius:18px!important;
+  box-shadow:0 5px 16px rgba(0,0,0,.05),inset 0 0 0 1px rgba(255,255,255,.9)!important;
+  color:var(--text-primary,#262626)!important;
+}
+.bt-floating-team .bt-connect{background:rgba(255,255,255,.9)}
+.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,.bt-you,[class*="_footArea"] button){background:rgba(255,255,255,.9)!important;color:var(--text-primary,#262626)!important;border:1px solid rgba(255,255,255,.9)!important;border-radius:12px!important;box-shadow:0 3px 10px rgba(0,0,0,.04)!important}
+.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,[class*="_footArea"] button):hover{background:#ffffff!important;box-shadow:0 4px 12px rgba(0,0,0,.06)!important}
+.bt-floating-team[data-folded=true]{width:min(164px,calc(100% - 24px));border-radius:20px!important}
 .bt-floating-team[data-folded=true] .bt-side-top{padding:0;gap:3px}
 .bt-floating-team[data-folded=true] :is(.bt-list,.bt-read-only,[class*="_footArea"],.bt-side-top>.bt-round:not(.bt-team-fold)){display:none!important}
 @media (prefers-reduced-motion:reduce){.bt-canvas-frame>.bt-floating-team{transition:none}}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-floating-team::before{background:var(--bt-card)!important}}
-@media (prefers-reduced-transparency:reduce){.bt-floating-team::before{background:var(--bt-card)!important;-webkit-backdrop-filter:none;backdrop-filter:none}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-floating-team::before{display:none}}
+@media (prefers-reduced-transparency:reduce){.bt-floating-team::before{display:none}}
 @media(pointer:coarse){.bt-floating-team .bt-side-top .bt-round{width:44px;height:44px}.bt-team-grip{min-height:44px}.bt-floating-team[data-folded=true]>[class*="_root"],.bt-floating-team[data-folded=true]>[data-slot=sidebar]>[class*="_root"]{padding:4px!important}}
 @media(forced-colors:active){
   .bt-canvas-frame>.bt-floating-team{--bt-ink:CanvasText;--bt-ink-2:CanvasText;--bt-ink-3:CanvasText;--bt-card:Canvas;--bt-main:Canvas;--bt-accent:Highlight;border-color:CanvasText!important;box-shadow:none}
-  .bt-floating-team::before{background:Canvas!important;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .bt-floating-team::before{display:none}
   .bt-floating-team .bt-row[aria-current=page]{border-color:Highlight;background:Canvas}
   .bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,.bt-you,[class*="_footArea"] button){background:ButtonFace!important;color:ButtonText!important;border-color:ButtonText!important}
   .bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,[class*="_footArea"] button):hover{background:Highlight!important;color:HighlightText!important}
@@ -5234,6 +5263,15 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   };
   const pinned = bot.pinned === true && !tile;
   const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
+  const dragStart = (event, kind) => {
+    try {
+      const payload = JSON.stringify({ id, kind });
+      event.dataTransfer.setData("application/x-ds-bot", payload);
+      event.dataTransfer.setData("text/plain", payload);
+      event.dataTransfer.effectAllowed = "copyMove";
+    } catch {
+    }
+  };
   if (tile && wide && !canvasActive) {
     return (0, import_react10.createElement)("div", { className: "bt-tile-wrap" }, (0, import_react10.createElement)(
       "button",
@@ -5245,7 +5283,9 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
         "data-bot-id": id,
         title: preview || bot.name,
         onClick: () => actions.openSession(id),
-        onContextMenu
+        onContextMenu,
+        draggable: true,
+        onDragStart: (event) => dragStart(event, "bot")
       },
       (0, import_react10.createElement)(BotAvatar, { bot, size: 60, state, main: true }),
       (0, import_react10.createElement)("span", { className: "bt-tile-name" }, bot.name),
@@ -5256,13 +5296,16 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     "button",
     {
       type: "button",
-      className: "bt-row",
+      className: "bt-row team-item",
       "aria-label": label,
       "aria-current": active ? "page" : void 0,
+      "aria-selected": active ? "true" : void 0,
       "data-bot-id": id,
       title: wide ? void 0 : bot.name,
       onClick: () => actions.openSession(id),
-      onContextMenu
+      onContextMenu,
+      draggable: true,
+      onDragStart: (event) => dragStart(event, "bot")
     },
     (0, import_react10.createElement)(BotAvatar, { bot, size: 36, state, main }),
     pinned && !wide ? (0, import_react10.createElement)(PinMark) : null,
@@ -5296,14 +5339,25 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionRetainIn
     "button",
     {
       type: "button",
-      className: "bt-row",
+      className: "bt-row team-item",
       "aria-label": label,
       "aria-current": active ? "page" : void 0,
+      "aria-selected": active ? "true" : void 0,
       "data-room-id": id,
       onClick: () => actions.openSession(id),
       onContextMenu: (event) => {
         event.preventDefault();
         actions.openMenu({ kind: "room", id, x: event.clientX, y: event.clientY });
+      },
+      draggable: true,
+      onDragStart: (event) => {
+        try {
+          const payload = JSON.stringify({ id, kind: "room" });
+          event.dataTransfer.setData("application/x-ds-bot", payload);
+          event.dataTransfer.setData("text/plain", payload);
+          event.dataTransfer.effectAllowed = "copyMove";
+        } catch {
+        }
       }
     },
     (0, import_react10.createElement)(RoomAvatar, { room: room2, roster, size: 36 }),
@@ -5413,9 +5467,10 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
       "button",
       {
         type: "button",
-        className: "bt-row",
+        className: "bt-row team-item",
         "aria-label": label,
         "aria-current": active ? "page" : void 0,
+        "aria-selected": active ? "true" : void 0,
         "data-agent-id": agent.id,
         title: wide ? void 0 : "DSH Agent",
         onClick: () => actions.openAgent(agent.id),
@@ -8235,6 +8290,12 @@ function MemoryDialog({ bot, actions, leaving = false }) {
   );
 }
 
+// src/client/ip-avatars.json
+var ip_avatars_default = ["data:image/webp;base64,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", "data:image/webp;base64,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", "data:image/webp;base64,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", "data:image/webp;base64,UklGRlIZAABXRUJQVlA4WAoAAAAQAAAAnwAAnwAAQUxQSOAJAAABsIZtm2Hb0ftV9d47Tg4ysW3btm07GcQZ27Zt27btiW1jd9X71fdjtVetPb6uiJgA/L9mkbmKOF94h1HxhZc5hvMetYVHpXdzBykEwPT6xzz/fV/64c9+88tvf+btV+w0DYibGzgPYLVT3vunx6xx+avnbA44mXzOAU8695sPmZmWZSjDaAyBZuUXtwBkwjkHbPnGO81SWUaqKqm1Majde94iIpNMPLDT56NZGaj1rFHVYPYqQCaXBzZ+dzSWUTsPIb3UQSaUEyz35keNQVXJrki1i2YmlAfOvNa0pFawI9WQfrSen0TisdKnzGapo6R2Tz5x1Iw4mTROcMRNVkYdYrAXTAMQL5PEoXiBWanDDPZGLDpvMQBucngs93WLUQca08+/+Md//OXjxy8FmRQea//SZqmDpVXyK/vByUTw2ORmK3XIMcQYA+2uczERPDa52UptyAFUksEevgAufw6rXmtB27KC7EVVg929G1zuBPN+ZaV21D1rNNj35kHyJt593EptSFYMN9hLcufxSpvVMaI+vBVczjx21xAbDb+0d2TNyfy/p8A2HBKV+uDmcPnyeJuV2rozKjvR0t6QMYdtYqQqm1F7JhupMqSbVoDLlLip71vQ/lnHTlSDnQ2fKY9TLGhTdsaaaqpSlWzyOZE8icz8McVmrGEbbU+t5AhjuntVuCx5nGJRm5MtWEGSbUiygWqwo+FzJDL9h9RGVTnSO0ltSJb26jx5HGtB68kaNmAf2pjBfuYgGRL//Ras0CZKdjXKBsp0/0pw+fHYoaQ2UWUH2gubRDsEPj8O77ayilRqXeN+mge7NEOCBbemWNU9yV7IutJeD5cdj7MsaluygnU6FJb2LQ/JjfgfdqBVfaZGjA2i3b5Sdjx2nyXbDZusU2XaBz4z4t5c6riTrKIGuxRFXhxW/shsNkgGe11+9n+7xeGlFk2p5fsgecHU6e+10ICtqOymaWpjD316cUhOBCuf+KkmVOXQasmaOz+0yhiJdOCwxUk/tFg3yhGyqvPUTuuuf8WGcGODbrY74a/GLrTzlEa6rPvTM7Ybpy4dtjvzxjbjHe3nF+6em02eeWcXHJtgnzx8j7wIlnrPY6mDIbKzF+23a17g8WwLqsouyCoO6+wDt86LyCIfsag9UpUddR1t98PWhmREnHufRVVVdqVK6oBp969+8jzk1OFZFkjtldoyNSAbsCbat5Y+T3LisJXd/kgi2YwthtnkvOXPhs+Ix8f/+tzIVoOlkiNsQHtktT32gcuHYJE7jnuHBWrn7EeVWlMb7Au4aAVIPhzW/ut6P7Q4Pu2DXbToRRDkU7D6N5b9eoo64FTFBmSjaFvvvgNcRiDFJ1e/0gI5nNomLcl9z50R5NTj+OcuvDfFIaQWqmQ7qqaHX7sVXFbgcOnpr0pB+086QJLBXgmHzDrsdundFrOgjIxbw+cGDjOn3KNUZSdpKORIZLp2OUh2xC1Y6hcpkBVsU5lUVVMfVJKq0f7+7p9OSX4gWOc+YwXZQ78cjXrXOq89Hx759dg2fe/2FKljXGF7b/Qi75Clve2o51g5bspwzSmLQfK0i+251G0W26U0GEbGMtrFEEGOHdZPB+LExxnHhpH8xu0WD5QCWRbM3HGW+KdbZJteUxv9+F7X2c3HwucJHh9/o/ilXpwYu0rtUotgX9tg/p32i2MydvB34GSxZ5cpsptOU2oQ7G+rY62HwmcPyxZc8cO9xMuSVz9ks5GNUupB66PdtTVka739dbvmy+PIz8ELpk+4waxR6qNh4GO7YhpH2/evXguSK3hccwFEgLVe/yBjgyFSzQ5D4fFie955U8i4w0X7TEMccLaVfbAVbfa6I1FA5Kf3nXkIfMYg2Gi9GcH01Bn9tC7tpWsvCQcvm6SPXDJPJGcQwMEVOMVCD2wT9brFAA8UeMmjr90BDnkXwANn3sDYB5WNSjsEUwI4We7O206EQ+7FY+1PmlHZS+PS3g0PQAp8uDwdDrkXweG3WYjaR8vS/riEE0AKXGanw0nuHOSyB6xUpQ402G3rwgHicMHDx8Aj9w6Lv/LBGHQAKWlS1dLu3Qoeo8/+1ZbwyL3Dss/5cYjUobK0f2wCD8DNvPhNi8Ij94IFz37f45FayzapVaB9fQV4AA5nXgJ4ZN8tcuEl92vUWvbE0uJzAQ9AsOKz4ATZ97jwhD9Z0IGWZj/fEeIAwOPI3eCRfYd9T3uflTpUe+iqKXhUOpy6HPIvstwlp6eSSpL9Mb5/HcCj7pT5E8DhxP1vTEGV1P6DPRfwggaHLw/JnWCF495gpQ4k2u5uCg0dNt4CLncOO579WNRqVrA7prgRXBNgepdpyZ3Iub+0UKNUVZLd2X3LQZph0SWQecHS37CojdhHtBsWa5V/J1tEsoLUUZLaw5+KiePxKnuCVFXW9BrtJ/ATxmGth68LFYNkunY9wE+Yz/72uxZ1sLRH37AQxQTx2DM+9WEdMtWu3QnF5HD43gdeZuWQlLP2xHEoJoXDZg/t9BeLg1INmo5DMSE83v2h/Szq0CP1EBQTQbDkHTu9OJWD06iPbI9iEngccO2871lQJYel0e5eF8VEeM675t1mcQw02N83wJRMgE9ess6sUpXaNA1CS7tzT8DnTvD1A3dQxjZdpi40WHzxUhCfuy9ve5BFau8pdaGR9vfTBCi85MvhIzvvk4bQNWfNfry3APBeMuXxxuMPsr5SF6xSjcHsN8/feQaAK5xkqChOf/ouFrWnVJVGa1ijGqOZ/e0thy4HAIWXvDgPLPfz7+tQU0qaUoWSdaqhpJnd8/VLt5oC4AuXC/ECLDj7R8kG07yZqsayNDP78xsOmg/AFS4DrgCw7WtvNWPMgSoZSjWz2z969moAnJfx8h5Y5MivJbMQtWkakNawrjKW0cwe/vJ5qwLwTmRMxAuw2vP+YsaSOu5tVJWhNLOHvnTqAgDwbgykALDr+x40i0EzStaoKkMws9vfuOW0B/zgPDB13A/MrIzanOPBjlSVIZjFv//pQ1vDDw1LnvcbMwbq0FM3/bJMZhbPgR+UFOdcaxaidkn21J4j7EWVMZa0Y+EHJJg3a2XUHLJClexjNOoDq4ob1F1KzWp/Wtp74Ad1r2Wmd6pydgO4OU1pr0ORE3bABqkfdqOqTHcsAxkzNuo1dcQKsquUNNhxUoxZNfvrl9TuS/sUfBbyzXTvQsjYpFZkhjTYiSjGZjIG+xT8ZElDo921DCQTHEbSNDCNdiB8JgY6OGppr0ExQVJKOvRgf5iSOQ0Zt4CbHJ2mRqkLLe1yFJMs9Rfsi3CTbIDRbl0cMpeh3Td/LsFO7p03l+hyPDhXYjvONbpNKeXnvjHoPCVtmgaTUh9kZjJNu/dfe6ku5YKDAVZQOCBMDwAAUD8AnQEqoACgAD5RJI5FI6IhEwm2aDgFBLKAatsaLn9L84vM88y+Pf09IG3H8yP2ze8B6Q/QA/sH+Z9aH1TPQA/UD06/Y5/dP2Bv1l/9/WAcLh/K+3j/ReGPm0+DSs/BvNh+QI3+wB8hfsLfOQCfVXv3NV+9W/4nlX+H3537Bf9B/v//h9VT/v/zPoP+mv/b7g/8v/qf/S9cX2L/uX7H36xn14XNvnutodN9tjiSyatRvcBP+kShy6bLQhoLvtv4wJg7vfgMCBQ4o3R70N1XyB3mvqd86R1BqKBEPRfE43tbdjK3Kc/ziYdOYD9PaQxx5Gn28++tQ4tFHvKCtwKckZhje2dZ+ekPJQ/CGBzPT6x27PRLk5uwFFshjRO1+1CtOyVs69Dm5tH72/R87S5ZKylWy68e5QCONIPhrDXiNK5uR5L9/ueNgsR4QtWIuvhx8Bjws9suollLj6lMYXoL8G78XOp+YyNXOVp/xBmzLPlE65TPiJXYOL7j9jaUk2r3lVQCKByYMZrz+0kaJp0RZK+UyZ1dpGobn5KQMoQrPpdGpgwy7BbDByKgNtFotbI4pav3tdhX7OH7mPwOhtnv+a47dSy+emGqSCwNN2YWVWEnhyzDSZkNucPgwmgUtPdY6/Oib0qDM3heBkqqkqnpaB99yzziQojx8bw+1nNgVBj2vgAA/v4G0I33Abh7vI9+bD2buYWEP6kT7MvCJBuYfYvzsXOdjxHyVkWLGRYno7O7k+8/XehLcvNREJgsaBTr5qXkq9zgqDpxHp3bs9HXJ/o47PoqpAs8W8uS3zioB80CJYWRO3Ja0dQXpIuU7V9X82hX0sg+jsKe4NgpKqzp/xFF8AHPyRQjO1vyOPQTGPii1pgZHP8pNOhP6R9qPxbuVY7gGroESBlA4480063/K7JcE4tqWVCvMrxGwBbxkgn8T6/n7NWik7iyG+leGuZhaZuhURFiImRWU15Vl91iBzm9k5xJZFQTMkCJ9M3oppIWFKtW4Arsbii0hIaqHtf9hoVZaFAh2WBzPz5lLuiVkcBZ8jxr2+mC1FdWa1WAcAGq2ohX146vpcgJTyJtSOoHezSf8bzyn4gW54ULF+FpRn+NyW/IqYITY90Gk4KDTDetlJzYUAfopG3e0X0nqppAmRgjdg8ns88UElMisTEHm9j6uT3Mzv8KyZDKM/htmElK6/wxumB0OrZcT5rkh2QyyuZktsuVyzrY7249/qt4DCUtHW4XvS3r8bF7/nH+IDfM/fsvi7uTS6FlsYENet+SdxZFE4V1zRYYDP4/byj7Vn8P9jd1yFfie6aQCKwLy6wY/Ny+kiYJ2jSDWZagtUC2WkZmhH7Pr4fFVGU+mQddYqV9aNaAitoENq/FdAhb7/aBLbQLHukPDYaAVx7SAZQZMhMKxW2zKHaTJRPfAkHrl84QkEd03OwOCwH6myjA3TFmlsKWRZ9RFJ27EVLlQTOAAFbwNUJ0GtDg/JVgBHMfJ5O6T+loQpyhZDrvN5R/fogFqUqnZSc+OZi0jRXJPyYvWL1cQcHvPMhlx7fziGWD1T3EmagsshoQQu5lhyFleWXtA3htPFZK8oWk8EIfKuEJ8LbkevHUQ2sbuYiJ9Mj1nDyPa7AuNi9BRHZcn3X9yT0dhRAk+fu5qfsNxept0NYs8Pcy5P5YbTV+SIrpmUqgAZy5QBru3BIf4CZKT4jwbFyqivpErLIrEMNLZfkqrQx7MxmI7tD51ePBsD77obajRHYlqXlVY2wIqmExyQbpUCUTXn+hzExEa14fB80gFs+mHV1Ac9Twhrt4rnItRjprqBPx74FWw5j6DhR59D8YbSUbOEmqmd4uq3P/IhDR7m7/yUCRN0L0JsU0AGgABgOUqfvEMi9Pz0hp20JZo/NChiQ0Agp54cHS6LNvspiXAHG3OIN0t9mI057fGOVMJPOEk7cLYMONb2ayyCuS3n+5Ey1o2b+VEIT7aMbmHGv7zfLMaURaUDPOZZy1JIqxDBtyBmURC8yTCg98aUcktWt57qp2lZhJ/gSact7QT+tIMPhxXu1KSIliJKHaIqv0FVckfu82tKxezRGql33PmvOinjf3NuZgPQY+pFG4elPuSZMucZAQ0Iu/DvtIWL3tR0k4JxUXo4V+5C/nrmpfn8DYQsyylqNsUKJ42uJ8U9s8aHkr9UkvH4N0vA2pRZcdfVqXkjCn086EjsQ3N0s40dQarU9kxkbfF47GqzFbvvqFqoNlHfYrs9tp43WpBTxXpuI+Fs2V047Jw7+1PEJQgn5x+cbfLNtdzH5q3R3Px1T6gxKNLNP253cOMD+pfOQuASrMKuSCXVIA3RolL30yv7PNhl+Bvehyo0jKwEbU0AHw22DjEHoEIqH/kOvRDFNMgHgJlH9MWli20e9mKeep22mCloClyZ61Rx2YOa8cYz7yzvWTtuiPMgqKn2wM//oJLrhB5dVpJwM/qeG9stIll/t6WZfSWllZ7npObQOyrORs4cKaQfUGRtYE0m57JorOoC+BP/ZMV0cNOaS95w63MqwssYfEzfsx3Pv8eeHIvdmg4SevH7I1YkdUqymzx3etoX7F4O+P+fduvjDt4aqs+oHDANbl3g+mZ3WquH80rrhUPsPGEWj/6tLE4XoWMZpVvEr2eKl7wfrLJ2aL9uee/zlSRp8s3YFveXBe0rpyGvAnLoTc0RJ0YBgX+yc+aialkDq8k6GWVflJqgBkWuxaAczK3YeQmW58Yf0Md5dxuMXyjMW332b+uhcz6vaTIJEPJzuScotg1YroTjqz7v0aNOtBQwhBvKZfNFkFY8ayVWfUbgR2oHhDQPsZFS1RJY2CPP5vCypuv9fQrkQW4Mbczv0bnBqsQd/cf1j1jtaZAqO0ANKbQdv3zaTa3yrDhis4InE/gAbylF4SKu9Xa1kK5n26t7uxnzF/kQBppmkE6MyIaqmnuQc8GYzP3KZKwAA20gr4WXy8//Il/SyUWVm54247GmSliHhfHTsRQ2kS/LybHwmg+5kLT4dk9RbIgM/rhzkJSEe9QDt/XbUDf5iR5y+Nr9oqsgpCWTa6Gc9BL/gAF7hBMG/A/1U93KKSdRayS88KYcaIt9Z18Yr9c06N+2dVZrY+aPWii7q6EKsSktIkJr5RuEV8uMGZr2R+c99fBhick4GEzUHd9KJV6fu3GPMF2nSIEY7W0Qdt7gN66tp2jg+XlhP+DsG85PDTL4oj+6qiDJi1eVNJc9mKhgChKj2hvboqEfrgF2Ituom3euzBfvX3CU4OPY/TOQQLaF8b8IyiW1rr5UQTBxaSOjncn3+odlXDYIP8QvlLfnDOY653SHqYm+U5iE5qP5XYTEC/eothtrVxWbYcEHu0NfBQH/wrOvl4bRHink/7Umk1eq3r6xCScl29qBxuvEtHS9vVVb/DR3AOXkLrXzCzqlLS58rD0nz8Cq/wqtAkXmD5yTSnOTNot2g/2RzOtj3OvIe+/gRvlwQtVZefyS3ZoRcPyPxd3k8f4iSY5nsQOJAaKpDN//KgqkNTfQepSWSwfcLyHQ6LtX90/97Vl52uRtViyh95kXvondM4f+283arIQxtAhb4kAD7VrFJhnIPmeiCP1adZ9mddjyOuNlwTf4h4Gq/bDVZAZBZn5hAeQZS6Yh56FDZ8roGTGb8DrzaqD0PIRjVLGxMmIf0yaxEuBRA0wERF6D/rKmZHWMTdoWMvw9Pl9UqchofCnOmfYCgz75ECA4vKniR0ode3xBsRPqh+8RqmVcFM3mcnZqxtW6QqIdUrifl44AsKbXFWiswkSkmBdZ43bXZWjQNs/+rxwaL9YuvKlN3Ey/ow/vETz90ozJZaBoHRKuy37pzJDghStwRLnuFhc5dP2WeQfbCUMDJ2nCF8ltTOZLSgidpLdqdSbDmEqL4RDV/bbkRedP/BIx/hRIyvwGNXFWr21iFsZlezBfYMjUHElkHogQn97f+vhglDCmdiVIqaZY6/U9DQDu8qqwZ6fd9HJ4O7SfuUwmXqG3/4deh00IGoThrv7Ur7m+iiFA/LHW7Ztk6csTRv9tBhszYvqzZXXFxcZ4Mw35H5wrfPIpHbD0YoKg+QY7oqx5zsIZqU0BDjksVeV/PeVhseCppa7LtP//rsvcCL6olXT9Lj9W3+Z/fQIrUtV+x78xE1c74S20Z7PoTD3P5oixvCPUoWCL293qdHlyXTPTkKgjPFoyh1fOCbQe2gzuhzA652dBwxyJFo4IdtvRdabGQGqTvS+qaIzmJ1Gu9eUiYPMuYFBH/4kE9B4PUunptkudifZK0o6tMaWLQQi6V15fItv9ARNH441F8rZxv+M7Xmf7BMGYmhNWFkJFYt4xpP5DUE9nlI/v+EScfn1Yju299JYgvDXWlUw21WaVWgIG/+nWPqo4AFITVK8ZGrDRAnHU5vWY8fXQoMdqashtrHpCLSryj2D+3DaKWZIJzfxjfY+aIvjnDgkD1czQ1v6F7WG/hBeujIHJxVMYOb9gZZGGTdV37ksOuVSF1xEVVHMEV+CMbdB0L+a8Z4ejq5lfRPvuNV9Ox0mmqGQ18hTjQLkb2hKCMTGr2u7rZ7IsHruwErR2BzxABgHz02sqryz3cAze6nuILguK48AcbobNOHqb9zJpkjy/u5Q+9M1t5J2uVOxRDuUBBzfJCoyi0st+uTqCkrICKj6qgZJwVh7nAYeBCf3UkxCtg99lS32F2KZ6xw9iSg+GHKKEnaXuo/9+ue2FT4FnPn47Jg8WlAit50ctF9SrxzCjHvI2V/XOshJxDCGI5YoLp7+KmzYokDSgUGDnm4lgD8X9iStNmjlK3teCMl7JIC2MXLkF5CD3y8we9QEep3f07/GehaYIqdz6AxKrwoezimjNnD3mOnmq/DMxIqJ303FSt5oWdrf/Xmfav+2Kf1MolqhM+SSvC9WWH0tc6rtxwOYYt7HZID5EmX7pp8bzcjlE3itVnmKLvmYN4BPMIRx/buDGIXnlWmyX4i9t/aDdTaiHLjcQI7Cuqsx7Eqpwp7AG/VvAuXxRaPrt0ojJp/VCqPhltM9ZzMPuJxi3z4iT8G5v18wm2ChfTg76I4s0fEaqWD1BqY4YVIkEhXhBBymXnf9o9ob+2qFo2q32SNisndGqV7p9XlSXM1F+zmLH/QvSoyXSV6GMRgXsi2a6U1LfhOlhBZg2B42xyFQsum+h7DolYTgKp4BlG0AqzmJaBtU8OdKUbYhZvbUIAAAA==", "data:image/webp;base64,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", "data:image/webp;base64,UklGRqAZAABXRUJQVlA4WAoAAAAQAAAAnwAAnwAAQUxQSOkJAAABHIJsm85f+zlDREyA3YEqvmhrN23btq3vz7l0s7Vh27Zt27Zt27Zt27Zto9vuo5ecfzy0ilJLzWU+zhAREyC5tva4bawGMjWQutJMtqlzWs5L2XjPw//jxw/I2UfEBOD/bSRyzjmiVlE1kc88oa7z3lELqthlDl2zzjkXnG+Ozgxdif5XIA8AHWufcN8b3wweM3Lwr1+99/jZ2y7YHQD9L+A8gIUOf2moNfvnzZvPRnCV5xww82HvTTWzmOchctcYQ2CzEU9t2QfOVZrzwDLXDTXTEFia5Wg27N61AKLq8sAK9081ywNLfa0nwtFs7OWLEqiiyGGum4NpztJwQyIc1H7fa2ZQJXngoOEmgaW1Mdh3B8wNqiCPAbea5SytD/bOsf3IVY7HUp9YHqVIbYpjfHV5AFQtGTYdbzlLkSp1VWsJy5Rz5+qPas2wyxTLpVBtoFG2//7++Lrlu4EqI8P2JlFKzGpm76zWE1QRHhtM4yilZo7RvtjGgyrBYf6xGqX8uQ3eqhrI9fnYgrRjbu+sCqqADLdZLu3JfMHMoOR57G25tGm0P/funjxH847g2C4S7bPF4VKHRyyX9g12CyhtDhvkzG3EMmlluJQR9fjYorTaHRLsLkeUMI/9LEgJ3MA6bikkjKjHtxrLsDXYxSBKlsfWxtLmrIMWRrrIPW2h3STaGQRKlMPC45XbT7+fFy5ZJ1gQES6TBQjzHqkidHu9RqlbcrsWlKqlhhmXrTXYZ31BidrVWBLIOnWZNBFwrYUUSLBD4dI08+cWS6aIahGPEaVpw1faQFHVpqJ90wlKD2GG3Z61UDISaZp1/Mpw6XFYfbN3LbZBoWxbpmmbVb8pzgYVQC0k2H4pIuy26zTlUgmqWkRu56Rpz+ssSumVQqfFq1LksPV3ymUSNFHVJnTqb3eBKDlEc/xosaDRQ4KoSlM24fEHHBIEvGKhoHUzgxbANvqiR3x6CN1PGC1ckmkiqipN/Xbwg5Qcouw8NpZ2EJVm2b7a7To4JNbjQItRCh89KlJk0PsPvhg+MUTdPtOci2tWbLIDLjo8OQ7zjedYOqCFddySz6wOl5wFJ0gu7clNRbt+mad7gBJD6Bz+82DjRrQ03BRrXO6kA+GQWsJ7F79rsZHSDpZmo724yJ39iZKT4dTz7rfQBuvMU9c/c0s4JJdo9ktvtJxbMsbYozWiXXPIfiAk2GPdbzRKi9inbINOO8gREuwwzxXTpO15WpCn10aSHTZ8y6RBFREukwp3Yf77J/56o+4uQQ5b/mbSTDta7fXhk+Ow3scfTONG2jPqoO3WOmSw/T0HKDVEAx+/dpS2XW5HABh9ewfS63DYZS9akDYcJdYR02d+rYkD4JJD6H/OVlOY2y2389ATtz2Abkiuw+o7H265tDnrxNnIDxixLPkU7bzhIxraLbcr0AtnPQOP9Hpsv8/nxq3xgGgbZFho1ALkkrTBtT80xFzAgWyTZ8d0gw6DR4IJs9zzvcU2i/bF3Lt/dzo8kuxw+pfSSIFW1CbW3966Z2V4pNljnccmC3NxZaWbV9vEIUOy+x/yrIVWaIFVrRH0Q6zZ6ShZhKVP/JtjK+if2QHYpCcS7rDW85YLF6EBtGJFVBFhHT6g16aghIGwyecWQiEGpV0RkdzOw4IrwaUMhIVfMov1uJ4g+6MMm55WGgBKGhx63fSdcj1u4MTc9kfnQiAk3mPJw9/kUEuEa6kHBHuTsoW7E5LvsOK1YswsqlK/nhsiT1wY806PCgBhjnOGilmQLiwxNLIzt10xoAPVSMAy4/8ebxIicwxmQZrVhtwuRq8eqErKcMOPu70QzETNJj3ytcVd42o3IPOoTnL9331moc2vf2/ihK8fO3v+By0srI/7x1vhCVVK6HfdR1cec9P1Wy+z7mJ4wPI99z5+hiNUKwHzbLvVMn2p11IZPWFhy/Xx36c7T6hacuhKc/YDXm8JB/tqSWSoYvKOqH9vED6z2Iw2ENRu7YMMVU3du4GQ/dpcg7lN3ANwqGznAELHCOOCYrBPl4QnVLvDvNOKCmZ39UaGinfd3YrGUijb77sBHtXuHIB9LBQS7aS+cIRqd8Ccuz85RrgItin90ZNQ7Q6LPjLBzKRQ1smrAPCV5rDuBNM8cENaT1gnPrJlBkfV5VzHEPuPWYo3s692AHxleVxr06SlHILZo7MiqyiPlUPk1ohIDPbv6sgqibz/0oKUMLepWyGrogznWpBSBuUtkVVPhvU0cDkkyn+rIKsahzmHSZTa2oAWI9GGLYCsWpzr9akFKW+w3+dBViXk8Zjl0mKtxV0k2D8rw7vKII+bLRfR1jQbbMoBgK8I6o4LLZeyR7WH54DPXPrIO2xgudTW8ggHG7EbAGSeUkYe8HsP4SiiKuVWyc2ePmg+APCZozRRBmS7fG7GUke1TMrRbOqnF6zVDwAyT8lxHui5+2dmgaW2iqq2huuoiIiKhGBmNuiJQxbzAFzmKB3kHTDj0d+bhSh1VUVUCtRGunK9mhzzaGbxu6s26wQA710SXAZgiUuGmYUopdSmmuWQi5kNf/LIZbsBoMxTe5F3QPfNnwlmeZTGVQury0V1jXkwM/3x1l3mBADvqW2cB7DgWd+bac7SrKpqa2ozFyIiHHI2s4nvnrtGbwAO3pePPAEDd31+ilkMLM3X0rJpva4xD2Zmf9yzXQcAuJI5D2DlqweZWR6lUJUkcsjZzIa89sWjq8OXC+jY/30zC4GlcdXGVETLo1pE1xiCmZnuB1+iy+Xjlx+Pj+M6mJvIDUs0aKIBlEPMRVaCL83l8ubr4+P9A7Ki3owKIqkCzmrm9pFz5bn78OfhgbKyoHpeDpLLYrT14Mvz/ufjmAgoGeiE0wPKRDMLud5bql8TDVMLnDFqqUqugHkttpEdoPIhgIkqKihFNzRaU1DmKtG2gi+XFkxAxXjUmFkxK6vmegOycs1VcllUELBFZ8VAKsqyRvveow1MJ8vh6ILCmipLXAKuRBTo1dvRREWtSG5HICtffzg+LC6IBHsKvkRjhzciAiQg4Arb4L6g8qBt5uBxjSVREdEV4coz2KqCN6CgZqYFEcntIGSJQFIFBY9AOyhql9vbyYJEEwDjKSywoBLsQ1D7VNVgcOY+Y4KRXCtsQ/qCSoMFXQAUSQQEcBtkgCDRkoiwjeksl5qgdh1eiAaUqrKN7ijREMAJoOAEGjwCxCy6ImUjNUQTC1NV8BQVLQA609KhITUBWHIOuI8gZUvSZUy5qEhdwBLJkcqqtzTodCK5onIQr5EFlWUFzoqaKbLYJk6Ma2TdY/TIxlL9nNUbUm3rFUVfgV89dQFvg/9FLrkes7kdbHNmNvcYCzpRLdfPiU1qhoqK0zYXRJ1EFRFtk2iwDQnFydhEi6gUBwBWUDggkA8AADA/AJ0BKqAAoAA+USSPRaOiIRJqJdQ4BQSxgGrYQGe/5HzuLn2/+tPNJ6K883pA8wDnkeYf9oPV29JG8xegB+rvWhf2P/tepB/Yv/lnMP8r9C3QX8cvO3ys+3/cflFPW/ijIMy74Bfsbe8wB/XT/h+lj9Z52+IB/LP6//tuPR9M9gT+Yf3f/mept/2f6X0B/VP/o9wf+V/1v/leuj7Fv2s9kD9Wv/CzvuHe49XyjH19+ZCIrF9Vd0lg6LEQu52eJDwrszidMSU1CdXjDK4JTwH+322SBmOAOHyw5b/wVFbzDIzrDXllaNcAXfEmdFn6cGRD1u6rMaGFtJfgS2alD2HllBJoCl+4HWbY6Yx1zpT5WgSUhSOg5bmd747GCfu90Xuryg9+DJ6STh9Ox2/ToBydzhXnaWlhnHm83qewwkluJaEIGVqeAePwUTye2nD1xQIE/WjMQSYZj6x4nabKlGn5KYK49nhWL/LLq+Mdr9N7VehkDd61sHiVTqxLqkVXUGqXIBSwt1e2ePdkZ6oMg+wk43LDlCenLFF/cR6/xCIuVWPHOztSDJuHHMqpwLi3SrvSIs9vmn62ONx4rQQLh6sdh8EFrPFGzvIgESyHIFXomsFUPTsr4keeceQIcKgRWkn6XtORYBGRHrt06lWsOsvrlHnc0jF+kntyauCBw/j/2gAA/v6lNjH/NSL82lzfVEXy4aJX2FB2XO9wwNZGohzsnAatedToq52ZHXAQ5BiGdGHlc2rFRPcZ5nxvapbywlAAvuV++b5gJTcGFFtFhO5dwwk1uqljOumxNeoTZqk7yHVpMo5ferHFkaqAgZJ1DvEVHspphAQfATSioB/dYQ5k/gyXqvaYW/4Js9DciEFd40MFffB1TkNCVXpBka/l7BwBDG9eEO2CeSXcGLH+wAvMapyfRe3Ss08N1ew2a/6PtNSTyoiPSB+s5k+MmPUFxowzrrD2fV3HinCqBLeOabdDeiErsdmy/MbZnx0Lm+UtNV/pXbiHNN7tyRcZ0TKKly7kZan7vXrl7w2+u7HjOaGqWt9A+B7/Qa0MxSr2iK0x50DUMmwHC7e8JuVYR1cRIKR5X7QNlWJVQtrCOWOdjpMY31KbDP3XctdUj4dMlg9Sm1g75+yojL65kzb/TeJR5kO8XbfmJsnZv83WR+QzFTpejf8S9oO4FbXw/SR1UFL2OTXLaa74MHMnMb1FHlXRoAkgtYJv9sPhLxdqL8D49w6cf6fGq5gSULp9xWFAO/p0mqY9uqDxjHkfKo7PM0hCKEAfFDFEgoGmjBQiEgPOEF2cz5l0grrhNFHjoQ2tzPfUCIHblSR7gfqpCUHZsRvMgenJFVaUh+0XeUzt9z+DZe2+1vsO5cSQVVnHv33aneBVlDC/xrQU4ChfM3eCny9XHFhwZfo1aT6mRaWfgT9KG4jEbwMFZ6nkGe1BABRNJh5WOytzgciWDgxUSFQ3aZMKoLgI6iK9cKuyWLGqLPnujvIx5qXaUR3q4Yy6gPYdhQ0UUUi6fVXRTZBgfyefV5UZr8xLX9KOcOGlo+hP+glg9eQgDaB28e6PYHPk+VIS5Dsmr5ZkSbkub1nmL/j3ZalnpRvoTCvtS1e+YHGLR28KSFhZsa6laCCVFAdP2R+pB+nDp/vwVTUsMc3Sz12XX70Eo2xvRWa3hyMUu/B7UNUiuNogrI8N2d5DW68Ix91omO8zt9/dySGDe26F9jXv1xcXZr3oEj/F2GlXezlq37JiD7/3jzp8B1VAxc8Gvg98Af0ZgevFp+yhYgpRciVhuGjepJXOZWyOAaoX0ETC/gn5RQ9DtXfgCR2dkiSQZ8F4evR7A6bnm6auoqqGEhySRdZFURI2p2Tlnm+fOnINIW5YStcPmWq/MmKi/TZ3NpFfUEAUwnsCkJSJJapSGx0UlWqKvtOYiWWHyGcW/KndQLPIA2Y7lSmUONvhO18vrXdjb+OcMWOiGzsKVna11eXPF4a4pO88MgvcfyT46786PhArDQqPF+YtotQfQt+ujEk2oLqsYsVKqC8I0epIW+aMkuZsnKe6V+GeD/SqtlGJ7qhOcDRBur6I8qyCQbtdxOxXZ1NzKa3hLdHpefedKKIwQ0wf8/4uY2f/7FPcjffiL+zto7mLfMrcuztumjH33FP0+nI6EbDoilN+dkZ0dY6Q3NlYjFa5saFh7KXkvAy6mrtPRpgsK7k7aT9hBP4jG+GxRMHke5gbrjWCqlHtLdrTgsEO4CzEmcQRftAp/zG2ucvmLlq/eOl9q4JBuILP+cQo+jLvJ/txjg51U31kjzWot0JQBNzzir1OUHoI9bdAIsycNrhKJKjflD2vv9rwIyQ+04z3fyr/ji+AciDe1jfQmBlipcQcxbWaOeduAj/Y5n7YEdUfUJSa0UcKkTh4E5m1pWDi8KS6HgvKDmJSXq8VDIJdKAJ/uCOwlI/wlDyv4SMqcWH+gLAgFfibmvae4lVbThX55RJUtVkFZ4ava7IDgZa9fE08d4FvUsDv1u7uJ1D8PsEcjRESwlPw/vX1HfdMlQIrb/A1cGdlZe3RQN9IxHGDei/I9vpDLsunjL7lr5OBfZSoWD8ZR9ggkiKUyCWmpaZY9OSkrJ056F1ghBX/9/1CeMcrS7isP378wlvy769dTV/VMFKvjjcY9oddc8WGZNuQk/xDCOpi5xy2ol/HRLb2K0iaVH3IoEchW67bbwsJjxgha/PS7W7iifdAlWfBwxWcW1kYQa7jmSL9mP+UH8dh7I/weahpOhnbRA73/uMn6o2jyd9Z0AzLpkWlCa/SPpT8zXk3PnxelHEQ4WPe+ftuMaR2N13IY4UGqLkPOZZkuc3UEPz71B+vRL2Wr7JKb17fh9R2edNiAjzg54uPrXuNczqcU5i0y4VdyeprXBeabVJKgT9NcNZcjJICIIApiDB+xBGnqI8omAas6dEVoCqNgnYjXivszDi+/bFpFGsv6vlXpcS9/cUzTiN6aX9zq0JdejVfiV/0NVZVYUquOj+TwkvhpENvLpphrb3ZsH6lGzpx5w5BFEbmn8HKu44qgCkavQGxCzrC4C6OHmfj3ZUxlGd6CJ8qplSuiuD2mKhc+oKegy+iFp40TdR6aUblwx180tRrkBmaqJu9ChRYjQ2r7q7MB8r0b6cUXe9dI3/I9FdMnjoNAsYA25VBWVMj5yxaJnibF6d1bFqyjzXLOCU3Zjqir0agK+VwcGSd0/IaNfPQy6Ex904OzAdraHpso8qLoVtc4sgBCqM7Be7bfeYL1BIinsMhXu6DPwe++F6f5Wxa/D+Y5HwnJSuzIFhYXjbGJ9ANSCR7pYOeDkTp4HKz2z4mbThq8GlqmaId0wHZ2W0FwQif+ecZNxi1FSxjFfuG7+PHDOuehgf4QQAACxqNzMCuLDsfcFs2lMAa3PjZmZpjinEQHoLfl3p0EBPACWoNsW6TcDvH/8+Mmi+X5/k0/Chob906uhupQKSX8YQk1gx73dGOe2XpX2YIIshdvV6ITM3R0Xx2NKb1Shf8MmC7dNZyQijlkEZySK0zFQHsCyo8qzlgxV1gLLljyFRdMIKmOnyJwhsfEorRcF/httIzS6bhktZRuoYLUl862FN++/0ymMwStwTCJRipfrv3JpUUKo+ePRIqyteX6f/qqBwZrh02sv1UC656z0mrzIX7bip4rC63350c4nX6z+Irsq9EqT3ayk/GQiZcAi8AzOgox9Vf/cQ//96Qf/vWP//3pCwA/aUbFoATP+phNd32hsu7hUo8xlv0hcaHTqIa9wBb1y6HShX6TxfLUIdLu8XQok1fjlEAa8XwGnW7WOX/iT4e8DxU91pzvxiIEZ8k04aI7vcb7M+7E7LRFw/FxseOyR8BXIgf3Ul39WH9PAR8GjRRiLlGPxU0Pg2kI+s0GRTZemvpwg8dTPSkyIxFodG5sOp374hb8AXiIho/rmU3a8MhOzZRgabkvlRL7sYxHqg1Qhqj8I0aPj5+z4COuEhOvsevFxbBeRrU1pcFf0COxiqCPa9GSJbu+Zd7RBdVGAlK4DBTrQ7sULDG3gDqn5mWwp5Uj+4qi9y6PiJqMDC415Fl/Y87WJqZJNEZ9YLz/dGRGa6rfhtSnO3S59UTmnuFGMvOSBtdljraorx//gzYPvOICWSQ7UcYlg6FL1z4f8EvUhJZktW5LCfqvg5AjUVLE2T7DKwgJNXGp3q1JIEKyObdQQMWkJ5AU5cwYljp7Za4c6pppTTgehHl7ze97UNfjG5HIxSbMOp+C9hJ670c+fz2XDZncwLdoWJONagDyZ/4gExAAtb4TcYUw/+8KwmVDkv7R+z49Bbdy9mjBvydphRR9pyUQyBPILIvGt0qdeQlItSbYJwPf6ebEp63j0H88Y05l07OHT5HIezlvnQ3Fc4PoFrjDgPy0VCf8LFJD6VoE8hn1ozrXPgtzS3KrwBscU54SBa8ZY38bTfwqvng6mQ0oIaols2q0gPRXhe2KSLIJnYmWEEgxzoJDSR6Y/1hX75P9JeL8ZA/uodikPAyjIdR/8/Xbrhd1X4ijEL0m3uWKU0VaeUIORjbp01mIaDpgzwFUWexDCU9PU6t24Kk8fR3MNHuHsGw2qF2mqyjC/ImsIsBx1AO6cNUcEc5MEGY6Wgx3DcWZt9lG+/DIb+QHrFCSpWBBCmxnKEHq1k5eJxVXxQmIj811YiahlklKIfRUK4Khh1a0lf1WsdiSsJ3xH8xt6BG0JHLeYSVxtWOtlzDNLkjjWSh78rznjlb/+F9LssJ8CMRlEwEqt6aeLjaW6Xd8Bmz6IhqgQBgS/1/uK/i6gSGhInJIPHXH0vkB+xz/oNW9WDRyqENMxQOZOiPtfWaDuQTh0cyggy+An7ih+Lt6xYmsfzoAQ5N7he02e/qjKrsqC3Ii3t3vGDx/Pc9h6v56nyc2lc1x2ed4SMNDgAbNTjz1KmjF8CNo4IZlhlFm64d0QX7+L2O+w5xvFgOI7ZkFz0Tt4GtADS83P9Chhd4wUgokoWxy4T9VwLbZukzWSO8ko2ezg7OrIqfUebjvV4JTNKmytFa9fp3N98xajOtHcsRNSia2UcrHJzeMBHVwDookyuebDxKr+/HQXyL7OsPymlMqvLVzCUoOXltqkliJFRigFw1s8FDOJQE1qMMiAN2qPCEToq30weon1/PjPSIY5AnoTVHtTuO2KkNP8zXuPytI8lYudtXNiJkSlscYQzDFg4bmwlehik1yMkCjukfOb/Mjr9+6AZkY0dDjGO5qJnnlwu2eglYOFVuYvI75Zgp7EXLa1LJqGQcJ3Yz/JzL/BefgFocz4nyM3/AUAAAAA==", "data:image/webp;base64,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"];
+
+// src/client/ip-avatars.js
+var ip_avatars_default2 = ip_avatars_default;
+
 // src/client/bot-settings.js
 var import_react20 = require("react");
 var capitalize = (word) => word[0].toUpperCase() + word.slice(1);
@@ -8412,7 +8473,7 @@ function AvatarEditor({ bot, actions, run, onClose }) {
         "div",
         { ref: glide.box, role: "tablist", "aria-label": t("Avatar source"), className: "bt-avedit-tabs" },
         (0, import_react20.createElement)("span", { ref: glide.thumb, className: "bt-thumb", "aria-hidden": true }),
-        [["bot", "Bot"], ["upload", "Upload"]].map(([id, label]) => (0, import_react20.createElement)("button", { key: id, type: "button", role: "tab", className: "bt-avedit-tab", "aria-selected": tab === id, onClick: () => setTab(id) }, t(label)))
+        [["preset", "Preset"], ["bot", "Bot"], ["upload", "Upload"]].map(([id, label]) => (0, import_react20.createElement)("button", { key: id, type: "button", role: "tab", className: "bt-avedit-tab", "aria-selected": tab === id, onClick: () => setTab(id) }, t(label)))
       ),
       (0, import_react20.createElement)("button", {
         type: "button",
@@ -8421,6 +8482,29 @@ function AvatarEditor({ bot, actions, run, onClose }) {
         onClick: () => run(actions.updateBot(bot.id, { avatar: null, color: null }))
       }, t("Reset"))
     ),
+    tab === "preset" ? (0, import_react20.createElement)(
+      "div",
+      { className: "bt-avedit-presets", style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px", padding: "4px 0" } },
+      ip_avatars_default.map((src, idx) => (0, import_react20.createElement)("button", {
+        key: idx,
+        type: "button",
+        className: "bt-avedit-preset-btn",
+        style: {
+          border: look.image === src ? "2px solid var(--bt-accent, #3b82f6)" : "1px solid var(--bt-line-2, #e5e7eb)",
+          borderRadius: "12px",
+          padding: "3px",
+          background: "var(--bt-card, #fff)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          aspectRatio: "1",
+          outline: "none",
+          transition: "transform .1s ease"
+        },
+        onClick: () => run(actions.updateBot(bot.id, { avatar: { ...bot.avatar ?? {}, image: src } }))
+      }, (0, import_react20.createElement)("img", { src, alt: "", style: { width: "100%", height: "100%", borderRadius: "8px", objectFit: "cover" } })))
+    ) : null,
     tab === "bot" ? (0, import_react20.createElement)(CharacterGrid, {
       look,
       hasPhoto,
@@ -8717,6 +8801,29 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     (0, import_react21.createElement)(
       "div",
       { className: "bt-create-looks" },
+      (0, import_react21.createElement)(
+        "div",
+        { className: "bt-create-presets", style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "6px", marginBottom: "10px" } },
+        ip_avatars_default.map((src, idx) => (0, import_react21.createElement)("button", {
+          key: idx,
+          type: "button",
+          className: "bt-create-preset-btn",
+          style: {
+            border: image === src ? "2px solid var(--bt-accent, #3b82f6)" : "1px solid var(--bt-line-2, #e5e7eb)",
+            borderRadius: "10px",
+            padding: "2px",
+            background: "var(--bt-card, #fff)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            aspectRatio: "1",
+            outline: "none",
+            transition: "transform .1s ease"
+          },
+          onClick: () => setImage(src)
+        }, (0, import_react21.createElement)("img", { src, alt: "", style: { width: "100%", height: "100%", borderRadius: "8px", objectFit: "cover" } })))
+      ),
       (0, import_react21.createElement)(CharacterGrid, {
         look,
         hasPhoto: Boolean(image),
@@ -11326,8 +11433,634 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
   );
 }
 
-// src/client/member-status.js
+// src/client/canvas-state.js
+var CANVAS_STORAGE_KEY = "ds-bot:canvas";
+var CANVAS_LIMITS = Object.freeze({
+  coordinate: 1e6,
+  minWidth: 300,
+  minHeight: 280,
+  compactWidth: 320,
+  compactHeight: 200,
+  avatarWidth: 120,
+  avatarHeight: 112,
+  maxSize: 1600,
+  minZoom: 0.2,
+  maxZoom: 2
+});
+var DEFAULT_CANVAS = Object.freeze({
+  version: 1,
+  windows: Object.freeze([]),
+  groups: Object.freeze([]),
+  viewport: Object.freeze({ x: 0, y: 0, zoom: 1 }),
+  selected: Object.freeze([]),
+  active: null
+});
+var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+var idOf = (value) => typeof value === "string" && value.trim() !== "" && value.length <= 512 ? value : null;
+var finite = (value, fallback) => Number.isFinite(value) ? value : fallback;
+var clamp = (value, min, max, fallback) => Math.min(max, Math.max(min, finite(value, fallback)));
+var coordinate = (value) => clamp(value, -CANVAS_LIMITS.coordinate, CANVAS_LIMITS.coordinate, 0);
+var unique = (values) => [...new Set(values)];
+var defaultStorage = () => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return void 0;
+  }
+};
+var windowId = (kind, entityId) => `canvas-${kind}-${entityId}`;
+var matching = (window2, id) => window2.id === id || window2.entityId === id;
+function dimensions(value) {
+  return {
+    width: clamp(value.width, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 760),
+    height: clamp(value.height, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 540)
+  };
+}
+function normalizeWindow(value, index) {
+  if (!object(value) || !["bot", "room"].includes(value.kind) || !idOf(value.entityId)) return null;
+  const compact2 = value.compact === true;
+  return {
+    id: idOf(value.id) ?? windowId(value.kind, value.entityId),
+    kind: value.kind,
+    entityId: value.entityId,
+    x: coordinate(value.x),
+    y: coordinate(value.y),
+    ...dimensions(value),
+    z: clamp(value.z, 0, CANVAS_LIMITS.coordinate, index + 1),
+    open: value.open !== false,
+    compact: compact2
+  };
+}
+function cleanReferences(state) {
+  const all = new Set(state.windows.map((window2) => window2.id));
+  const open = new Set(state.windows.filter((window2) => window2.open).map((window2) => window2.id));
+  const claimed = /* @__PURE__ */ new Set(), groups = [], groupIds = /* @__PURE__ */ new Set();
+  for (const value of state.groups) {
+    if (!object(value) || !idOf(value.id) || groupIds.has(value.id) || !Array.isArray(value.members)) continue;
+    const members = unique(value.members).filter((id) => all.has(id) && !claimed.has(id));
+    if (members.length < 2) continue;
+    groups.push({ id: value.id, name: typeof value.name === "string" ? value.name.trim().slice(0, 100) || "Window group" : "Window group", members });
+    groupIds.add(value.id);
+    members.forEach((id) => claimed.add(id));
+  }
+  state.groups = groups;
+  state.selected = unique(state.selected).filter((id) => open.has(id));
+  if (!open.has(state.active)) {
+    state.active = state.selected.at(-1) ?? state.windows.filter((window2) => window2.open).sort((a, b) => b.z - a.z)[0]?.id ?? null;
+  }
+  return state;
+}
+function entityIds(roster, kind) {
+  const rows = kind === "bot" ? roster.bots : roster.rooms;
+  const index = kind === "bot" ? roster.byId : roster.roomsById;
+  return new Set((Array.isArray(rows) ? rows : Object.values(object(index) ? index : {})).map((row) => row?.id).filter(idOf));
+}
+function createCanvasState(seed = {}) {
+  return normalizeCanvas({ ...seed, version: 1 });
+}
+function normalizeCanvas(saved, options = {}) {
+  const value = object(saved) && saved.version === 1 ? saved : DEFAULT_CANVAS;
+  const ids = /* @__PURE__ */ new Set(), entities = /* @__PURE__ */ new Set(), windows = [];
+  for (const [index, entry] of (Array.isArray(value.windows) ? value.windows : []).entries()) {
+    const window2 = normalizeWindow(entry, index);
+    if (!window2) continue;
+    const entity = `${window2.kind}:${window2.entityId}`;
+    if (ids.has(window2.id) || entities.has(entity)) continue;
+    ids.add(window2.id);
+    entities.add(entity);
+    windows.push(window2);
+  }
+  const viewport = object(value.viewport) ? value.viewport : {};
+  const state = {
+    version: 1,
+    windows,
+    groups: Array.isArray(value.groups) ? value.groups : [],
+    viewport: { x: coordinate(viewport.x), y: coordinate(viewport.y), zoom: clamp(viewport.zoom, CANVAS_LIMITS.minZoom, CANVAS_LIMITS.maxZoom, 1) },
+    selected: Array.isArray(value.selected) ? value.selected : [],
+    active: idOf(value.active)
+  };
+  const { roster } = options;
+  if (object(roster) && (options.rosterReady ?? options.ready ?? roster.ready) === true) {
+    const bots = entityIds(roster, "bot"), rooms = entityIds(roster, "room");
+    state.windows = windows.filter((window2) => (window2.kind === "bot" ? bots : rooms).has(window2.entityId));
+  }
+  return cleanReferences(state);
+}
+function readCanvas(storage = defaultStorage(), options = {}) {
+  try {
+    return compactConversations(normalizeCanvas(JSON.parse(storage?.getItem(CANVAS_STORAGE_KEY) ?? "null"), options));
+  } catch {
+    return createCanvasState();
+  }
+}
+function writeCanvas(storage, state) {
+  try {
+    const target = storage ?? defaultStorage();
+    if (typeof target?.setItem !== "function") return false;
+    target.setItem(CANVAS_STORAGE_KEY, JSON.stringify(normalizeCanvas(state)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+function reconcileCanvas(state, roster, options = {}) {
+  return normalizeCanvas(state, { ...options, roster });
+}
+function bringForward(state, window2) {
+  let max = Math.max(0, ...state.windows.map((item) => item.z));
+  if (max >= CANVAS_LIMITS.coordinate) {
+    [...state.windows].sort((a, b) => a.z - b.z).forEach((item, index) => {
+      item.z = index + 1;
+    });
+    max = state.windows.length;
+  }
+  window2.z = max + 1;
+  state.active = window2.id;
+}
+function nextWindowPosition(state, window2) {
+  const gap = 32;
+  const origin = { x: (40 - state.viewport.x) / state.viewport.zoom, y: (100 - state.viewport.y) / state.viewport.zoom };
+  const width = windowWidth(window2), height = windowHeight(window2);
+  const right = origin.x + Math.max(width, CANVAS_LIMITS.compactWidth * 3 + gap * 2);
+  const occupied = state.windows.filter((item) => item.open).map((item) => ({
+    x: item.x,
+    y: item.y,
+    right: item.x + windowWidth(item),
+    bottom: item.y + windowHeight(item)
+  }));
+  const rows = unique([origin.y, ...occupied.map((item) => item.bottom + gap).filter((y) => y >= origin.y)]).sort((a, b) => a - b);
+  for (const y of rows) {
+    let x = origin.x;
+    while (x + width <= right) {
+      const collision = occupied.find((item) => x < item.right + gap && x + width + gap > item.x && y < item.bottom + gap && y + height + gap > item.y);
+      if (!collision) return { x, y };
+      x = collision.right + gap;
+    }
+  }
+  return origin;
+}
+function openWindow(state, entity, options = {}) {
+  const next = normalizeCanvas(state);
+  const kind = entity?.kind ?? options.kind ?? "bot";
+  const entityId = idOf(entity?.entityId ?? entity?.id);
+  if (!entityId || !["bot", "room"].includes(kind)) return next;
+  let window2 = next.windows.find((item) => item.kind === kind && item.entityId === entityId);
+  if (!window2) {
+    const compact2 = options.compact !== false;
+    const baseId = windowId(kind, entityId);
+    let id = baseId, serial = 1;
+    while (next.windows.some((item) => item.id === id)) id = `${baseId}-${serial++}`;
+    window2 = normalizeWindow({
+      id,
+      kind,
+      entityId,
+      width: options.width,
+      height: options.height,
+      compact: compact2
+    }, next.windows.length);
+    const position = nextWindowPosition(next, window2);
+    window2.x = coordinate(finite(options.x, position.x));
+    window2.y = coordinate(finite(options.y, position.y));
+    next.windows.push(window2);
+  }
+  window2.open = true;
+  window2.compact = options.compact !== false;
+  if (!window2.compact && (!window2.width || window2.width <= 500 || window2.width === 760 && window2.height === 720)) {
+    window2.width = 760;
+    window2.height = 540;
+  }
+  Object.assign(window2, dimensions(window2));
+  bringForward(next, window2);
+  next.selected = [window2.id];
+  return next;
+}
+function collapseWindow(state, id) {
+  const next = normalizeCanvas(state);
+  const window2 = next.windows.find((item) => matching(item, id));
+  if (window2) window2.open = false;
+  return cleanReferences(next);
+}
+function setWindowCompact(state, id, compact2) {
+  const next = normalizeCanvas(state);
+  const window2 = next.windows.find((item) => matching(item, id));
+  if (window2) {
+    window2.compact = compact2 === true;
+    if (!window2.compact && (!window2.width || window2.width <= 500 || window2.width === 760 && window2.height === 720)) {
+      window2.width = 760;
+      window2.height = 540;
+    }
+    Object.assign(window2, dimensions(window2));
+  }
+  return next;
+}
+function compactConversations(state) {
+  const next = normalizeCanvas(state);
+  next.windows.forEach((window2) => {
+    window2.compact = true;
+  });
+  return next;
+}
+function arrangeCards(state) {
+  const next = compactConversations(state);
+  const remaining = new Set(next.windows.filter((window2) => window2.open).map((window2) => window2.id));
+  const blocks = next.groups.map((group) => group.members.filter((id) => remaining.has(id))).filter((ids) => ids.length);
+  blocks.flat().forEach((id) => remaining.delete(id));
+  if (remaining.size) blocks.push([...remaining]);
+  let y = 115;
+  for (const ids of blocks) {
+    for (let index = 0; index < ids.length; index += 3) {
+      const row = ids.slice(index, index + 3).map((id) => next.windows.find((window2) => window2.id === id));
+      let x = 42;
+      for (const window2 of row) {
+        window2.x = x;
+        window2.y = y;
+        x += windowWidth(window2) + 32;
+      }
+      y += Math.max(...row.map(windowHeight)) + 32;
+    }
+    y += 48;
+  }
+  return next;
+}
+var windowWidth = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarWidth : CANVAS_LIMITS.compactWidth : window2.width;
+var windowHeight = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarHeight : CANVAS_LIMITS.compactHeight : window2.height;
+function windowBounds(state, ids) {
+  const wanted = ids === void 0 ? null : new Set(ids);
+  const windows = state.windows.filter((window2) => window2.open && (wanted === null || wanted.has(window2.id)));
+  if (!windows.length) return null;
+  const x = Math.min(...windows.map((window2) => window2.x)), y = Math.min(...windows.map((window2) => window2.y));
+  const right = Math.max(...windows.map((window2) => window2.x + windowWidth(window2))), bottom = Math.max(...windows.map((window2) => window2.y + windowHeight(window2)));
+  return { x, y, width: right - x, height: bottom - y, right, bottom };
+}
+function setCanvasSelection(state, ids, active) {
+  const next = normalizeCanvas(state);
+  next.selected = Array.isArray(ids) ? ids : [];
+  if (active !== void 0) next.active = active;
+  const window2 = next.windows.find((item) => item.id === next.active && item.open);
+  if (window2) bringForward(next, window2);
+  return cleanReferences(next);
+}
+function setCanvasViewport(state, viewport) {
+  const next = normalizeCanvas(state);
+  return normalizeCanvas({ ...next, viewport: { ...next.viewport, ...viewport } });
+}
+function groupWindows(state, ids = state.selected, options = {}) {
+  const next = normalizeCanvas(state);
+  const members = unique(Array.isArray(ids) ? ids : []).filter((id2) => next.windows.some((window2) => window2.id === id2));
+  if (members.length < 2) return next;
+  const used = new Set(next.groups.map((group) => group.id));
+  let serial = 1;
+  while (used.has(`canvas-group-${serial}`)) serial += 1;
+  const id = idOf(options.id) ?? `canvas-group-${serial}`;
+  next.groups = next.groups.filter((group) => group.id !== id).map((group) => ({ ...group, members: group.members.filter((member) => !members.includes(member)) }));
+  next.groups.push({ id, name: options.name ?? "Window group", members });
+  return cleanReferences(next);
+}
+function ungroupWindows(state, groupIdOrIds) {
+  const next = normalizeCanvas(state);
+  if (typeof groupIdOrIds === "string") next.groups = next.groups.filter((group) => group.id !== groupIdOrIds);
+  else {
+    const ids = new Set(Array.isArray(groupIdOrIds) ? groupIdOrIds : next.selected);
+    next.groups = next.groups.filter((group) => !group.members.some((id) => ids.has(id)));
+  }
+  return next;
+}
+function moveBounds(value, min, max) {
+  const lower = coordinate(finite(min, -CANVAS_LIMITS.coordinate));
+  const upper = Math.max(lower, coordinate(finite(max, CANVAS_LIMITS.coordinate)));
+  return clamp(value, lower, upper, 0);
+}
+function moveWindow(state, id, dx, dy, bounds = {}) {
+  const next = normalizeCanvas(state);
+  const ids = new Set(Array.isArray(id) ? id : [id]);
+  next.windows.forEach((window2) => {
+    if (!ids.has(window2.id) && !ids.has(window2.entityId)) return;
+    window2.x = moveBounds(window2.x + finite(dx, 0), bounds.minX, bounds.maxX);
+    window2.y = moveBounds(window2.y + finite(dy, 0), bounds.minY, bounds.maxY);
+  });
+  return next;
+}
+function resizeWindow(state, id, dw, dh, bounds = {}) {
+  const next = normalizeCanvas(state);
+  const window2 = next.windows.find((item) => matching(item, id));
+  if (!window2) return next;
+  const minWidth = clamp(bounds.minWidth, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 0);
+  const minHeight = clamp(bounds.minHeight, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 0);
+  window2.width = clamp(window2.width + finite(dw, 0), minWidth, clamp(bounds.maxWidth, minWidth, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.width);
+  window2.height = clamp(window2.height + finite(dh, 0), minHeight, clamp(bounds.maxHeight, minHeight, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.height);
+  return next;
+}
+function fitViewport(state, viewportSize, padding = 40, ids) {
+  const next = normalizeCanvas(state);
+  let bounds = windowBounds(next, ids);
+  const width = viewportSize?.width, height = viewportSize?.height;
+  if (!bounds || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return next;
+  if (ids === void 0 && next.groups.some((group) => next.windows.some((window2) => window2.open && group.members.includes(window2.id)))) {
+    bounds = { ...bounds, x: bounds.x - 16, y: bounds.y - 45, width: bounds.width + 32, height: bounds.height + 61 };
+  }
+  const insets = object(padding) ? padding : { left: padding, right: padding, top: padding, bottom: padding };
+  const left = clamp(insets.left, 0, width / 2 - 1, 24), right = clamp(insets.right, 0, width / 2 - 1, 24);
+  const top = clamp(insets.top, 0, height - 2, 80), bottom = clamp(insets.bottom, 0, height - top - 1, 80);
+  const availableWidth = width - left - right, availableHeight = height - top - bottom;
+  let zoom = clamp(Math.min(availableWidth / bounds.width, availableHeight / bounds.height), CANVAS_LIMITS.minZoom, 1, 1);
+  if (Array.isArray(ids) && ids.length === 1 && availableWidth >= bounds.width && availableHeight >= bounds.height) {
+    zoom = 1;
+  }
+  next.viewport = { x: coordinate(left + (availableWidth - bounds.width * zoom) / 2 - bounds.x * zoom), y: coordinate(top + (availableHeight - bounds.height * zoom) / 2 - bounds.y * zoom), zoom };
+  return next;
+}
+
+// src/client/spatial-widgets.js
 var import_react31 = require("react");
+var WIDGET_KEY = "ds-bot:spatial-widgets";
+var DRAFT_KEY = "ds-bot:canvas-quick-drafts";
+var TOGGLE_EVENT = "ds-bot:spatial-widget-toggle";
+var SIZES = { quick: { width: 360, height: 200 }, agenda: { width: 260, height: 220 } };
+var record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+var browserStorage = () => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return void 0;
+  }
+};
+function readObject(key, storage) {
+  try {
+    const value = JSON.parse(storage.getItem(key));
+    return record(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+function readSpatialWidget(id, storage = browserStorage()) {
+  const value = readObject(WIDGET_KEY, storage)[id];
+  return { x: Number.isFinite(value?.x) ? value.x : null, y: Number.isFinite(value?.y) ? value.y : null, folded: typeof value?.folded === "boolean" ? value.folded : null };
+}
+function writeSpatialWidget(id, value, storage = browserStorage()) {
+  try {
+    const saved = readObject(WIDGET_KEY, storage);
+    saved[id] = { x: Number.isFinite(value.x) ? value.x : null, y: Number.isFinite(value.y) ? value.y : null, folded: value.folded === true };
+    storage.setItem(WIDGET_KEY, JSON.stringify(saved));
+  } catch {
+  }
+}
+function fitSpatialWidget(id, panel, area) {
+  const size = SIZES[id] ?? SIZES.quick;
+  const availableWidth = Math.max(0, area.width - 24);
+  const narrow = area.width < 720;
+  const folded = typeof panel.folded === "boolean" ? panel.folded : narrow;
+  const minimumTop = id === "agenda" && !folded && area.width < 1100 ? Math.max(104, area.minY ?? 12) + SIZES.quick.height + 12 : area.minY ?? 12;
+  const top = Math.max(12, Math.min(minimumTop, Math.max(12, area.height - 56)));
+  const width = Math.min(folded ? narrow ? 150 : 184 : size.width, availableWidth);
+  const height = Math.min(folded ? 44 : size.height, Math.max(0, area.height - top - 12));
+  const defaultX = narrow ? id === "agenda" && folded ? area.width - width - 12 : 12 : id === "agenda" ? area.width - width - 24 : 360;
+  const defaultY = narrow ? top : Math.max(top, 104);
+  return { ...panel, folded, x: Math.max(12, Math.min(panel.x ?? defaultX, area.width - width - 12)), y: Math.max(top, Math.min(panel.y ?? defaultY, area.height - height - 12)), width, height };
+}
+function toggleSpatialWidget(id) {
+  window.dispatchEvent(new CustomEvent(TOGGLE_EVENT, { detail: id }));
+}
+function FloatingWidget({ id, title, icon: icon2, children }) {
+  const root = (0, import_react31.useRef)(null), drag = (0, import_react31.useRef)(null);
+  const [panel, setPanel] = (0, import_react31.useState)(() => readSpatialWidget(id));
+  const [area, setArea] = (0, import_react31.useState)({ width: 1200, height: 800, minY: 12 });
+  const current = fitSpatialWidget(id, panel, area);
+  const save = (next) => {
+    const fitted = fitSpatialWidget(id, next, area);
+    const value = { x: fitted.x, y: fitted.y, folded: fitted.folded };
+    setPanel(value);
+    writeSpatialWidget(id, value);
+  };
+  const toggle = () => save({ ...current, folded: !current.folded });
+  (0, import_react31.useLayoutEffect)(() => {
+    const canvas = root.current?.closest(".bt-canvas");
+    if (!canvas) return void 0;
+    const toolbar = canvas.querySelector(".bt-canvas-toolbar");
+    const measure = () => {
+      const box = canvas.getBoundingClientRect();
+      const minY = toolbar ? toolbar.getBoundingClientRect().bottom - box.top + 12 : 12;
+      setArea({ width: box.width, height: box.height, minY });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(canvas);
+    if (toolbar) observer.observe(toolbar);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+  (0, import_react31.useEffect)(() => {
+    const receive = (event) => {
+      if (event.detail === id) toggle();
+    };
+    window.addEventListener(TOGGLE_EVENT, receive);
+    return () => window.removeEventListener(TOGGLE_EVENT, receive);
+  }, [id, current.x, current.y, current.folded, area.width, area.height, area.minY]);
+  const finish = (event) => {
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const handle = {
+    onPointerDown: (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      drag.current = { x: event.clientX, y: event.clientY, panel: current };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    onPointerMove: (event) => {
+      if (!drag.current) return;
+      const start = drag.current;
+      save({ ...start.panel, x: start.panel.x + event.clientX - start.x, y: start.panel.y + event.clientY - start.y });
+    },
+    onPointerUp: finish,
+    onPointerCancel: finish,
+    onKeyDown: (event) => {
+      const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
+      if (!delta && event.key !== "Home") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const step = event.shiftKey ? 24 : 8;
+      save(event.key === "Home" ? { ...current, x: null, y: null } : { ...current, x: current.x + delta[0] * step, y: current.y + delta[1] * step });
+    }
+  };
+  return (0, import_react31.createElement)(
+    "section",
+    {
+      ref: root,
+      className: `bt-spatial-widget bt-spatial-${id}`,
+      "aria-label": title,
+      "data-widget": id,
+      "data-folded": current.folded,
+      style: { left: current.x, top: current.y, width: current.width, height: current.height },
+      onPointerDown: (event) => event.stopPropagation(),
+      onWheel: (event) => event.stopPropagation()
+    },
+    (0, import_react31.createElement)(
+      "header",
+      null,
+      (0, import_react31.createElement)("button", { type: "button", className: "bt-spatial-grip", "aria-label": t("Move {name}", { name: title }), title: t("Drag to move · Arrow keys to adjust · Home to reset"), ...handle }, icon2 ? (0, import_react31.createElement)(icon2) : null, (0, import_react31.createElement)("span", null, title)),
+      (0, import_react31.createElement)("button", { type: "button", className: "bt-spatial-fold", onClick: toggle, "aria-expanded": !current.folded, "aria-controls": `bt-spatial-body-${id}`, "aria-label": t(current.folded ? "Expand {name}" : "Collapse {name}", { name: title }) }, current.folded ? "+" : "−")
+    ),
+    (0, import_react31.createElement)("div", { id: `bt-spatial-body-${id}`, className: "bt-spatial-body", hidden: current.folded }, children)
+  );
+}
+function readQuickDrafts(storage = browserStorage()) {
+  return Object.fromEntries(Object.entries(readObject(DRAFT_KEY, storage)).filter(([, value]) => typeof value === "string"));
+}
+function writeDraft(id, text) {
+  try {
+    const drafts = readQuickDrafts();
+    if (text) drafts[id] = text;
+    else delete drafts[id];
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
+  } catch {
+  }
+}
+function CanvasQuickMessage({ bot, actions }) {
+  const [drafts, setDrafts] = (0, import_react31.useState)(readQuickDrafts);
+  const [sending, setSending] = (0, import_react31.useState)({});
+  const [errors, setErrors] = (0, import_react31.useState)({});
+  const [sent, setSent] = (0, import_react31.useState)({});
+  const draftsRef = (0, import_react31.useRef)(drafts), pending = (0, import_react31.useRef)(/* @__PURE__ */ new Set()), revisions = (0, import_react31.useRef)({}), mounted = (0, import_react31.useRef)(true);
+  draftsRef.current = drafts;
+  (0, import_react31.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const id = bot?.id;
+  const draft = drafts[id] ?? "";
+  const change = (text) => {
+    if (!id) return;
+    revisions.current[id] = (revisions.current[id] ?? 0) + 1;
+    draftsRef.current = { ...draftsRef.current, [id]: text };
+    setDrafts(draftsRef.current);
+    setErrors((value) => ({ ...value, [id]: "" }));
+    setSent((value) => ({ ...value, [id]: false }));
+    writeDraft(id, text);
+  };
+  const send = async (event) => {
+    event.preventDefault();
+    const target = id, original = draftsRef.current[target] ?? "", text = original.trim();
+    if (!target || !text || pending.current.has(target)) return;
+    const revision = revisions.current[target] ?? 0;
+    pending.current.add(target);
+    setSending((value) => ({ ...value, [target]: true }));
+    setErrors((value) => ({ ...value, [target]: "" }));
+    setSent((value) => ({ ...value, [target]: false }));
+    try {
+      await actions.send(target, text);
+      if ((revisions.current[target] ?? 0) === revision) {
+        if (readQuickDrafts()[target] === original) writeDraft(target, "");
+        draftsRef.current = { ...draftsRef.current, [target]: "" };
+        if (mounted.current) {
+          setDrafts(draftsRef.current);
+          setSent((value) => ({ ...value, [target]: true }));
+        }
+      }
+    } catch (error) {
+      if (mounted.current) setErrors((value) => ({ ...value, [target]: hostText(error?.message ?? t("Could not send message")) }));
+    } finally {
+      pending.current.delete(target);
+      if (mounted.current) setSending((value) => ({ ...value, [target]: false }));
+    }
+  };
+  return (0, import_react31.createElement)(
+    FloatingWidget,
+    { id: "quick", title: t("Quick message"), icon: ChatsIcon },
+    bot ? (0, import_react31.createElement)(
+      "div",
+      { className: "bt-quick-person" },
+      (0, import_react31.createElement)(BotAvatar, { bot, size: 56, live: false }),
+      (0, import_react31.createElement)("div", null, (0, import_react31.createElement)("strong", null, bot.name), (0, import_react31.createElement)("span", null, bot.role || t("Employee"))),
+      (0, import_react31.createElement)("button", { type: "button", className: "bt-spatial-link", onClick: () => actions.openCanvasEntity(bot.id), title: t("Open conversation"), "aria-label": t("Open conversation") }, (0, import_react31.createElement)(ChatsIcon))
+    ) : (0, import_react31.createElement)("p", { className: "bt-spatial-empty" }, t("Choose an employee to send a message")),
+    bot ? (0, import_react31.createElement)(
+      "form",
+      { className: "bt-quick-form", onSubmit: send },
+      (0, import_react31.createElement)("input", { value: draft, onChange: (event) => change(event.target.value), onKeyDown: (event) => {
+        if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
+      }, placeholder: t("Message {name}", { name: bot.name }), "aria-label": t("Send to {name}", { name: bot.name }), autoComplete: "off" }),
+      (0, import_react31.createElement)("button", { type: "submit", disabled: !draft.trim() || sending[id], "aria-label": t(sending[id] ? "Sending…" : "Send"), title: t(sending[id] ? "Sending…" : "Send") }, (0, import_react31.createElement)(ArrowUpIcon))
+    ) : null,
+    bot ? (0, import_react31.createElement)("div", { className: "bt-quick-feedback" }, errors[id] ? (0, import_react31.createElement)("span", { role: "alert" }, errors[id]) : (0, import_react31.createElement)("span", { role: "status" }, sending[id] ? t("Sending…") : sent[id] ? t("Message sent") : t("Send to {name}", { name: bot.name }))) : null
+  );
+}
+function upcomingTasks(view) {
+  return view?.available && Array.isArray(view.tasks) ? view.tasks.filter((task) => task?.status === "active" && Number.isFinite(Date.parse(task.scheduledAt))).sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt)) : [];
+}
+var dayKey2 = (date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+function agendaWeek(now, tasks) {
+  const today = new Date(now), first = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7);
+  const marked = new Set(tasks.map((task) => dayKey2(new Date(task.scheduledAt))));
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
+    return { date, today: dayKey2(date) === dayKey2(today), marked: marked.has(dayKey2(date)) };
+  });
+}
+function CanvasAgenda({ actions, roster }) {
+  const view = useSchedules(actions);
+  const [now, setNow] = (0, import_react31.useState)(Date.now);
+  (0, import_react31.useEffect)(() => {
+    const timer = setInterval(() => setNow(Date.now()), 6e4);
+    return () => clearInterval(timer);
+  }, []);
+  const tasks = upcomingTasks(view);
+  const date = new Intl.DateTimeFormat(dateLocale(), { month: "long", day: "numeric" }).format(now);
+  return (0, import_react31.createElement)(
+    FloatingWidget,
+    { id: "agenda", title: `${t("Agenda")} · ${date}`, icon: ClockIcon },
+    (0, import_react31.createElement)("div", { className: "bt-agenda-week", "aria-label": date }, agendaWeek(now, tasks).map((day) => (0, import_react31.createElement)(
+      "span",
+      { key: dayKey2(day.date), "data-today": day.today || void 0, "data-task": day.marked || void 0, title: day.date.toLocaleDateString(dateLocale()) },
+      (0, import_react31.createElement)("small", null, day.date.toLocaleDateString(dateLocale(), { weekday: "narrow" })),
+      (0, import_react31.createElement)("b", null, day.date.getDate()),
+      (0, import_react31.createElement)("i", { "aria-hidden": true })
+    ))),
+    view === null ? (0, import_react31.createElement)("p", { className: "bt-spatial-empty", role: "status" }, t("Loading…")) : !view.available ? (0, import_react31.createElement)("p", { className: "bt-spatial-empty" }, t("Switch on Automation tasks on the Plugins page in Harness settings.")) : tasks.length === 0 ? (0, import_react31.createElement)("p", { className: "bt-spatial-empty" }, t("No upcoming tasks")) : (0, import_react31.createElement)("div", { className: "bt-agenda-tasks" }, tasks.slice(0, 3).map((task) => {
+      const owner = task.botId ? roster.byId[task.botId] : roster.roomsById[task.roomId];
+      const next = new Date(task.scheduledAt).toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      return (0, import_react31.createElement)(
+        "button",
+        { type: "button", className: "bt-agenda-task", key: `${task.sessionId}:${task.id}`, title: [owner?.name, timingText(task)].filter(Boolean).join(" · "), onClick: () => actions.openSettings("schedules", task.botId ?? task.roomId) },
+        (0, import_react31.createElement)("strong", null, task.title),
+        (0, import_react31.createElement)("span", null, [owner?.name, next].filter(Boolean).join(" · "))
+      );
+    })),
+    (0, import_react31.createElement)("button", { type: "button", className: "bt-spatial-link bt-agenda-manage", onClick: () => actions.openSettings("schedules") }, t("Manage scheduled tasks"))
+  );
+}
+var SPATIAL_WIDGET_CSS = `
+.bt-spatial-widget{position:absolute;z-index:20;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--glass-border,rgba(255,255,255,.85));border-radius:24px;background:#f8f8f8;box-shadow:var(--glass-shadow,0 8px 28px rgba(0,0,0,.05),inset 0 1px 0 rgba(255,255,255,.8));color:var(--text-primary,#262626);overflow:hidden;transition:border-color .14s ease,box-shadow .14s ease}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .bt-spatial-widget{background:var(--glass-floating,rgba(255,255,255,.65));-webkit-backdrop-filter:blur(var(--glass-blur,24px));backdrop-filter:blur(var(--glass-blur,24px))}
+}
+.bt-spatial-widget:focus-within{z-index:21;border-color:rgba(0,0,0,.15)}
+.bt-spatial-widget>header{display:flex;align-items:center;flex:none;height:40px;padding:0 8px 0 10px;gap:6px;box-sizing:border-box}
+.bt-spatial-grip{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;border:0;border-radius:8px;padding:0 4px;background:none;color:inherit;font:inherit;font-size:12px;font-weight:600;letter-spacing:-0.01em;text-align:start;touch-action:none;cursor:grab;user-select:none}
+.bt-spatial-grip:active{cursor:grabbing}.bt-spatial-grip>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.bt-spatial-grip>svg{flex:none;width:15px;height:15px;opacity:.75}
+.bt-spatial-fold{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid rgba(255,255,255,.9);border-radius:8px;background:rgba(255,255,255,.9);color:var(--text-primary,#262626);font:inherit;font-size:14px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.03);transition:background-color .12s ease,color .12s ease,transform .12s cubic-bezier(0.16,1,0.3,1)}
+.bt-spatial-fold:hover{background:#ffffff;box-shadow:0 3px 8px rgba(0,0,0,.06)}
+.bt-spatial-fold:active{transform:scale(0.94)}
+.bt-spatial-widget button:focus-visible,.bt-quick-form input:focus-visible{outline:2px solid #888;outline-offset:2px}
+.bt-spatial-body{flex:1;min-height:0;overflow:auto;padding:0 14px 14px;scrollbar-width:thin}.bt-spatial-widget[data-folded=true]{border-radius:18px}.bt-spatial-widget[data-folded=true]>header{height:40px}
+.bt-quick-person{display:flex;align-items:center;gap:10px;margin:2px 0 10px}.bt-quick-person>.bt-mark{flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.08)}.bt-quick-person>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.bt-quick-person strong{font-size:13px;font-weight:600;letter-spacing:-0.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,#262626)}.bt-quick-person>div>span{font-size:11px;color:var(--text-secondary,#757575);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-spatial-link{flex:none;padding:4px 8px;border:1px solid transparent;border-radius:7px;background:none;color:var(--text-secondary,#757575);font:inherit;font-size:11px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}.bt-spatial-link:hover{background:rgba(0,0,0,.04);color:var(--text-primary,#262626)}
+.bt-quick-form{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 12px;border:1px solid var(--divider,rgba(0,0,0,.06));border-radius:12px;background:rgba(255,255,255,.75);transition:border-color .14s ease}
+.bt-quick-form:focus-within{border-color:rgba(0,0,0,.2)}
+.bt-quick-form input{flex:1;min-width:0;width:0;height:26px;padding:0;border:0;background:none;color:var(--text-primary,#262626);font:inherit;font-size:12px;outline:none}
+.bt-quick-form input::placeholder{color:var(--text-secondary,#757575)}.bt-quick-form>button{display:flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;border:0;border-radius:7px;background:var(--text-primary,#262626);color:#ffffff;cursor:pointer;transition:transform .12s ease,opacity .12s ease}.bt-quick-form>button:active:not(:disabled){transform:scale(0.92)}.bt-quick-form>button:disabled{opacity:.35;cursor:default}
+.bt-quick-feedback{min-height:16px;margin:5px 3px 0;font-size:11px;line-height:15px;color:var(--text-secondary,#757575);overflow-wrap:anywhere}.bt-quick-feedback [role=alert]{color:#dc2626}
+.bt-spatial-empty{margin:8px 2px;font-size:12px;line-height:18px;color:var(--text-secondary,#757575)}.bt-agenda-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:8px}.bt-agenda-week>span{display:flex;align-items:center;flex-direction:column;gap:1px;padding:3px 2px;border-radius:8px;font-size:10px;font-variant-numeric:tabular-nums;color:var(--text-secondary,#757575)}.bt-agenda-week small{font-size:9px;color:var(--text-secondary,#757575);text-transform:uppercase}.bt-agenda-week b{font-weight:600}.bt-agenda-week i{width:3px;height:3px;margin-top:2px;border-radius:50%;background:transparent}.bt-agenda-week [data-today]{background:rgba(255,255,255,.9);color:var(--text-primary,#262626);box-shadow:0 1px 3px rgba(0,0,0,.04)}.bt-agenda-week [data-task]>i{background:var(--bt-accent,#10a37f)}
+.bt-agenda-tasks{display:flex;flex-direction:column;gap:5px}.bt-agenda-task{display:flex;flex-direction:column;gap:2px;width:100%;padding:8px 10px;text-align:start;border:1px solid var(--divider,rgba(0,0,0,.06));border-radius:10px;background:rgba(255,255,255,.8);color:var(--text-primary,#262626);font:inherit;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.02);transition:background-color .12s ease,border-color .12s ease}.bt-agenda-task strong{font-size:11px;font-weight:600;letter-spacing:-0.005em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task>span{font-size:10px;color:var(--text-secondary,#757575);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task:hover{background:#ffffff;border-color:rgba(0,0,0,.1)}.bt-agenda-manage{display:block;margin:6px 0 0 auto}
+@media (prefers-reduced-transparency:reduce){.bt-spatial-widget{background:#f8f8f8;-webkit-backdrop-filter:none;backdrop-filter:none}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-spatial-widget{background:#f8f8f8}}
+@media (forced-colors:active){.bt-spatial-widget{background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}.bt-spatial-widget button{color:ButtonText;border:1px solid ButtonText;background:ButtonFace}.bt-quick-form{border-color:CanvasText}.bt-quick-form input{color:CanvasText}.bt-agenda-week [data-task]>i{background:Highlight}.bt-spatial-widget :is(.bt-spatial-empty,.bt-quick-feedback,.bt-quick-person>div>span,.bt-agenda-week>span,.bt-agenda-week small,.bt-agenda-task>span){color:CanvasText}}
+@media (pointer:coarse){.bt-spatial-fold{width:36px;height:36px}.bt-quick-form>button{width:36px;height:36px}.bt-spatial-link{min-height:32px}}
+`;
+
+// src/client/member-status.js
+var import_react32 = require("react");
 var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
 var ROWS_MAX = 4;
 function memberWork(room2, work = NO_WORK) {
@@ -11365,35 +12098,35 @@ function summaryText(busy) {
   return { waiting, doing };
 }
 function Face({ entry, size }) {
-  return (0, import_react31.createElement)(
+  return (0, import_react32.createElement)(
     "span",
     { className: "bt-mw-face", "data-ask": entry.state === "ask" || void 0 },
-    (0, import_react31.createElement)(BotMark, { bot: entry.bot, size, state: entry.state === "ask" ? "alert" : toolState(entry.doing?.tool ?? "") })
+    (0, import_react32.createElement)(BotMark, { bot: entry.bot, size, state: entry.state === "ask" ? "alert" : toolState(entry.doing?.tool ?? "") })
   );
 }
 function WorkRow({ bot, tool, label, at, now, onOpen }) {
   const text = `${label} · ${workPhrase(tool)}…`;
   const elapsed = typeof at === "number" && now - at >= 6e4 ? elapsedLabel(now - at) : "";
-  return (0, import_react31.createElement)(
+  return (0, import_react32.createElement)(
     "button",
     { type: "button", className: "bt-mw-row", "aria-label": [text, elapsed].filter(Boolean).join(" · "), onClick: onOpen },
-    (0, import_react31.createElement)(BotMark, { bot, size: 22, state: toolState(tool ?? ""), live: true }),
-    (0, import_react31.createElement)("span", { className: "bt-mw-row-text" }, (0, import_react31.createElement)(Shimmer, null, text)),
-    elapsed ? (0, import_react31.createElement)("span", { className: "bt-mw-row-time" }, `· ${elapsed}`) : null
+    (0, import_react32.createElement)(BotMark, { bot, size: 22, state: toolState(tool ?? ""), live: true }),
+    (0, import_react32.createElement)("span", { className: "bt-mw-row-text" }, (0, import_react32.createElement)(Shimmer, null, text)),
+    elapsed ? (0, import_react32.createElement)("span", { className: "bt-mw-row-time" }, `· ${elapsed}`) : null
   );
 }
 function SummaryLine({ busy, onOpen }) {
   const { waiting, doing } = summaryText(busy);
-  return (0, import_react31.createElement)(
+  return (0, import_react32.createElement)(
     "div",
     { className: "bt-event bt-mw-dock" },
-    (0, import_react31.createElement)(
+    (0, import_react32.createElement)(
       "button",
       { type: "button", className: "bt-event-whole bt-mw-line", "aria-label": [waiting, doing].filter(Boolean).join(" · "), onClick: onOpen },
-      (0, import_react31.createElement)("span", { className: "bt-mw-stack", "aria-hidden": true }, busy.slice(0, 4).map((entry) => (0, import_react31.createElement)(Face, { key: entry.id, entry, size: 16 }))),
-      waiting ? (0, import_react31.createElement)("span", { className: "bt-mw-ask" }, waiting) : null,
-      waiting && doing ? (0, import_react31.createElement)("span", { "aria-hidden": true }, "·") : null,
-      doing ? (0, import_react31.createElement)("span", { className: "bt-event-name" }, (0, import_react31.createElement)(Shimmer, null, doing)) : null
+      (0, import_react32.createElement)("span", { className: "bt-mw-stack", "aria-hidden": true }, busy.slice(0, 4).map((entry) => (0, import_react32.createElement)(Face, { key: entry.id, entry, size: 16 }))),
+      waiting ? (0, import_react32.createElement)("span", { className: "bt-mw-ask" }, waiting) : null,
+      waiting && doing ? (0, import_react32.createElement)("span", { "aria-hidden": true }, "·") : null,
+      doing ? (0, import_react32.createElement)("span", { className: "bt-event-name" }, (0, import_react32.createElement)(Shimmer, null, doing)) : null
     )
   );
 }
@@ -11407,20 +12140,20 @@ function MemberDock({ sessionId, useRoster, useWork, actions }) {
   const groups = bot !== void 0 && !ownChat ? botGroupWork(bot.id, work, roster) : [];
   const shown = busy.length > 0 || groups.length > 0;
   const now = useNow2(shown);
-  const ref = (0, import_react31.useRef)(null);
+  const ref = (0, import_react32.useRef)(null);
   useFlowColumn(ref, shown, sessionId);
   if (!shown) return null;
   if (room2) {
     const { rows, rest } = splitBusy(busy);
     const open = () => actions.showDetails(sessionId);
-    return (0, import_react31.createElement)(
+    return (0, import_react32.createElement)(
       "div",
       { ref, className: "bt-mw-dock-stack" },
-      rows.map((entry) => (0, import_react31.createElement)(WorkRow, { key: entry.id, bot: entry.bot, tool: entry.doing.tool, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
-      rest.length > 0 ? (0, import_react31.createElement)(SummaryLine, { busy: rest, onOpen: open }) : null
+      rows.map((entry) => (0, import_react32.createElement)(WorkRow, { key: entry.id, bot: entry.bot, tool: entry.doing.tool, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
+      rest.length > 0 ? (0, import_react32.createElement)(SummaryLine, { busy: rest, onOpen: open }) : null
     );
   }
-  return (0, import_react31.createElement)("div", { ref, className: "bt-mw-dock-stack" }, groups.slice(0, ROWS_MAX).map((item) => (0, import_react31.createElement)(WorkRow, {
+  return (0, import_react32.createElement)("div", { ref, className: "bt-mw-dock-stack" }, groups.slice(0, ROWS_MAX).map((item) => (0, import_react32.createElement)(WorkRow, {
     key: item.room.id,
     bot,
     tool: item.tool,
@@ -11431,7 +12164,7 @@ function MemberDock({ sessionId, useRoster, useWork, actions }) {
   })));
 }
 function useFlowColumn(ref, active, key) {
-  (0, import_react31.useLayoutEffect)(() => {
+  (0, import_react32.useLayoutEffect)(() => {
     const node = ref.current;
     if (!active || !node) return void 0;
     if (node.closest(".bt-canvas-window")) {
@@ -11454,8 +12187,8 @@ function useFlowColumn(ref, active, key) {
   }, [active, key]);
 }
 function useNow2(active) {
-  const [now, setNow] = (0, import_react31.useState)(Date.now);
-  (0, import_react31.useEffect)(() => {
+  const [now, setNow] = (0, import_react32.useState)(Date.now);
+  (0, import_react32.useEffect)(() => {
     if (!active) return void 0;
     const timer = setInterval(() => setNow(Date.now()), 3e4);
     return () => clearInterval(timer);
@@ -11464,38 +12197,38 @@ function useNow2(active) {
 }
 var since = (now, at) => typeof at === "number" && now - at >= 6e4 ? ` · ${elapsedLabel(now - at)}` : "";
 function ApprovalCard({ approval, bot, actions }) {
-  const [busy, setBusy] = (0, import_react31.useState)(false);
+  const [busy, setBusy] = (0, import_react32.useState)(false);
   const answer = (choice) => {
     setBusy(true);
     void Promise.resolve(actions.answerApproval(approval.id, choice)).catch((error) => actions.reportError(error, "approval")).finally(() => setBusy(false));
   };
-  return (0, import_react31.createElement)(
+  return (0, import_react32.createElement)(
     "div",
     { className: "bt-mw-card", role: "group", "aria-label": t("{name} is waiting for your approval", { name: bot.name }) },
-    (0, import_react31.createElement)("div", { className: "bt-mw-tool" }, approval.tool),
-    approval.detail?.text ? (0, import_react31.createElement)("div", { className: "bt-mw-text" }, approval.detail.text) : null,
-    approval.reason ? (0, import_react31.createElement)("div", { className: "bt-mw-reason" }, approval.reason) : null,
-    approval.detail?.code ? (0, import_react31.createElement)("code", { className: "bt-mw-code", title: approval.detail.code }, approval.detail.code) : null,
-    approval.answerable ? (0, import_react31.createElement)(
+    (0, import_react32.createElement)("div", { className: "bt-mw-tool" }, approval.tool),
+    approval.detail?.text ? (0, import_react32.createElement)("div", { className: "bt-mw-text" }, approval.detail.text) : null,
+    approval.reason ? (0, import_react32.createElement)("div", { className: "bt-mw-reason" }, approval.reason) : null,
+    approval.detail?.code ? (0, import_react32.createElement)("code", { className: "bt-mw-code", title: approval.detail.code }, approval.detail.code) : null,
+    approval.answerable ? (0, import_react32.createElement)(
       "div",
       { className: "bt-mw-actions" },
-      (0, import_react31.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
-      (0, import_react31.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("allow") }, t("Allow once"))
-    ) : (0, import_react31.createElement)(
+      (0, import_react32.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
+      (0, import_react32.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("allow") }, t("Allow once"))
+    ) : (0, import_react32.createElement)(
       "div",
       { className: "bt-mw-actions" },
-      (0, import_react31.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))
+      (0, import_react32.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))
     )
   );
 }
 function MemberWork({ entry, bot, room: room2, roster, actions, now }) {
-  const [stopping, setStopping] = (0, import_react31.useState)(false);
+  const [stopping, setStopping] = (0, import_react32.useState)(false);
   if (entry.state === "ask") {
-    return (0, import_react31.createElement)(
+    return (0, import_react32.createElement)(
       "div",
       { className: "bt-mw-member" },
-      (0, import_react31.createElement)("div", { className: "bt-mw-state bt-mw-ask" }, `${t("Waiting for your approval")}${since(now, entry.approvals[0].at)}`),
-      entry.approvals.map((approval) => (0, import_react31.createElement)(ApprovalCard, { key: approval.id, approval, bot, actions }))
+      (0, import_react32.createElement)("div", { className: "bt-mw-state bt-mw-ask" }, `${t("Waiting for your approval")}${since(now, entry.approvals[0].at)}`),
+      entry.approvals.map((approval) => (0, import_react32.createElement)(ApprovalCard, { key: approval.id, approval, bot, actions }))
     );
   }
   if (entry.state !== "work") return null;
@@ -11504,14 +12237,14 @@ function MemberWork({ entry, bot, room: room2, roster, actions, now }) {
     setStopping(true);
     void Promise.resolve(actions.stopMemberWork(room2.id, bot.id)).catch((error) => actions.reportError(error, "stop")).finally(() => setStopping(false));
   };
-  return (0, import_react31.createElement)(
+  return (0, import_react32.createElement)(
     "div",
     { className: "bt-mw-member" },
-    (0, import_react31.createElement)(
+    (0, import_react32.createElement)(
       "div",
       { className: "bt-mw-state bt-mw-work" },
-      (0, import_react31.createElement)("span", null, (0, import_react31.createElement)(Shimmer, null, `${workPhrase(entry.doing.tool)}…`), where ? ` ${where}` : "", since(now, entry.doing.since)),
-      entry.here ? (0, import_react31.createElement)("button", { type: "button", className: "bt-mw-stop", disabled: stopping, onClick: stop }, t("Stop")) : null
+      (0, import_react32.createElement)("span", null, (0, import_react32.createElement)(Shimmer, null, `${workPhrase(entry.doing.tool)}…`), where ? ` ${where}` : "", since(now, entry.doing.since)),
+      entry.here ? (0, import_react32.createElement)("button", { type: "button", className: "bt-mw-stop", disabled: stopping, onClick: stop }, t("Stop")) : null
     )
   );
 }
@@ -11558,7 +12291,7 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 `;
 
 // src/client/details-drawer.js
-var import_react32 = require("react");
+var import_react33 = require("react");
 function transcriptOf(list, id, name, hiddenTurns = []) {
   const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
   if (!Array.isArray(outline)) return "";
@@ -11583,10 +12316,10 @@ var EMPTY_TABS = { ids: [], active: null };
 var PERMISSION_LABELS = { "read-only": "Read only", "workspace-write": "Workspace", "danger-full-access": "Full access" };
 var DANGER = /* @__PURE__ */ new Set(["danger-full-access"]);
 function PermissionRow({ bot, roster, actions, run }) {
-  const [pending, setPending] = (0, import_react32.useState)(null);
+  const [pending, setPending] = (0, import_react33.useState)(null);
   const catalog = roster.permissions;
   const saved = bot.permission ?? catalog?.defaultPreset;
-  (0, import_react32.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     if (pending === saved) setPending(null);
   }, [pending, saved]);
   if (!catalog?.options?.length) return null;
@@ -11596,14 +12329,14 @@ function PermissionRow({ bot, roster, actions, run }) {
     setPending(value);
     void run(actions.updateBot(bot.id, { permission: value })).catch(() => setPending(null));
   };
-  return (0, import_react32.createElement)(
+  return (0, import_react33.createElement)(
     "div",
     { className: "bt-drawer-permission" },
-    (0, import_react32.createElement)("div", { className: "bt-section-title" }, t("Permissions")),
-    (0, import_react32.createElement)(
+    (0, import_react33.createElement)("div", { className: "bt-section-title" }, t("Permissions")),
+    (0, import_react33.createElement)(
       Segmented,
       { label: t("Permissions"), value: current },
-      catalog.options.map((option) => (0, import_react32.createElement)("button", {
+      catalog.options.map((option) => (0, import_react33.createElement)("button", {
         key: option.value,
         type: "button",
         "aria-pressed": option.value === current,
@@ -11617,42 +12350,42 @@ function PermissionRow({ bot, roster, actions, run }) {
 function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) {
   const state = useBrowserTabs((map) => map[bot.id] ?? EMPTY_TABS);
   const pages = useBrowserPages((map) => map);
-  (0, import_react32.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     actions.browserEnsure?.(bot.id);
   }, [bot.id]);
   if (roster.browser !== true || !actions.browserShow) {
-    return (0, import_react32.createElement)("div", { className: "bt-muted" }, t("The browser is in the DSH Desktop app."));
+    return (0, import_react33.createElement)("div", { className: "bt-muted" }, t("The browser is in the DSH Desktop app."));
   }
   if (state.ids.length === 0) {
-    return (0, import_react32.createElement)(
+    return (0, import_react33.createElement)(
       "div",
       { className: "bt-browser-empty-mark" },
-      (0, import_react32.createElement)(BotMark, { bot, size: 40, state: "idle", live: true }),
-      (0, import_react32.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-      (0, import_react32.createElement)("div", { className: "bt-muted" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-      (0, import_react32.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
+      (0, import_react33.createElement)(BotMark, { bot, size: 40, state: "idle", live: true }),
+      (0, import_react33.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
+      (0, import_react33.createElement)("div", { className: "bt-muted" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
+      (0, import_react33.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
     );
   }
-  return (0, import_react32.createElement)(
+  return (0, import_react33.createElement)(
     "div",
     { className: "bt-bcards" },
     state.ids.map((tabId, index) => {
       const page = pages[tabId] ?? {};
       const label = page.title || shortUrl(page.url) || t("New tab");
-      return (0, import_react32.createElement)(
+      return (0, import_react33.createElement)(
         "div",
         { key: tabId, className: "bt-bcard", "data-active": state.active === tabId || void 0, style: { animationDelay: `${index * 30}ms` } },
-        (0, import_react32.createElement)(
+        (0, import_react33.createElement)(
           "button",
           { type: "button", className: "bt-bcard-shot", "aria-label": t("Open {title}", { title: label }), title: page.url, onClick: () => actions.browserPick(sessionId, tabId) },
-          page.excerpt ? (0, import_react32.createElement)(
+          page.excerpt ? (0, import_react33.createElement)(
             "span",
             { className: "bt-bcard-preview" },
-            (0, import_react32.createElement)("span", { className: "bt-bcard-ptitle" }, label),
-            (0, import_react32.createElement)("span", { className: "bt-bcard-excerpt" }, page.excerpt)
-          ) : (0, import_react32.createElement)("span", { className: "bt-bcard-blank" }, (0, import_react32.createElement)(GlobeIcon), (0, import_react32.createElement)("span", null, label))
+            (0, import_react33.createElement)("span", { className: "bt-bcard-ptitle" }, label),
+            (0, import_react33.createElement)("span", { className: "bt-bcard-excerpt" }, page.excerpt)
+          ) : (0, import_react33.createElement)("span", { className: "bt-bcard-blank" }, (0, import_react33.createElement)(GlobeIcon), (0, import_react33.createElement)("span", null, label))
         ),
-        (0, import_react32.createElement)("button", {
+        (0, import_react33.createElement)("button", {
           type: "button",
           className: "bt-bcard-x",
           "aria-label": t("Close tab"),
@@ -11661,71 +12394,71 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
             void actions.browserCloseTab(bot.id, tabId);
           }
         }, "×"),
-        (0, import_react32.createElement)(
+        (0, import_react33.createElement)(
           "div",
           { className: "bt-bcard-row" },
-          (0, import_react32.createElement)(Favicon, { src: page.favicon, className: "bt-bcard-fav" }),
-          (0, import_react32.createElement)("span", { className: "bt-bcard-title" }, label),
-          page.url ? (0, import_react32.createElement)("span", { className: "bt-bcard-host" }, hostOf(page.url)) : null
+          (0, import_react33.createElement)(Favicon, { src: page.favicon, className: "bt-bcard-fav" }),
+          (0, import_react33.createElement)("span", { className: "bt-bcard-title" }, label),
+          page.url ? (0, import_react33.createElement)("span", { className: "bt-bcard-host" }, hostOf(page.url)) : null
         )
       );
     }),
-    (0, import_react32.createElement)("button", { type: "button", className: "bt-bcard-new", style: { animationDelay: `${state.ids.length * 30}ms` }, onClick: () => actions.browserNewTab(sessionId) }, (0, import_react32.createElement)(PlusIcon), t("New tab"))
+    (0, import_react33.createElement)("button", { type: "button", className: "bt-bcard-new", style: { animationDelay: `${state.ids.length * 30}ms` }, onClick: () => actions.browserNewTab(sessionId) }, (0, import_react33.createElement)(PlusIcon), t("New tab"))
   );
 }
 function About({ text, title = "About" }) {
-  const [open, setOpen] = (0, import_react32.useState)(false);
+  const [open, setOpen] = (0, import_react33.useState)(false);
   const long = text.split("\n").length > 5 || text.length > 240;
-  const body = (0, import_react32.useRef)(null);
+  const body = (0, import_react33.useRef)(null);
   useMorph(body, open);
-  return (0, import_react32.createElement)(
+  return (0, import_react33.createElement)(
     "div",
     null,
-    (0, import_react32.createElement)("div", { className: "bt-section-title" }, t(title)),
-    (0, import_react32.createElement)("div", { ref: body, className: "bt-about", "data-open": open || void 0 }, text),
-    long ? (0, import_react32.createElement)("button", { type: "button", className: "bt-more", onClick: () => setOpen((value) => !value) }, open ? t("Show less") : t("Show more")) : null
+    (0, import_react33.createElement)("div", { className: "bt-section-title" }, t(title)),
+    (0, import_react33.createElement)("div", { ref: body, className: "bt-about", "data-open": open || void 0 }, text),
+    long ? (0, import_react33.createElement)("button", { type: "button", className: "bt-more", onClick: () => setOpen((value) => !value) }, open ? t("Show less") : t("Show more")) : null
   );
 }
 function GroupOverview({ room: room2, roster, actions, usage, useWork, openSettings }) {
   const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
   const { entries: entries2, now } = useMemberWork(room2, useWork);
   return [
-    room2.notice ? (0, import_react32.createElement)(About, { key: "notice", title: "Notice", text: room2.notice }) : (0, import_react32.createElement)("button", { key: "notice", type: "button", className: "bt-more", onClick: openSettings }, t("Add a notice in group settings")),
-    (0, import_react32.createElement)(
+    room2.notice ? (0, import_react33.createElement)(About, { key: "notice", title: "Notice", text: room2.notice }) : (0, import_react33.createElement)("button", { key: "notice", type: "button", className: "bt-more", onClick: openSettings }, t("Add a notice in group settings")),
+    (0, import_react33.createElement)(
       "div",
       { key: "members" },
-      (0, import_react32.createElement)("div", { className: "bt-section-title" }, t("Members · {count}", { count: members.length })),
-      (0, import_react32.createElement)("div", { className: "bt-members", role: "list" }, members.map((member) => {
+      (0, import_react33.createElement)("div", { className: "bt-section-title" }, t("Members · {count}", { count: members.length })),
+      (0, import_react33.createElement)("div", { className: "bt-members", role: "list" }, members.map((member) => {
         const entry = entries2.find((item) => item.id === member.id);
-        return (0, import_react32.createElement)(
+        return (0, import_react33.createElement)(
           "div",
           { key: member.id, role: "listitem" },
-          (0, import_react32.createElement)(
+          (0, import_react33.createElement)(
             "div",
             { className: "bt-member" },
-            (0, import_react32.createElement)(
+            (0, import_react33.createElement)(
               "button",
               { type: "button", className: "bt-member-name", title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
-              (0, import_react32.createElement)(BotAvatar, { bot: member, size: 26, main: isMainOf(roster, member.id), admin: room2.admin === member.id, live: false }),
-              (0, import_react32.createElement)("span", null, member.name)
+              (0, import_react33.createElement)(BotAvatar, { bot: member, size: 26, main: isMainOf(roster, member.id), admin: room2.admin === member.id, live: false }),
+              (0, import_react33.createElement)("span", null, member.name)
             ),
-            room2.admin === member.id ? (0, import_react32.createElement)("span", { className: "bt-chip bt-chip-admin" }, t("Admin")) : null
+            room2.admin === member.id ? (0, import_react33.createElement)("span", { className: "bt-chip bt-chip-admin" }, t("Admin")) : null
           ),
-          entry ? (0, import_react32.createElement)(MemberWork, { entry, bot: member, room: room2, roster, actions, now }) : null
+          entry ? (0, import_react33.createElement)(MemberWork, { entry, bot: member, room: room2, roster, actions, now }) : null
         );
       }))
     ),
-    (0, import_react32.createElement)(
+    (0, import_react33.createElement)(
       "div",
       { key: "mode" },
-      (0, import_react32.createElement)("div", { className: "bt-section-title" }, t("Who answers")),
-      (0, import_react32.createElement)("div", { className: "bt-kv" }, (0, import_react32.createElement)("span", null, t(ROOM_MODES.find(([id]) => id === shownMode(room2, roster))?.[1] ?? "Everyone")))
+      (0, import_react33.createElement)("div", { className: "bt-section-title" }, t("Who answers")),
+      (0, import_react33.createElement)("div", { className: "bt-kv" }, (0, import_react33.createElement)("span", null, t(ROOM_MODES.find(([id]) => id === shownMode(room2, roster))?.[1] ?? "Everyone")))
     ),
-    usage ? (0, import_react32.createElement)(
+    usage ? (0, import_react33.createElement)(
       "div",
       { key: "usage" },
-      (0, import_react32.createElement)("div", { className: "bt-section-title" }, t("Usage")),
-      (0, import_react32.createElement)("div", { className: "bt-kv" }, (0, import_react32.createElement)("span", null, room2.name), (0, import_react32.createElement)("span", null, usage))
+      (0, import_react33.createElement)("div", { className: "bt-section-title" }, t("Usage")),
+      (0, import_react33.createElement)("div", { className: "bt-kv" }, (0, import_react33.createElement)("span", null, room2.name), (0, import_react33.createElement)("span", null, usage))
     ) : null
   ];
 }
@@ -11733,15 +12466,15 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const owner = roster.byId[sessionId];
   const part = owner ? currentPart(owner) : sessionId;
   const isMainBot = isMainOf(roster, owner?.id);
-  const [tab, setTab] = (0, import_react32.useState)("details");
+  const [tab, setTab] = (0, import_react33.useState)("details");
   const room2 = roster.roomsById[sessionId];
-  const [view, setView] = (0, import_react32.useState)(startTab === "settings" && (owner || room2) ? "settings" : "overview");
-  const [editing, setEditing] = (0, import_react32.useState)(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])));
-  const [draftName, setDraftName] = (0, import_react32.useState)(roster.byId[sessionId]?.name ?? (roster.roomsById[sessionId]?.named ? roster.roomsById[sessionId].name : ""));
-  const [copied, setCopied] = (0, import_react32.useState)(false);
-  const [error, setError] = (0, import_react32.useState)("");
+  const [view, setView] = (0, import_react33.useState)(startTab === "settings" && (owner || room2) ? "settings" : "overview");
+  const [editing, setEditing] = (0, import_react33.useState)(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])));
+  const [draftName, setDraftName] = (0, import_react33.useState)(roster.byId[sessionId]?.name ?? (roster.roomsById[sessionId]?.named ? roster.roomsById[sessionId].name : ""));
+  const [copied, setCopied] = (0, import_react33.useState)(false);
+  const [error, setError] = (0, import_react33.useState)("");
   const glide = useGlide(tab);
-  const last = (0, import_react32.useRef)({ view, tab, move: void 0 });
+  const last = (0, import_react33.useRef)({ view, tab, move: void 0 });
   if (last.current.view !== view) last.current = { view, tab, move: view === "settings" ? "in" : "out" };
   else if (last.current.tab !== tab) last.current = { view, tab, move: "tab" };
   const move = last.current.move;
@@ -11766,36 +12499,36 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
       setTimeout(() => setCopied(false), 1600);
     });
   };
-  const errorLine = error ? (0, import_react32.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
+  const errorLine = error ? (0, import_react33.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
   if ((bot || room2) && view === "settings") {
     return [
-      (0, import_react32.createElement)(
+      (0, import_react33.createElement)(
         "div",
         { key: "head", className: "bt-subhead", "data-move": move },
-        (0, import_react32.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to details"), onClick: () => setView("overview") }, (0, import_react32.createElement)(ChevronLeftIcon)),
-        (0, import_react32.createElement)("span", { className: "bt-subhead-title" }, bot ? t("Settings") : t("Group settings")),
-        hasStrip ? null : (0, import_react32.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Close details"), onClick: close }, (0, import_react32.createElement)(CloseIcon))
+        (0, import_react33.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to details"), onClick: () => setView("overview") }, (0, import_react33.createElement)(ChevronLeftIcon)),
+        (0, import_react33.createElement)("span", { className: "bt-subhead-title" }, bot ? t("Settings") : t("Group settings")),
+        hasStrip ? null : (0, import_react33.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Close details"), onClick: close }, (0, import_react33.createElement)(CloseIcon))
       ),
-      (0, import_react32.createElement)(
+      (0, import_react33.createElement)(
         "div",
         { key: "set-body", className: "bt-drawer-body bt-set-body", "data-move": move },
         errorLine,
-        bot ? (0, import_react32.createElement)(BotSettingsForm, { bot, roster, actions, run }) : (0, import_react32.createElement)(GroupSettingsForm, { room: room2, roster, actions, run, onDeleted: close })
+        bot ? (0, import_react33.createElement)(BotSettingsForm, { bot, roster, actions, run }) : (0, import_react33.createElement)(GroupSettingsForm, { room: room2, roster, actions, run, onDeleted: close })
       )
     ];
   }
-  const top = (0, import_react32.createElement)(
+  const top = (0, import_react33.createElement)(
     "div",
     { className: "bt-drawer-top", "data-move": side },
-    bot || room2 ? (0, import_react32.createElement)("button", { type: "button", className: "bt-round", "aria-label": bot ? t("Edit Bot") : t("Group settings"), title: bot ? t("Edit Bot") : t("Group settings"), "data-info-row": "settings", onClick: () => setView("settings") }, (0, import_react32.createElement)(GearIcon)) : null,
-    bot && roster.browser === true && actions.openBrowser ? (0, import_react32.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Open browser"), title: t("Open this Bot's browser"), onClick: () => actions.openBrowser(sessionId) }, (0, import_react32.createElement)(GlobeIcon)) : null,
-    bot || room2 ? (0, import_react32.createElement)("button", { type: "button", className: "bt-round", "aria-label": copied ? t("Copied conversation") : t("Share conversation"), title: copied ? t("Copied") : t("Copy conversation as Markdown"), onClick: share }, copied ? (0, import_react32.createElement)("span", { key: "copied", className: "bt-pop-in" }, "✓") : (0, import_react32.createElement)(ShareIcon)) : null,
-    hasStrip ? null : (0, import_react32.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Close details"), onClick: close }, (0, import_react32.createElement)(CloseIcon))
+    bot || room2 ? (0, import_react33.createElement)("button", { type: "button", className: "bt-round", "aria-label": bot ? t("Edit Bot") : t("Group settings"), title: bot ? t("Edit Bot") : t("Group settings"), "data-info-row": "settings", onClick: () => setView("settings") }, (0, import_react33.createElement)(GearIcon)) : null,
+    bot && roster.browser === true && actions.openBrowser ? (0, import_react33.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Open browser"), title: t("Open this Bot's browser"), onClick: () => actions.openBrowser(sessionId) }, (0, import_react33.createElement)(GlobeIcon)) : null,
+    bot || room2 ? (0, import_react33.createElement)("button", { type: "button", className: "bt-round", "aria-label": copied ? t("Copied conversation") : t("Share conversation"), title: copied ? t("Copied") : t("Copy conversation as Markdown"), onClick: share }, copied ? (0, import_react33.createElement)("span", { key: "copied", className: "bt-pop-in" }, "✓") : (0, import_react33.createElement)(ShareIcon)) : null,
+    hasStrip ? null : (0, import_react33.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Close details"), onClick: close }, (0, import_react33.createElement)(CloseIcon))
   );
   if (!bot && !room2) {
     return [
-      (0, import_react32.createElement)(import_react32.Fragment, { key: "top" }, top),
-      (0, import_react32.createElement)("div", { key: "body", className: "bt-drawer-body" }, (0, import_react32.createElement)("div", { className: "bt-muted" }, t("This conversation is not part of your Bot team.")))
+      (0, import_react33.createElement)(import_react33.Fragment, { key: "top" }, top),
+      (0, import_react33.createElement)("div", { key: "body", className: "bt-drawer-body" }, (0, import_react33.createElement)("div", { className: "bt-muted" }, t("This conversation is not part of your Bot team.")))
     ];
   }
   const current = bot?.name ?? room2.name;
@@ -11809,12 +12542,12 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const subtitle = bot ? bot.role : roomSubtitle(room2, roster);
   const tabs = bot ? ["details", "browser"] : ["details"];
   return [
-    (0, import_react32.createElement)(import_react32.Fragment, { key: "top" }, top),
-    (0, import_react32.createElement)(
+    (0, import_react33.createElement)(import_react33.Fragment, { key: "top" }, top),
+    (0, import_react33.createElement)(
       "div",
       { key: "id", className: "bt-drawer-id", "data-move": side },
-      bot ? (0, import_react32.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react32.createElement)(RoomAvatar, { room: room2, roster, size: 64 }),
-      editing ? (0, import_react32.createElement)("input", {
+      bot ? (0, import_react33.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react33.createElement)(RoomAvatar, { room: room2, roster, size: 64 }),
+      editing ? (0, import_react33.createElement)("input", {
         className: "bt-drawer-name-input",
         autoFocus: true,
         value: draftName,
@@ -11829,55 +12562,55 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
             setEditing(false);
           }
         }
-      }) : (0, import_react32.createElement)("button", { type: "button", className: "bt-drawer-name", "aria-label": t("Rename {name}", { name: current }), title: t("Rename"), onClick: () => {
+      }) : (0, import_react33.createElement)("button", { type: "button", className: "bt-drawer-name", "aria-label": t("Rename {name}", { name: current }), title: t("Rename"), onClick: () => {
         setDraftName(room2 && !room2.named ? "" : current);
         setEditing(true);
       } }, current),
-      subtitle ? (0, import_react32.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
+      subtitle ? (0, import_react33.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
     ),
-    (0, import_react32.createElement)(
+    (0, import_react33.createElement)(
       "div",
       { key: "tabs", ref: glide.box, className: "bt-tabs", role: "tablist", "data-move": side },
-      (0, import_react32.createElement)("span", { ref: glide.thumb, className: "bt-thumb", "aria-hidden": true }),
-      tabs.map((key) => (0, import_react32.createElement)("button", { key, type: "button", role: "tab", className: "bt-tab", "aria-selected": tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))
+      (0, import_react33.createElement)("span", { ref: glide.thumb, className: "bt-thumb", "aria-hidden": true }),
+      tabs.map((key) => (0, import_react33.createElement)("button", { key, type: "button", role: "tab", className: "bt-tab", "aria-selected": tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))
     ),
-    (0, import_react32.createElement)(
+    (0, import_react33.createElement)(
       "div",
       { key: `body:${tab}`, className: "bt-drawer-body", "data-move": move },
       errorLine,
-      room2 && tab === "details" ? (0, import_react32.createElement)(GroupOverview, { room: room2, roster, actions, usage, useWork, openSettings: () => setView("settings") }) : null,
+      room2 && tab === "details" ? (0, import_react33.createElement)(GroupOverview, { room: room2, roster, actions, usage, useWork, openSettings: () => setView("settings") }) : null,
       bot && tab === "details" ? [
-        (0, import_react32.createElement)(
+        (0, import_react33.createElement)(
           "div",
           { key: "model", className: "bt-drawer-model" },
-          (0, import_react32.createElement)("div", { className: "bt-section-title" }, t("Model")),
-          (0, import_react32.createElement)(ModelMenu, { bot, roster, actions, run, wide: true }),
-          modelOf(bot, roster) ? null : (0, import_react32.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
+          (0, import_react33.createElement)("div", { className: "bt-section-title" }, t("Model")),
+          (0, import_react33.createElement)(ModelMenu, { bot, roster, actions, run, wide: true }),
+          modelOf(bot, roster) ? null : (0, import_react33.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
-        (0, import_react32.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run }),
-        (0, import_react32.createElement)(
+        (0, import_react33.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run }),
+        (0, import_react33.createElement)(
           "div",
           { key: "folder", className: "bt-drawer-model" },
-          (0, import_react32.createElement)("div", { className: "bt-section-title" }, t("Working folder")),
-          (0, import_react32.createElement)(FolderMenu, { value: bot.workDir, actions, run, wide: true, onPick: (workDir) => run(actions.updateBot(bot.id, { workDir })) })
+          (0, import_react33.createElement)("div", { className: "bt-section-title" }, t("Working folder")),
+          (0, import_react33.createElement)(FolderMenu, { value: bot.workDir, actions, run, wide: true, onPick: (workDir) => run(actions.updateBot(bot.id, { workDir })) })
         ),
-        bot.instructions ? (0, import_react32.createElement)(About, { key: "about", text: bot.instructions }) : (0, import_react32.createElement)("button", { key: "about", type: "button", className: "bt-more", onClick: () => setView("settings") }, t("Add instructions in Bot settings")),
-        roster.memory === false ? null : (0, import_react32.createElement)(MemoryRow, { key: "memory", bot, actions }),
-        usage ? (0, import_react32.createElement)(
+        bot.instructions ? (0, import_react33.createElement)(About, { key: "about", text: bot.instructions }) : (0, import_react33.createElement)("button", { key: "about", type: "button", className: "bt-more", onClick: () => setView("settings") }, t("Add instructions in Bot settings")),
+        roster.memory === false ? null : (0, import_react33.createElement)(MemoryRow, { key: "memory", bot, actions }),
+        usage ? (0, import_react33.createElement)(
           "div",
           { key: "usage" },
-          (0, import_react32.createElement)("div", { className: "bt-section-title" }, t("Usage")),
-          (0, import_react32.createElement)("div", { className: "bt-kv" }, (0, import_react32.createElement)("span", null, bot.name), (0, import_react32.createElement)("span", null, usage))
+          (0, import_react33.createElement)("div", { className: "bt-section-title" }, t("Usage")),
+          (0, import_react33.createElement)("div", { className: "bt-kv" }, (0, import_react33.createElement)("span", null, bot.name), (0, import_react33.createElement)("span", null, usage))
         ) : null,
-        (0, import_react32.createElement)(ScheduleSummary, { key: "routines", bot, actions })
+        (0, import_react33.createElement)(ScheduleSummary, { key: "routines", bot, actions })
       ] : null,
-      bot && tab === "browser" ? (0, import_react32.createElement)(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null
+      bot && tab === "browser" ? (0, import_react33.createElement)(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null
     )
   ];
 }
 
 // src/client/browser-pane.js
-var import_react33 = require("react");
+var import_react34 = require("react");
 var import_react_dom8 = require("react-dom");
 var PANEL_LINGER_MS = 300;
 var WIDTH_KEY = STORAGE.browserWidth;
@@ -11892,10 +12625,10 @@ var EMPTY_TABS2 = { ids: [], active: null };
 var SPRING_LEAD2 = springEasing(576, 39.4);
 var SPRING_TRAIL2 = springEasing(144, 19.7);
 var icon = (paths) => function BrowserIcon() {
-  return (0, import_react33.createElement)(
+  return (0, import_react34.createElement)(
     "svg",
     { width: 16, height: 16, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
-    paths.map((d, index) => (0, import_react33.createElement)("path", { key: index, d }))
+    paths.map((d, index) => (0, import_react34.createElement)("path", { key: index, d }))
   );
 };
 var GlobeIcon = icon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M3 10h14", "M10 3c2 2.2 2.9 4.5 2.9 7S12 14.8 10 17c-2-2.2-2.9-4.5-2.9-7S8 5.2 10 3z"]);
@@ -11907,9 +12640,9 @@ var CloseIcon2 = icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]);
 var PlusTabIcon = icon(["M10 5v10M5 10h10"]);
 var LockIcon2 = icon(["M6.5 9V7a3.5 3.5 0 0 1 7 0v2", "M5.5 9h9v7h-9z"]);
 function Favicon({ src, className }) {
-  const [failed, setFailed] = (0, import_react33.useState)(null);
-  if (!src || failed === src) return (0, import_react33.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react33.createElement)(GlobeIcon));
-  return (0, import_react33.createElement)("img", { className, src, alt: "", "aria-hidden": true, onError: () => setFailed(src) });
+  const [failed, setFailed] = (0, import_react34.useState)(null);
+  if (!src || failed === src) return (0, import_react34.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react34.createElement)(GlobeIcon));
+  return (0, import_react34.createElement)("img", { className, src, alt: "", "aria-hidden": true, onError: () => setFailed(src) });
 }
 var savedWidth = () => {
   try {
@@ -11968,11 +12701,11 @@ var reducedMotion2 = () => typeof matchMedia === "function" && matchMedia("(pref
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelStrip({ bot, subject, view, ids, active, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages((map) => map);
-  const wrap = (0, import_react33.useRef)(null);
-  const ind = (0, import_react33.useRef)(null);
-  const spot = (0, import_react33.useRef)(null);
-  const under = (0, import_react33.useRef)(null);
-  (0, import_react33.useLayoutEffect)(() => {
+  const wrap = (0, import_react34.useRef)(null);
+  const ind = (0, import_react34.useRef)(null);
+  const spot = (0, import_react34.useRef)(null);
+  const under = (0, import_react34.useRef)(null);
+  (0, import_react34.useLayoutEffect)(() => {
     const box = wrap.current;
     const capsule = ind.current;
     if (!box || !capsule) return void 0;
@@ -12001,7 +12734,7 @@ function PanelStrip({ bot, subject, view, ids, active, reading, onView, actions,
       trail.cancel();
     };
   });
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     const box = wrap.current;
     if (!box) return void 0;
     const observer = new ResizeObserver(() => {
@@ -12015,13 +12748,13 @@ function PanelStrip({ bot, subject, view, ids, active, reading, onView, actions,
     observer.observe(box);
     return () => observer.disconnect();
   }, []);
-  return (0, import_react33.createElement)(
+  return (0, import_react34.createElement)(
     "div",
     { className: "bt-ptabs", role: "tablist", "aria-label": t("Panel tabs") },
-    (0, import_react33.createElement)(
+    (0, import_react34.createElement)(
       "div",
       { className: "bt-ptabs-in", ref: wrap },
-      (0, import_react33.createElement)(
+      (0, import_react34.createElement)(
         "button",
         {
           type: "button",
@@ -12031,13 +12764,13 @@ function PanelStrip({ bot, subject, view, ids, active, reading, onView, actions,
           title: bot.name,
           onClick: () => onView("details")
         },
-        (0, import_react33.createElement)(BotMark, { bot, size: 20, state: reading ? "searching" : "idle" }),
-        view === "details" ? (0, import_react33.createElement)("span", { className: "bt-ptab-name" }, bot.name) : null
+        (0, import_react34.createElement)(BotMark, { bot, size: 20, state: reading ? "searching" : "idle" }),
+        view === "details" ? (0, import_react34.createElement)("span", { className: "bt-ptab-name" }, bot.name) : null
       ),
       ids.map((tabId) => {
         const page = pages[tabId] ?? EMPTY_PAGE;
         const on = view === "browser" && tabId === active;
-        return (0, import_react33.createElement)(
+        return (0, import_react34.createElement)(
           "button",
           {
             key: tabId,
@@ -12058,9 +12791,9 @@ function PanelStrip({ bot, subject, view, ids, active, reading, onView, actions,
               }
             }
           },
-          (0, import_react33.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
-          (0, import_react33.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page)),
-          (0, import_react33.createElement)("span", {
+          (0, import_react34.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
+          (0, import_react34.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page)),
+          (0, import_react34.createElement)("span", {
             className: "bt-ptab-x",
             role: "button",
             "aria-label": t("Close tab"),
@@ -12072,20 +12805,20 @@ function PanelStrip({ bot, subject, view, ids, active, reading, onView, actions,
           }, "×")
         );
       }),
-      (0, import_react33.createElement)("span", { ref: ind, className: "bt-ptab-ind", "aria-hidden": true })
+      (0, import_react34.createElement)("span", { ref: ind, className: "bt-ptab-ind", "aria-hidden": true })
     ),
     // New tab and Close stay outside the scrolling tabs, so a narrow panel keeps both.
-    (0, import_react33.createElement)("button", { type: "button", className: "bt-ptab-new", "aria-label": t("New tab"), title: t("New tab"), onClick: () => actions.browserNewTab(subject) }, (0, import_react33.createElement)(PlusTabIcon)),
-    (0, import_react33.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react33.createElement)(CloseIcon2))
+    (0, import_react34.createElement)("button", { type: "button", className: "bt-ptab-new", "aria-label": t("New tab"), title: t("New tab"), onClick: () => actions.browserNewTab(subject) }, (0, import_react34.createElement)(PlusTabIcon)),
+    (0, import_react34.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react34.createElement)(CloseIcon2))
   );
 }
 function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages }) {
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
-  const frame = (0, import_react33.useRef)(null);
-  const input = (0, import_react33.useRef)(null);
-  const [draft, setDraft] = (0, import_react33.useState)(null);
+  const frame = (0, import_react34.useRef)(null);
+  const input = (0, import_react34.useRef)(null);
+  const [draft, setDraft] = (0, import_react34.useState)(null);
   const showGuest = landed && !leaving && Boolean(page.url) && !page.error;
-  (0, import_react33.useLayoutEffect)(() => {
+  (0, import_react34.useLayoutEffect)(() => {
     const element = frame.current;
     if (!element || leaving || !tabId) {
       void actions.browserShow(null);
@@ -12111,7 +12844,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages }) 
       window.removeEventListener("resize", schedule);
     };
   }, [tabId, showGuest, leaving]);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     setDraft(null);
     if (landed && !page.url) input.current?.focus();
   }, [tabId, landed]);
@@ -12127,27 +12860,27 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages }) 
   };
   const editing = draft !== null;
   const secure = /^https:/i.test(page.url);
-  return (0, import_react33.createElement)(
+  return (0, import_react34.createElement)(
     "div",
     { className: "bt-panel-view bt-panel-browser", "aria-label": t("{name}'s browser", { name: bot.name }) },
-    (0, import_react33.createElement)(
+    (0, import_react34.createElement)(
       "div",
       { className: "bt-browser-bar" },
-      (0, import_react33.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back"), title: t("Back"), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, "back") }, (0, import_react33.createElement)(BackIcon)),
-      (0, import_react33.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Forward"), title: t("Forward"), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, "forward") }, (0, import_react33.createElement)(ForwardIcon)),
-      (0, import_react33.createElement)("button", {
+      (0, import_react34.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back"), title: t("Back"), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, "back") }, (0, import_react34.createElement)(BackIcon)),
+      (0, import_react34.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Forward"), title: t("Forward"), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, "forward") }, (0, import_react34.createElement)(ForwardIcon)),
+      (0, import_react34.createElement)("button", {
         type: "button",
         className: "bt-icon-btn",
         disabled: !page.url,
         "aria-label": page.loading ? t("Stop") : t("Reload"),
         title: page.loading ? t("Stop") : t("Reload"),
         onClick: () => actions.browserCommand(tabId, page.loading ? "stop" : "reload")
-      }, (0, import_react33.createElement)(page.loading ? StopIcon : ReloadIcon)),
-      (0, import_react33.createElement)(
+      }, (0, import_react34.createElement)(page.loading ? StopIcon : ReloadIcon)),
+      (0, import_react34.createElement)(
         "form",
         { className: "bt-browser-address", onSubmit: go, "data-editing": editing || void 0 },
-        (0, import_react33.createElement)("span", { className: "bt-browser-scheme", "aria-hidden": true }, (0, import_react33.createElement)(secure && !editing ? LockIcon2 : GlobeIcon)),
-        (0, import_react33.createElement)("input", {
+        (0, import_react34.createElement)("span", { className: "bt-browser-scheme", "aria-hidden": true }, (0, import_react34.createElement)(secure && !editing ? LockIcon2 : GlobeIcon)),
+        (0, import_react34.createElement)("input", {
           ref: input,
           type: "text",
           spellCheck: false,
@@ -12171,25 +12904,25 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages }) 
           }
         })
       ),
-      page.loading ? (0, import_react33.createElement)("span", { className: "bt-browser-progress", "aria-hidden": true }) : null
+      page.loading ? (0, import_react34.createElement)("span", { className: "bt-browser-progress", "aria-hidden": true }) : null
     ),
-    (0, import_react33.createElement)(
+    (0, import_react34.createElement)(
       "div",
       { ref: frame, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
-      page.error ? (0, import_react33.createElement)(
+      page.error ? (0, import_react34.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react33.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
-        (0, import_react33.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
-        page.url ? (0, import_react33.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
+        (0, import_react34.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
+        (0, import_react34.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
+        page.url ? (0, import_react34.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
           void actions.browserNavigate(tabId, page.url);
         } }, t("Try again")) : null
-      ) : !page.url ? (0, import_react33.createElement)(
+      ) : !page.url ? (0, import_react34.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react33.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
-        (0, import_react33.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-        (0, import_react33.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }))
+        (0, import_react34.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
+        (0, import_react34.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
+        (0, import_react34.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }))
       ) : null
     )
   );
@@ -12201,41 +12934,41 @@ function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatu
   const tabState = useBrowserTabs((map) => bot ? map[bot.id] ?? EMPTY_TABS2 : EMPTY_TABS2);
   const active = tabState.active;
   const page = useBrowserPages((pages) => (active ? pages[active] : null) ?? EMPTY_PAGE);
-  const root = (0, import_react33.useRef)(null);
-  const fly = (0, import_react33.useRef)(null);
-  const [landed, setLanded] = (0, import_react33.useState)(false);
-  const [settling, setSettling] = (0, import_react33.useState)(false);
-  const [width, setWidth] = (0, import_react33.useState)(savedWidth);
-  const [viewport, setViewport] = (0, import_react33.useState)(() => window.innerWidth);
-  const [dragging, setDragging] = (0, import_react33.useState)(false);
-  const [resizing, setResizing] = (0, import_react33.useState)(false);
+  const root = (0, import_react34.useRef)(null);
+  const fly = (0, import_react34.useRef)(null);
+  const [landed, setLanded] = (0, import_react34.useState)(false);
+  const [settling, setSettling] = (0, import_react34.useState)(false);
+  const [width, setWidth] = (0, import_react34.useState)(savedWidth);
+  const [viewport, setViewport] = (0, import_react34.useState)(() => window.innerWidth);
+  const [dragging, setDragging] = (0, import_react34.useState)(false);
+  const [resizing, setResizing] = (0, import_react34.useState)(false);
   const instant = dragging || resizing;
-  const [reading, setReading] = (0, import_react33.useState)(false);
+  const [reading, setReading] = (0, import_react34.useState)(false);
   const panelWidth = fitWidth(width ?? (view === "browser" ? DEFAULT_WIDTH : DETAILS_WIDTH), widthRange(view, viewport));
-  (0, import_react33.useLayoutEffect)(() => {
+  (0, import_react34.useLayoutEffect)(() => {
     if (view === "browser" && width === null) setWidth(DEFAULT_WIDTH);
   }, [view, width]);
-  (0, import_react33.useLayoutEffect)(() => {
+  (0, import_react34.useLayoutEffect)(() => {
     chatRoom.hold(instant);
   }, [instant]);
-  const [last, setLast] = (0, import_react33.useState)({ view, width: panelWidth });
+  const [last, setLast] = (0, import_react34.useState)({ view, width: panelWidth });
   if (last.view !== view || last.width !== panelWidth) {
     setLast({ view, width: panelWidth });
     if (last.view !== view) setSettling(last.width !== panelWidth && !instant);
   }
-  const shownView = (0, import_react33.useRef)(view);
-  (0, import_react33.useLayoutEffect)(() => {
+  const shownView = (0, import_react34.useRef)(view);
+  (0, import_react34.useLayoutEffect)(() => {
     const switched = settling && shownView.current !== view;
     shownView.current = view;
     if (switched) chatRoom.hold(true);
     chatRoom.set(leaving ? null : panelWidth);
     if (switched) chatRoom.hold(false);
   }, [view, panelWidth, leaving]);
-  (0, import_react33.useEffect)(() => () => {
+  (0, import_react34.useEffect)(() => () => {
     chatRoom.set(null);
     chatRoom.hold(false);
   }, []);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     let timer;
     const onResize = () => {
       setResizing(true);
@@ -12249,28 +12982,28 @@ function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatu
       window.removeEventListener("resize", onResize);
     };
   }, []);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     if (!settling) return void 0;
     const timer = setTimeout(() => setSettling(false), SPRING_SHAPE.duration + 40);
     return () => clearTimeout(timer);
   }, [settling, view]);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     const timer = setTimeout(() => setLanded(true), 360);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     if (canBrowse) actions.browserEnsure(bot.id);
   }, [bot?.id, canBrowse]);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     if (view === "browser" && (active === null || !tabState.ids.includes(active))) actions.setPanelView("details");
   }, [view, active, tabState.ids.length]);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     if (view !== "browser" || leaving) void actions.browserShow?.(null);
   }, [view, leaving]);
-  (0, import_react33.useEffect)(() => () => {
+  (0, import_react34.useEffect)(() => () => {
     void actions.browserShow?.(null);
   }, []);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     if (!page.readAt || Date.now() - page.readAt > READ_FLASH_MS) return void 0;
     setReading(true);
     const timer = setTimeout(() => setReading(false), READ_FLASH_MS);
@@ -12307,7 +13040,7 @@ function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatu
       return actions[name](...args);
     };
   }
-  (0, import_react33.useLayoutEffect)(() => {
+  (0, import_react34.useLayoutEffect)(() => {
     const move = fly.current;
     if (!move) return;
     fly.current = null;
@@ -12390,7 +13123,7 @@ function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatu
     for (const name of ends) grip.addEventListener(name, onEnd);
   };
   const hasStrip = canBrowse && tabState.ids.length > 0;
-  return (0, import_react33.createElement)(
+  return (0, import_react34.createElement)(
     "aside",
     {
       ref: root,
@@ -12407,15 +13140,15 @@ function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatu
         if (event.target === event.currentTarget) setLanded(true);
       }
     },
-    leaving ? null : (0, import_react33.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
+    leaving ? null : (0, import_react34.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
-    dragging ? (0, import_react_dom8.createPortal)((0, import_react33.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
-    hasStrip ? (0, import_react33.createElement)(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
-    view === "browser" && bot ? (0, import_react33.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages }) : (0, import_react33.createElement)(
+    dragging ? (0, import_react_dom8.createPortal)((0, import_react34.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
+    hasStrip ? (0, import_react34.createElement)(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
+    view === "browser" && bot ? (0, import_react34.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages }) : (0, import_react34.createElement)(
       "div",
       { key: `details:${pane.id}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
-      (0, import_react33.createElement)(DetailsDrawer, {
+      (0, import_react34.createElement)(DetailsDrawer, {
         sessionId: pane.id,
         startRenaming: pane.renaming,
         startTab: pane.tab,
@@ -12512,24 +13245,244 @@ var BROWSER_CSS = `
 `;
 
 // src/client/context-menu.js
-var import_react34 = require("react");
+var import_react35 = require("react");
+var RefreshIcon = () => (0, import_react35.createElement)(
+  "svg",
+  { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+  (0, import_react35.createElement)("path", { d: "M3.5 10a6.5 6.5 0 0 1 11.5-4.2L17 7.5" }),
+  (0, import_react35.createElement)("path", { d: "M17 3v4.5h-4.5" }),
+  (0, import_react35.createElement)("path", { d: "M16.5 10a6.5 6.5 0 0 1-11.5 4.2L3 12.5" }),
+  (0, import_react35.createElement)("path", { d: "M3 17v-4.5h4.5" })
+);
+var EyeIcon = () => (0, import_react35.createElement)(
+  "svg",
+  { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+  (0, import_react35.createElement)("path", { d: "M2 10s3.5-6 8-6 8 6 8 6-3.5 6-8 6-8-6-8-6z" }),
+  (0, import_react35.createElement)("circle", { cx: 10, cy: 10, r: 2.5 })
+);
+var WallpaperIcon = () => (0, import_react35.createElement)(
+  "svg",
+  { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+  (0, import_react35.createElement)("rect", { x: 3, y: 3, width: 14, height: 14, rx: 2.5 }),
+  (0, import_react35.createElement)("circle", { cx: 7.5, cy: 7.5, r: 1.5 }),
+  (0, import_react35.createElement)("path", { d: "M17 13l-4-4-6 6" })
+);
+function CanvasContextMenu({ menu, roster, actions, leaving }) {
+  const ref = (0, import_react35.useRef)(null);
+  const [place, setPlace] = (0, import_react35.useState)({ left: menu.x, top: menu.y });
+  const [activeSubmenu, setActiveSubmenu] = (0, import_react35.useState)(null);
+  const timeoutRef = (0, import_react35.useRef)(null);
+  (0, import_react35.useLayoutEffect)(() => {
+    const box = ref.current?.getBoundingClientRect();
+    if (!box) return;
+    setPlace({
+      left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)),
+      top: Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8))
+    });
+  }, [menu.x, menu.y]);
+  const setSubmenu = (name) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setActiveSubmenu(name);
+  };
+  const delayedCloseSubmenu = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setActiveSubmenu(null), 250);
+  };
+  const run = (fn) => {
+    actions.closeMenu();
+    if (fn) fn();
+  };
+  const viewItems = [
+    [t("Fit windows"), EyeIcon, () => actions.updateCanvas((c) => fitViewport(c, { width: window.innerWidth, height: window.innerHeight }))],
+    [t("Reset zoom 100%"), RefreshIcon, () => actions.updateCanvas((c) => ({ ...c, viewport: { ...c.viewport, zoom: 1 } }))],
+    [t("Collapse all"), SlidersIcon, () => actions.compactCanvasConversations()]
+  ];
+  const newItems = [
+    [t("Create employee"), PlusIcon, () => actions.openNewChat("create")],
+    [t("Create group chat"), ChatsIcon, () => actions.openNewChat("group")],
+    [t("Employee directory"), PeopleIcon, () => actions.openNewChat("chat")]
+  ];
+  const isRtl = place.left + 210 + 200 > window.innerWidth;
+  const submenuLeft = isRtl ? Math.max(8, place.left - 200 - 4) : Math.min(window.innerWidth - 200 - 8, place.left + 210 + 4);
+  const viewSubmenuTop = Math.max(8, Math.min(place.top, window.innerHeight - 130 - 8));
+  const newSubmenuTop = Math.max(8, Math.min(place.top + 76, window.innerHeight - 130 - 8));
+  return (0, import_react35.createElement)(
+    "div",
+    {
+      ref,
+      className: "bt-menu bt-canvas-menu",
+      role: "menu",
+      "aria-label": t("Canvas options"),
+      style: place,
+      "data-leaving": leaving || void 0,
+      onMouseLeave: delayedCloseSubmenu
+    },
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        "data-active": activeSubmenu === "view" || void 0,
+        onMouseEnter: () => setSubmenu("view"),
+        onClick: () => setActiveSubmenu((v) => v === "view" ? null : "view")
+      },
+      (0, import_react35.createElement)(EyeIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("View")),
+      (0, import_react35.createElement)(ChevronRightIcon, { className: "bt-menu-chevron" })
+    ),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onMouseEnter: () => setSubmenu(null),
+        onClick: () => run(() => actions.arrangeCanvasCards())
+      },
+      (0, import_react35.createElement)(SlidersIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("Auto arrange cards"))
+    ),
+    (0, import_react35.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onMouseEnter: () => setSubmenu(null),
+        onClick: () => run(() => actions.updateCanvas((c) => ({ ...c, viewport: { x: 0, y: 0, zoom: 1 } })))
+      },
+      (0, import_react35.createElement)(RefreshIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("Refresh"))
+    ),
+    (0, import_react35.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        "data-active": activeSubmenu === "new" || void 0,
+        onMouseEnter: () => setSubmenu("new"),
+        onClick: () => setActiveSubmenu((v) => v === "new" ? null : "new")
+      },
+      (0, import_react35.createElement)(PlusIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("New…")),
+      (0, import_react35.createElement)(ChevronRightIcon, { className: "bt-menu-chevron" })
+    ),
+    (0, import_react35.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onMouseEnter: () => setSubmenu(null),
+        onClick: () => run(() => toggleSpatialWidget("quick"))
+      },
+      (0, import_react35.createElement)(ChatsIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("Quick message"))
+    ),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onMouseEnter: () => setSubmenu(null),
+        onClick: () => run(() => toggleSpatialWidget("agenda"))
+      },
+      (0, import_react35.createElement)(CalendarIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("Agenda"))
+    ),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onMouseEnter: () => setSubmenu(null),
+        onClick: () => run(() => window.dispatchEvent(new CustomEvent("ds-bot:open-wallpaper")))
+      },
+      (0, import_react35.createElement)(WallpaperIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("Personalize"))
+    ),
+    (0, import_react35.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onMouseEnter: () => setSubmenu(null),
+        onClick: () => run(() => actions.openSettings())
+      },
+      (0, import_react35.createElement)(GearIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("Display settings"))
+    ),
+    (0, import_react35.createElement)(
+      "button",
+      {
+        type: "button",
+        role: "menuitem",
+        className: "bt-menu-item",
+        onMouseEnter: () => setSubmenu(null),
+        onClick: () => run(() => actions.openClassicSession())
+      },
+      (0, import_react35.createElement)(SwitchIcon),
+      (0, import_react35.createElement)("span", { className: "bt-menu-label" }, t("Classic view"))
+    ),
+    activeSubmenu === "view" ? (0, import_react35.createElement)(
+      "div",
+      {
+        className: "bt-menu bt-canvas-menu-submenu",
+        style: { left: submenuLeft, top: viewSubmenuTop },
+        onMouseEnter: () => setSubmenu("view"),
+        onMouseLeave: delayedCloseSubmenu
+      },
+      viewItems.map(([label, Icon, action]) => (0, import_react35.createElement)("button", {
+        key: label,
+        type: "button",
+        className: "bt-menu-item",
+        onClick: () => run(action)
+      }, (0, import_react35.createElement)(Icon), (0, import_react35.createElement)("span", { className: "bt-menu-label" }, label)))
+    ) : null,
+    activeSubmenu === "new" ? (0, import_react35.createElement)(
+      "div",
+      {
+        className: "bt-menu bt-canvas-menu-submenu",
+        style: { left: submenuLeft, top: newSubmenuTop },
+        onMouseEnter: () => setSubmenu("new"),
+        onMouseLeave: delayedCloseSubmenu
+      },
+      newItems.map(([label, Icon, action]) => (0, import_react35.createElement)("button", {
+        key: label,
+        type: "button",
+        className: "bt-menu-item",
+        onClick: () => run(action)
+      }, (0, import_react35.createElement)(Icon), (0, import_react35.createElement)("span", { className: "bt-menu-label" }, label)))
+    ) : null
+  );
+}
 function ContextMenu({ menu, roster, actions, leaving = false }) {
   useEscape(() => actions.closeMenu());
-  (0, import_react34.useEffect)(() => {
+  (0, import_react35.useEffect)(() => {
     const onDown = (event) => {
       if (!(event.target instanceof Element) || !event.target.closest(".bt-menu")) actions.closeMenu();
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, []);
-  const ref = (0, import_react34.useRef)(null);
-  const [place, setPlace] = (0, import_react34.useState)({ left: menu.x, top: menu.y });
-  (0, import_react34.useLayoutEffect)(() => {
+  const ref = (0, import_react35.useRef)(null);
+  const [place, setPlace] = (0, import_react35.useState)({ left: menu.x, top: menu.y });
+  (0, import_react35.useLayoutEffect)(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!box) return;
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8)) });
   }, [menu.x, menu.y]);
-  if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react34.createElement)(AgentMenu, { menu, roster, actions, leaving });
+  if (menu.kind === "canvas") return (0, import_react35.createElement)(CanvasContextMenu, { menu, roster, actions, leaving });
+  if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react35.createElement)(AgentMenu, { menu, roster, actions, leaving });
   const bot = roster.byId[menu.id];
   const room2 = roster.roomsById[menu.id];
   const entry = bot ?? room2;
@@ -12566,14 +13519,14 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
       isMainBot ? null : [room2 ? t("Delete group") : t("Delete"), TrashIcon, () => bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id), true]
     ]
   ].map((group) => group.filter(Boolean)).filter((group) => group.length > 0);
-  return (0, import_react34.createElement)(
+  return (0, import_react35.createElement)(
     "div",
     { ref, className: "bt-menu", role: "menu", "aria-label": t("{name} actions", { name: bot?.name ?? room2.name }), style: place, "data-leaving": leaving || void 0 },
-    groups.map((group, index) => (0, import_react34.createElement)(
-      import_react34.Fragment,
+    groups.map((group, index) => (0, import_react35.createElement)(
+      import_react35.Fragment,
       { key: index },
-      index > 0 ? (0, import_react34.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      group.map(([label, Icon, run, danger]) => (0, import_react34.createElement)("button", {
+      index > 0 ? (0, import_react35.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
+      group.map(([label, Icon, run, danger]) => (0, import_react35.createElement)("button", {
         key: label,
         type: "button",
         role: "menuitem",
@@ -12582,14 +13535,14 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
           actions.closeMenu();
           void Promise.resolve(run()).catch((error) => actions.reportError(error, "menu"));
         }
-      }, (0, import_react34.createElement)(Icon), label))
+      }, (0, import_react35.createElement)(Icon), label))
     ))
   );
 }
 function AgentMenu({ menu, roster, actions, leaving }) {
-  const ref = (0, import_react34.useRef)(null);
-  const [place, setPlace] = (0, import_react34.useState)({ left: menu.x, top: menu.y });
-  (0, import_react34.useLayoutEffect)(() => {
+  const ref = (0, import_react35.useRef)(null);
+  const [place, setPlace] = (0, import_react35.useState)({ left: menu.x, top: menu.y });
+  (0, import_react35.useLayoutEffect)(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!box) return;
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8)) });
@@ -12611,14 +13564,14 @@ function AgentMenu({ menu, roster, actions, leaving }) {
       [t("Archive"), TrashIcon, () => actions.archiveAgentSession(agent.id, menu.id), true]
     ]
   ];
-  return (0, import_react34.createElement)(
+  return (0, import_react35.createElement)(
     "div",
     { ref, className: "bt-menu", role: "menu", "aria-label": menu.kind === "agent" ? "DSH Agent" : t("Session actions"), style: place, "data-leaving": leaving || void 0 },
-    groups.map((group, index) => (0, import_react34.createElement)(
-      import_react34.Fragment,
+    groups.map((group, index) => (0, import_react35.createElement)(
+      import_react35.Fragment,
       { key: index },
-      index > 0 ? (0, import_react34.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      group.map(([label, Icon, run, danger]) => (0, import_react34.createElement)("button", {
+      index > 0 ? (0, import_react35.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
+      group.map(([label, Icon, run, danger]) => (0, import_react35.createElement)("button", {
         key: label,
         type: "button",
         role: "menuitem",
@@ -12627,13 +13580,13 @@ function AgentMenu({ menu, roster, actions, leaving }) {
           actions.closeMenu();
           void Promise.resolve(run()).catch((error) => console.warn("[ds-bot]", error));
         }
-      }, (0, import_react34.createElement)(Icon), label))
+      }, (0, import_react35.createElement)(Icon), label))
     ))
   );
 }
 
 // src/client/overlays.js
-var import_react35 = require("react");
+var import_react36 = require("react");
 var import_react_dom9 = require("react-dom");
 var DIALOG_EXIT_MS = 160;
 var MENU_EXIT_MS3 = 120;
@@ -12645,15 +13598,15 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const canvasActive = usePanelInfo((value) => value.activePanelId === CANVAS_PANEL);
   const window2 = useCanvas((value) => value.windows.find((entry) => entry.id === value.active && entry.open));
   const current = canvasActive ? window2 ? canvasSessionId(window2, roster) ?? null : null : main;
-  const previous = (0, import_react35.useRef)(current);
-  (0, import_react35.useEffect)(() => {
+  const previous = (0, import_react36.useRef)(current);
+  (0, import_react36.useEffect)(() => {
     if (previous.current === current) return;
     previous.current = current;
     if (current) actions.followPanel?.(current);
   }, [current]);
   const open = ui2.details ? { id: ui2.details, view: ui2.view ?? "details", renaming: ui2.renaming, tab: ui2.tab } : null;
-  const [kept, setKept] = (0, import_react35.useState)(open);
-  (0, import_react35.useEffect)(() => {
+  const [kept, setKept] = (0, import_react36.useState)(open);
+  (0, import_react36.useEffect)(() => {
     if (open) {
       setKept(open);
       return void 0;
@@ -12665,17 +13618,17 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const [settings, settingsLeaving] = useLinger(ui2.settings, DIALOG_EXIT_MS);
   const [memory, memoryLeaving] = useLinger(ui2.memory && roster.byId[ui2.memory] ? ui2.memory : null, DIALOG_EXIT_MS);
   const [menu, menuLeaving] = useLinger(ui2.menu, MENU_EXIT_MS3);
-  return (0, import_react35.createElement)(
-    import_react35.Fragment,
+  return (0, import_react36.createElement)(
+    import_react36.Fragment,
     null,
-    pane ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(NewChat, { key: `${ui2.newChat}:${(ui2.newChatMembers ?? []).join(",")}`, mode: ui2.newChat, initialMembers: ui2.newChatMembers, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
-    menu ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
-    settings ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
-    memory && roster.byId[memory] ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null
+    pane ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
+    ui2.newChat ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(NewChat, { key: `${ui2.newChat}:${(ui2.newChatMembers ?? []).join(",")}`, mode: ui2.newChat, initialMembers: ui2.newChatMembers, roster, actions }), document.body) : null,
+    ui2.palette ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui2.exchange ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
+    ui2.voice ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    menu ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
+    settings ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
+    memory && roster.byId[memory] ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null
   );
 }
 
@@ -13523,7 +14476,7 @@ function writeMode(mode, storage = globalThis.localStorage) {
 }
 
 // src/client/user-message.js
-var import_react36 = require("react");
+var import_react37 = require("react");
 var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
 var canDrawUserMessages = () => typeof ui.projectUserText === "function";
 function contentParts(content) {
@@ -13555,38 +14508,38 @@ function userTextParts(text, bots, referenceLabels = []) {
   return parts;
 }
 function UserText({ text, bots, referenceLabels, skillNames, references, actions }) {
-  return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react36.createElement)(
+  return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react37.createElement)(
     "button",
     { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
-    (0, import_react36.createElement)(BotMark, { bot: part.bot, size: 16 }),
+    (0, import_react37.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react36.createElement)(import_react36.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react37.createElement)(import_react37.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
 function Attachments({ attachments, renderMessageImages }) {
   const compact2 = attachments.length > 1;
-  return (0, import_react36.createElement)("div", { className: "bt-uattach" }, attachments.map((block, index) => {
+  return (0, import_react37.createElement)("div", { className: "bt-uattach" }, attachments.map((block, index) => {
     if (block.type === "image") {
-      return renderMessageImages ? (0, import_react36.createElement)(import_react36.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
+      return renderMessageImages ? (0, import_react37.createElement)(import_react37.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
     }
     const file = block.attachment;
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
-    return (0, import_react36.createElement)(
+    return (0, import_react37.createElement)(
       "span",
       { key: index, className: "bt-ufile", title: file.name },
-      ui.FileTypeIcon ? (0, import_react36.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
-      (0, import_react36.createElement)("span", { className: "bt-ufile-text" }, (0, import_react36.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react36.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
+      ui.FileTypeIcon ? (0, import_react37.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
+      (0, import_react37.createElement)("span", { className: "bt-ufile-text" }, (0, import_react37.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react37.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
     );
   }));
 }
 function CopyButton({ text }) {
-  const [copied, setCopied] = (0, import_react36.useState)(false);
+  const [copied, setCopied] = (0, import_react37.useState)(false);
   const copy2 = () => {
     void navigator.clipboard?.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
     });
   };
-  return (0, import_react36.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react36.createElement)(CheckIcon) : (0, import_react36.createElement)(CopyIcon));
+  return (0, import_react37.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react37.createElement)(CheckIcon) : (0, import_react37.createElement)(CopyIcon));
 }
 var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
@@ -13596,22 +14549,22 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const referenceLabels = data.referenceLabels ?? [];
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
   const steering = node.kind === "steering";
-  return (0, import_react36.createElement)(
+  return (0, import_react37.createElement)(
     "div",
     { className: "bt-umsg", "data-steering": steering || void 0 },
-    (0, import_react36.createElement)(
+    (0, import_react37.createElement)(
       "div",
       { className: "bt-ustack" },
-      attachments.length > 0 ? (0, import_react36.createElement)(Attachments, { attachments, renderMessageImages }) : null,
-      text !== "" || rest.length > 0 ? (0, import_react36.createElement)(
+      attachments.length > 0 ? (0, import_react37.createElement)(Attachments, { attachments, renderMessageImages }) : null,
+      text !== "" || rest.length > 0 ? (0, import_react37.createElement)(
         "div",
         { className: "bt-ubody", title: clock3(data.time) },
-        (0, import_react36.createElement)(UserText, { text, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions }),
-        rest.map((block, index) => ui.JsonBlock ? (0, import_react36.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+        (0, import_react37.createElement)(UserText, { text, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions }),
+        rest.map((block, index) => ui.JsonBlock ? (0, import_react37.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
       ) : null,
-      referenceLabels.length > 0 ? (0, import_react36.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
+      referenceLabels.length > 0 ? (0, import_react37.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
     ),
-    text === "" ? null : (0, import_react36.createElement)("div", { className: "bt-utools" }, (0, import_react36.createElement)(CopyButton, { text }))
+    text === "" ? null : (0, import_react37.createElement)("div", { className: "bt-utools" }, (0, import_react37.createElement)(CopyButton, { text }))
   );
 }
 var USER_MESSAGE_CSS = `
@@ -13664,287 +14617,6 @@ function noticeApprovals({ work, roster, shownSession, openSession, since: since
   notify();
   return work.subscribe(notify);
 }
-
-// src/client/spatial-widgets.js
-var import_react37 = require("react");
-var WIDGET_KEY = "ds-bot:spatial-widgets";
-var DRAFT_KEY = "ds-bot:canvas-quick-drafts";
-var TOGGLE_EVENT = "ds-bot:spatial-widget-toggle";
-var SIZES = { quick: { width: 360, height: 200 }, agenda: { width: 260, height: 220 } };
-var record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-var browserStorage = () => {
-  try {
-    return globalThis.localStorage;
-  } catch {
-    return void 0;
-  }
-};
-function readObject(key, storage) {
-  try {
-    const value = JSON.parse(storage.getItem(key));
-    return record(value) ? value : {};
-  } catch {
-    return {};
-  }
-}
-function readSpatialWidget(id, storage = browserStorage()) {
-  const value = readObject(WIDGET_KEY, storage)[id];
-  return { x: Number.isFinite(value?.x) ? value.x : null, y: Number.isFinite(value?.y) ? value.y : null, folded: typeof value?.folded === "boolean" ? value.folded : null };
-}
-function writeSpatialWidget(id, value, storage = browserStorage()) {
-  try {
-    const saved = readObject(WIDGET_KEY, storage);
-    saved[id] = { x: Number.isFinite(value.x) ? value.x : null, y: Number.isFinite(value.y) ? value.y : null, folded: value.folded === true };
-    storage.setItem(WIDGET_KEY, JSON.stringify(saved));
-  } catch {
-  }
-}
-function fitSpatialWidget(id, panel, area) {
-  const size = SIZES[id] ?? SIZES.quick;
-  const availableWidth = Math.max(0, area.width - 24);
-  const narrow = area.width < 720;
-  const folded = typeof panel.folded === "boolean" ? panel.folded : narrow;
-  const minimumTop = id === "agenda" && !folded && area.width < 1100 ? Math.max(104, area.minY ?? 12) + SIZES.quick.height + 12 : area.minY ?? 12;
-  const top = Math.max(12, Math.min(minimumTop, Math.max(12, area.height - 56)));
-  const width = Math.min(folded ? narrow ? 150 : 184 : size.width, availableWidth);
-  const height = Math.min(folded ? 44 : size.height, Math.max(0, area.height - top - 12));
-  const defaultX = narrow ? id === "agenda" && folded ? area.width - width - 12 : 12 : id === "agenda" ? area.width - width - 24 : 360;
-  const defaultY = narrow ? top : Math.max(top, 104);
-  return { ...panel, folded, x: Math.max(12, Math.min(panel.x ?? defaultX, area.width - width - 12)), y: Math.max(top, Math.min(panel.y ?? defaultY, area.height - height - 12)), width, height };
-}
-function toggleSpatialWidget(id) {
-  window.dispatchEvent(new CustomEvent(TOGGLE_EVENT, { detail: id }));
-}
-function FloatingWidget({ id, title, icon: icon2, children }) {
-  const root = (0, import_react37.useRef)(null), drag = (0, import_react37.useRef)(null);
-  const [panel, setPanel] = (0, import_react37.useState)(() => readSpatialWidget(id));
-  const [area, setArea] = (0, import_react37.useState)({ width: 1200, height: 800, minY: 12 });
-  const current = fitSpatialWidget(id, panel, area);
-  const save = (next) => {
-    const fitted = fitSpatialWidget(id, next, area);
-    const value = { x: fitted.x, y: fitted.y, folded: fitted.folded };
-    setPanel(value);
-    writeSpatialWidget(id, value);
-  };
-  const toggle = () => save({ ...current, folded: !current.folded });
-  (0, import_react37.useLayoutEffect)(() => {
-    const canvas = root.current?.closest(".bt-canvas");
-    if (!canvas) return void 0;
-    const toolbar = canvas.querySelector(".bt-canvas-toolbar");
-    const measure = () => {
-      const box = canvas.getBoundingClientRect();
-      const minY = toolbar ? toolbar.getBoundingClientRect().bottom - box.top + 12 : 12;
-      setArea({ width: box.width, height: box.height, minY });
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(canvas);
-    if (toolbar) observer.observe(toolbar);
-    measure();
-    return () => observer.disconnect();
-  }, []);
-  (0, import_react37.useEffect)(() => {
-    const receive = (event) => {
-      if (event.detail === id) toggle();
-    };
-    window.addEventListener(TOGGLE_EVENT, receive);
-    return () => window.removeEventListener(TOGGLE_EVENT, receive);
-  }, [id, current.x, current.y, current.folded, area.width, area.height, area.minY]);
-  const finish = (event) => {
-    drag.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  };
-  const handle = {
-    onPointerDown: (event) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      drag.current = { x: event.clientX, y: event.clientY, panel: current };
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    onPointerMove: (event) => {
-      if (!drag.current) return;
-      const start = drag.current;
-      save({ ...start.panel, x: start.panel.x + event.clientX - start.x, y: start.panel.y + event.clientY - start.y });
-    },
-    onPointerUp: finish,
-    onPointerCancel: finish,
-    onKeyDown: (event) => {
-      const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
-      if (!delta && event.key !== "Home") return;
-      event.preventDefault();
-      event.stopPropagation();
-      const step = event.shiftKey ? 24 : 8;
-      save(event.key === "Home" ? { ...current, x: null, y: null } : { ...current, x: current.x + delta[0] * step, y: current.y + delta[1] * step });
-    }
-  };
-  return (0, import_react37.createElement)(
-    "section",
-    {
-      ref: root,
-      className: `bt-spatial-widget bt-spatial-${id}`,
-      "aria-label": title,
-      "data-widget": id,
-      "data-folded": current.folded,
-      style: { left: current.x, top: current.y, width: current.width, height: current.height },
-      onPointerDown: (event) => event.stopPropagation(),
-      onWheel: (event) => event.stopPropagation()
-    },
-    (0, import_react37.createElement)(
-      "header",
-      null,
-      (0, import_react37.createElement)("button", { type: "button", className: "bt-spatial-grip", "aria-label": t("Move {name}", { name: title }), title: t("Drag to move · Arrow keys to adjust · Home to reset"), ...handle }, icon2 ? (0, import_react37.createElement)(icon2) : null, (0, import_react37.createElement)("span", null, title)),
-      (0, import_react37.createElement)("button", { type: "button", className: "bt-spatial-fold", onClick: toggle, "aria-expanded": !current.folded, "aria-controls": `bt-spatial-body-${id}`, "aria-label": t(current.folded ? "Expand {name}" : "Collapse {name}", { name: title }) }, current.folded ? "+" : "−")
-    ),
-    (0, import_react37.createElement)("div", { id: `bt-spatial-body-${id}`, className: "bt-spatial-body", hidden: current.folded }, children)
-  );
-}
-function readQuickDrafts(storage = browserStorage()) {
-  return Object.fromEntries(Object.entries(readObject(DRAFT_KEY, storage)).filter(([, value]) => typeof value === "string"));
-}
-function writeDraft(id, text) {
-  try {
-    const drafts = readQuickDrafts();
-    if (text) drafts[id] = text;
-    else delete drafts[id];
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
-  } catch {
-  }
-}
-function CanvasQuickMessage({ bot, actions }) {
-  const [drafts, setDrafts] = (0, import_react37.useState)(readQuickDrafts);
-  const [sending, setSending] = (0, import_react37.useState)({});
-  const [errors, setErrors] = (0, import_react37.useState)({});
-  const [sent, setSent] = (0, import_react37.useState)({});
-  const draftsRef = (0, import_react37.useRef)(drafts), pending = (0, import_react37.useRef)(/* @__PURE__ */ new Set()), revisions = (0, import_react37.useRef)({}), mounted = (0, import_react37.useRef)(true);
-  draftsRef.current = drafts;
-  (0, import_react37.useEffect)(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const id = bot?.id;
-  const draft = drafts[id] ?? "";
-  const change = (text) => {
-    if (!id) return;
-    revisions.current[id] = (revisions.current[id] ?? 0) + 1;
-    draftsRef.current = { ...draftsRef.current, [id]: text };
-    setDrafts(draftsRef.current);
-    setErrors((value) => ({ ...value, [id]: "" }));
-    setSent((value) => ({ ...value, [id]: false }));
-    writeDraft(id, text);
-  };
-  const send = async (event) => {
-    event.preventDefault();
-    const target = id, original = draftsRef.current[target] ?? "", text = original.trim();
-    if (!target || !text || pending.current.has(target)) return;
-    const revision = revisions.current[target] ?? 0;
-    pending.current.add(target);
-    setSending((value) => ({ ...value, [target]: true }));
-    setErrors((value) => ({ ...value, [target]: "" }));
-    setSent((value) => ({ ...value, [target]: false }));
-    try {
-      await actions.send(target, text);
-      if ((revisions.current[target] ?? 0) === revision) {
-        if (readQuickDrafts()[target] === original) writeDraft(target, "");
-        draftsRef.current = { ...draftsRef.current, [target]: "" };
-        if (mounted.current) {
-          setDrafts(draftsRef.current);
-          setSent((value) => ({ ...value, [target]: true }));
-        }
-      }
-    } catch (error) {
-      if (mounted.current) setErrors((value) => ({ ...value, [target]: hostText(error?.message ?? t("Could not send message")) }));
-    } finally {
-      pending.current.delete(target);
-      if (mounted.current) setSending((value) => ({ ...value, [target]: false }));
-    }
-  };
-  return (0, import_react37.createElement)(
-    FloatingWidget,
-    { id: "quick", title: t("Quick message"), icon: ChatsIcon },
-    bot ? (0, import_react37.createElement)(
-      "div",
-      { className: "bt-quick-person" },
-      (0, import_react37.createElement)(BotAvatar, { bot, size: 56, live: false }),
-      (0, import_react37.createElement)("div", null, (0, import_react37.createElement)("strong", null, bot.name), (0, import_react37.createElement)("span", null, bot.role || t("Employee"))),
-      (0, import_react37.createElement)("button", { type: "button", className: "bt-spatial-link", onClick: () => actions.openCanvasEntity(bot.id), title: t("Open conversation"), "aria-label": t("Open conversation") }, (0, import_react37.createElement)(ChatsIcon))
-    ) : (0, import_react37.createElement)("p", { className: "bt-spatial-empty" }, t("Choose an employee to send a message")),
-    bot ? (0, import_react37.createElement)(
-      "form",
-      { className: "bt-quick-form", onSubmit: send },
-      (0, import_react37.createElement)("input", { value: draft, onChange: (event) => change(event.target.value), onKeyDown: (event) => {
-        if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
-      }, placeholder: t("Message {name}", { name: bot.name }), "aria-label": t("Send to {name}", { name: bot.name }), autoComplete: "off" }),
-      (0, import_react37.createElement)("button", { type: "submit", disabled: !draft.trim() || sending[id], "aria-label": t(sending[id] ? "Sending…" : "Send"), title: t(sending[id] ? "Sending…" : "Send") }, (0, import_react37.createElement)(ArrowUpIcon))
-    ) : null,
-    bot ? (0, import_react37.createElement)("div", { className: "bt-quick-feedback" }, errors[id] ? (0, import_react37.createElement)("span", { role: "alert" }, errors[id]) : (0, import_react37.createElement)("span", { role: "status" }, sending[id] ? t("Sending…") : sent[id] ? t("Message sent") : t("Send to {name}", { name: bot.name }))) : null
-  );
-}
-function upcomingTasks(view) {
-  return view?.available && Array.isArray(view.tasks) ? view.tasks.filter((task) => task?.status === "active" && Number.isFinite(Date.parse(task.scheduledAt))).sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt)) : [];
-}
-var dayKey2 = (date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-function agendaWeek(now, tasks) {
-  const today = new Date(now), first = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7);
-  const marked = new Set(tasks.map((task) => dayKey2(new Date(task.scheduledAt))));
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
-    return { date, today: dayKey2(date) === dayKey2(today), marked: marked.has(dayKey2(date)) };
-  });
-}
-function CanvasAgenda({ actions, roster }) {
-  const view = useSchedules(actions);
-  const [now, setNow] = (0, import_react37.useState)(Date.now);
-  (0, import_react37.useEffect)(() => {
-    const timer = setInterval(() => setNow(Date.now()), 6e4);
-    return () => clearInterval(timer);
-  }, []);
-  const tasks = upcomingTasks(view);
-  const date = new Intl.DateTimeFormat(dateLocale(), { month: "long", day: "numeric" }).format(now);
-  return (0, import_react37.createElement)(
-    FloatingWidget,
-    { id: "agenda", title: `${t("Agenda")} · ${date}`, icon: ClockIcon },
-    (0, import_react37.createElement)("div", { className: "bt-agenda-week", "aria-label": date }, agendaWeek(now, tasks).map((day) => (0, import_react37.createElement)(
-      "span",
-      { key: dayKey2(day.date), "data-today": day.today || void 0, "data-task": day.marked || void 0, title: day.date.toLocaleDateString(dateLocale()) },
-      (0, import_react37.createElement)("small", null, day.date.toLocaleDateString(dateLocale(), { weekday: "narrow" })),
-      (0, import_react37.createElement)("b", null, day.date.getDate()),
-      (0, import_react37.createElement)("i", { "aria-hidden": true })
-    ))),
-    view === null ? (0, import_react37.createElement)("p", { className: "bt-spatial-empty", role: "status" }, t("Loading…")) : !view.available ? (0, import_react37.createElement)("p", { className: "bt-spatial-empty" }, t("Switch on Automation tasks on the Plugins page in Harness settings.")) : tasks.length === 0 ? (0, import_react37.createElement)("p", { className: "bt-spatial-empty" }, t("No upcoming tasks")) : (0, import_react37.createElement)("div", { className: "bt-agenda-tasks" }, tasks.slice(0, 3).map((task) => {
-      const owner = task.botId ? roster.byId[task.botId] : roster.roomsById[task.roomId];
-      const next = new Date(task.scheduledAt).toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-      return (0, import_react37.createElement)(
-        "button",
-        { type: "button", className: "bt-agenda-task", key: `${task.sessionId}:${task.id}`, title: [owner?.name, timingText(task)].filter(Boolean).join(" · "), onClick: () => actions.openSettings("schedules", task.botId ?? task.roomId) },
-        (0, import_react37.createElement)("strong", null, task.title),
-        (0, import_react37.createElement)("span", null, [owner?.name, next].filter(Boolean).join(" · "))
-      );
-    })),
-    (0, import_react37.createElement)("button", { type: "button", className: "bt-spatial-link bt-agenda-manage", onClick: () => actions.openSettings("schedules") }, t("Manage scheduled tasks"))
-  );
-}
-var SPATIAL_WIDGET_CSS = `
-.bt-spatial-widget{position:absolute;z-index:20;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--bt-canvas-border);border-radius:24px;background:var(--bt-canvas-glass);box-shadow:var(--bt-canvas-shadow);color:var(--bt-ink);overflow:hidden;-webkit-backdrop-filter:blur(28px) saturate(120%);backdrop-filter:blur(28px) saturate(120%)}
-.bt-spatial-widget:focus-within{z-index:21}
-.bt-spatial-widget>header{display:flex;align-items:center;flex:none;height:42px;padding:0 8px;gap:4px;box-sizing:border-box}
-.bt-spatial-grip{flex:1;min-width:0;display:flex;align-items:center;gap:7px;height:36px;border:0;border-radius:12px;padding:0 6px;background:none;color:inherit;font:inherit;font-size:12px;font-weight:600;text-align:start;touch-action:none;cursor:grab;user-select:none}
-.bt-spatial-grip:active{cursor:grabbing}.bt-spatial-grip>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.bt-spatial-grip>svg{flex:none;width:15px;height:15px;opacity:.7}
-.bt-spatial-fold{flex:none;width:30px;height:30px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;cursor:pointer}
-.bt-spatial-widget button:focus-visible,.bt-quick-form input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-spatial-body{flex:1;min-height:0;overflow:auto;padding:0 14px 12px;scrollbar-width:thin}.bt-spatial-widget[data-folded=true]{border-radius:17px}.bt-spatial-widget[data-folded=true]>header{height:42px}
-.bt-quick-person{display:flex;align-items:center;gap:12px;margin:0 0 10px}.bt-quick-person>.bt-mark{flex:none}.bt-quick-person>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.bt-quick-person strong{font-size:16px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bt-quick-person>div>span{font-size:12px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-spatial-link{flex:none;padding:5px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:11px;cursor:pointer}.bt-spatial-link:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-quick-form{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border:1px solid var(--bt-line-2);border-radius:24px;background:var(--bt-hover)}.bt-quick-form input{flex:1;min-width:0;width:0;height:28px;padding:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:12px;outline:none}.bt-quick-form input::placeholder{color:var(--bt-ink-3)}.bt-quick-form>button{display:flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:50%;background:var(--bt-accent);color:var(--bt-accent-ink);cursor:pointer}.bt-quick-form>button:disabled{opacity:.4;cursor:default}
-.bt-quick-feedback{min-height:16px;margin:5px 3px 0;font-size:10px;line-height:14px;color:var(--bt-ink-3);overflow-wrap:anywhere}.bt-quick-feedback [role=alert]{color:#ffc0b6}
-.bt-spatial-empty{margin:8px 2px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}.bt-agenda-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:8px}.bt-agenda-week>span{display:flex;align-items:center;flex-direction:column;gap:0;padding:2px;border-radius:9px;font-size:10px;color:var(--bt-ink-2)}.bt-agenda-week small{font-size:9px;color:var(--bt-ink-3)}.bt-agenda-week b{font-weight:500}.bt-agenda-week i{width:3px;height:3px;margin-top:2px;border-radius:50%;background:transparent}.bt-agenda-week [data-today]{background:var(--bt-hover);color:var(--bt-ink)}.bt-agenda-week [data-task]>i{background:var(--bt-accent)}
-.bt-agenda-tasks{display:flex;flex-direction:column;gap:5px}.bt-agenda-task{display:flex;flex-direction:column;gap:2px;width:100%;padding:8px 10px;text-align:start;border:0;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;cursor:pointer}.bt-agenda-task strong{font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task>span{font-size:10px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task:hover{background:var(--bt-active)}.bt-agenda-manage{display:block;margin:5px 0 0 auto}
-@media (prefers-reduced-transparency:reduce){.bt-spatial-widget{background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none}}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-spatial-widget{background:var(--bt-card)}}
-@media (forced-colors:active){.bt-spatial-widget{background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}.bt-spatial-widget button{color:ButtonText;border:1px solid ButtonText;background:ButtonFace}.bt-quick-form{border-color:CanvasText}.bt-quick-form input{color:CanvasText}.bt-agenda-week [data-task]>i{background:Highlight}.bt-spatial-widget :is(.bt-spatial-empty,.bt-quick-feedback,.bt-quick-person>div>span,.bt-agenda-week>span,.bt-agenda-week small,.bt-agenda-task>span){color:CanvasText}}
-@media (pointer:coarse){.bt-spatial-fold{width:36px;height:36px}.bt-quick-form>button{width:36px;height:36px}.bt-spatial-link{min-height:32px}}
-`;
 
 // src/client/wallpaper-image.js
 var WALLPAPER_MAX_BYTES = 25 * 1024 * 1024;
@@ -14267,6 +14939,11 @@ function CanvasWallpaper({ canvasRef }) {
       canvas?.removeAttribute("data-wallpaper");
     };
   }, []);
+  (0, import_react38.useEffect)(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener("ds-bot:open-wallpaper", onOpen);
+    return () => window.removeEventListener("ds-bot:open-wallpaper", onOpen);
+  }, []);
   const change = async (file) => {
     if (!file || busy || loading) return;
     const current = ++generation.current;
@@ -14324,335 +15001,9 @@ var WALLPAPER_CSS = `
 @media (forced-colors:active){.bt-wallpaper-menu{background:Canvas;color:CanvasText;border-color:CanvasText}.bt-wallpaper-menu :is(p,small,.bt-wallpaper-error,.bt-wallpaper-feedback){color:CanvasText}.bt-wallpaper-menu button,.bt-wallpaper-menu .bt-wallpaper-choose{background:ButtonFace;color:ButtonText;border-color:ButtonText}}
 `;
 
-// src/client/canvas-state.js
-var CANVAS_STORAGE_KEY = "ds-bot:canvas";
-var CANVAS_LIMITS = Object.freeze({
-  coordinate: 1e6,
-  minWidth: 300,
-  minHeight: 280,
-  compactWidth: 320,
-  compactHeight: 200,
-  avatarWidth: 120,
-  avatarHeight: 112,
-  maxSize: 1600,
-  minZoom: 0.2,
-  maxZoom: 2
-});
-var DEFAULT_CANVAS = Object.freeze({
-  version: 1,
-  windows: Object.freeze([]),
-  groups: Object.freeze([]),
-  viewport: Object.freeze({ x: 0, y: 0, zoom: 1 }),
-  selected: Object.freeze([]),
-  active: null
-});
-var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-var idOf = (value) => typeof value === "string" && value.trim() !== "" && value.length <= 512 ? value : null;
-var finite = (value, fallback) => Number.isFinite(value) ? value : fallback;
-var clamp = (value, min, max, fallback) => Math.min(max, Math.max(min, finite(value, fallback)));
-var coordinate = (value) => clamp(value, -CANVAS_LIMITS.coordinate, CANVAS_LIMITS.coordinate, 0);
-var unique = (values) => [...new Set(values)];
-var defaultStorage = () => {
-  try {
-    return globalThis.localStorage;
-  } catch {
-    return void 0;
-  }
-};
-var windowId = (kind, entityId) => `canvas-${kind}-${entityId}`;
-var matching = (window2, id) => window2.id === id || window2.entityId === id;
-function dimensions(value) {
-  return {
-    width: clamp(value.width, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 420),
-    height: clamp(value.height, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 540)
-  };
-}
-function normalizeWindow(value, index) {
-  if (!object(value) || !["bot", "room"].includes(value.kind) || !idOf(value.entityId)) return null;
-  const compact2 = value.compact === true;
-  return {
-    id: idOf(value.id) ?? windowId(value.kind, value.entityId),
-    kind: value.kind,
-    entityId: value.entityId,
-    x: coordinate(value.x),
-    y: coordinate(value.y),
-    ...dimensions(value),
-    z: clamp(value.z, 0, CANVAS_LIMITS.coordinate, index + 1),
-    open: value.open !== false,
-    compact: compact2
-  };
-}
-function cleanReferences(state) {
-  const all = new Set(state.windows.map((window2) => window2.id));
-  const open = new Set(state.windows.filter((window2) => window2.open).map((window2) => window2.id));
-  const claimed = /* @__PURE__ */ new Set(), groups = [], groupIds = /* @__PURE__ */ new Set();
-  for (const value of state.groups) {
-    if (!object(value) || !idOf(value.id) || groupIds.has(value.id) || !Array.isArray(value.members)) continue;
-    const members = unique(value.members).filter((id) => all.has(id) && !claimed.has(id));
-    if (members.length < 2) continue;
-    groups.push({ id: value.id, name: typeof value.name === "string" ? value.name.trim().slice(0, 100) || "Window group" : "Window group", members });
-    groupIds.add(value.id);
-    members.forEach((id) => claimed.add(id));
-  }
-  state.groups = groups;
-  state.selected = unique(state.selected).filter((id) => open.has(id));
-  if (!open.has(state.active)) {
-    state.active = state.selected.at(-1) ?? state.windows.filter((window2) => window2.open).sort((a, b) => b.z - a.z)[0]?.id ?? null;
-  }
-  return state;
-}
-function entityIds(roster, kind) {
-  const rows = kind === "bot" ? roster.bots : roster.rooms;
-  const index = kind === "bot" ? roster.byId : roster.roomsById;
-  return new Set((Array.isArray(rows) ? rows : Object.values(object(index) ? index : {})).map((row) => row?.id).filter(idOf));
-}
-function createCanvasState(seed = {}) {
-  return normalizeCanvas({ ...seed, version: 1 });
-}
-function normalizeCanvas(saved, options = {}) {
-  const value = object(saved) && saved.version === 1 ? saved : DEFAULT_CANVAS;
-  const ids = /* @__PURE__ */ new Set(), entities = /* @__PURE__ */ new Set(), windows = [];
-  for (const [index, entry] of (Array.isArray(value.windows) ? value.windows : []).entries()) {
-    const window2 = normalizeWindow(entry, index);
-    if (!window2) continue;
-    const entity = `${window2.kind}:${window2.entityId}`;
-    if (ids.has(window2.id) || entities.has(entity)) continue;
-    ids.add(window2.id);
-    entities.add(entity);
-    windows.push(window2);
-  }
-  const viewport = object(value.viewport) ? value.viewport : {};
-  const state = {
-    version: 1,
-    windows,
-    groups: Array.isArray(value.groups) ? value.groups : [],
-    viewport: { x: coordinate(viewport.x), y: coordinate(viewport.y), zoom: clamp(viewport.zoom, CANVAS_LIMITS.minZoom, CANVAS_LIMITS.maxZoom, 1) },
-    selected: Array.isArray(value.selected) ? value.selected : [],
-    active: idOf(value.active)
-  };
-  const { roster } = options;
-  if (object(roster) && (options.rosterReady ?? options.ready ?? roster.ready) === true) {
-    const bots = entityIds(roster, "bot"), rooms = entityIds(roster, "room");
-    state.windows = windows.filter((window2) => (window2.kind === "bot" ? bots : rooms).has(window2.entityId));
-  }
-  return cleanReferences(state);
-}
-function readCanvas(storage = defaultStorage(), options = {}) {
-  try {
-    return compactConversations(normalizeCanvas(JSON.parse(storage?.getItem(CANVAS_STORAGE_KEY) ?? "null"), options));
-  } catch {
-    return createCanvasState();
-  }
-}
-function writeCanvas(storage, state) {
-  try {
-    const target = storage ?? defaultStorage();
-    if (typeof target?.setItem !== "function") return false;
-    target.setItem(CANVAS_STORAGE_KEY, JSON.stringify(normalizeCanvas(state)));
-    return true;
-  } catch {
-    return false;
-  }
-}
-function reconcileCanvas(state, roster, options = {}) {
-  return normalizeCanvas(state, { ...options, roster });
-}
-function bringForward(state, window2) {
-  let max = Math.max(0, ...state.windows.map((item) => item.z));
-  if (max >= CANVAS_LIMITS.coordinate) {
-    [...state.windows].sort((a, b) => a.z - b.z).forEach((item, index) => {
-      item.z = index + 1;
-    });
-    max = state.windows.length;
-  }
-  window2.z = max + 1;
-  state.active = window2.id;
-}
-function nextWindowPosition(state, window2) {
-  const gap = 32;
-  const origin = { x: (40 - state.viewport.x) / state.viewport.zoom, y: (100 - state.viewport.y) / state.viewport.zoom };
-  const width = windowWidth(window2), height = windowHeight(window2);
-  const right = origin.x + Math.max(width, CANVAS_LIMITS.compactWidth * 3 + gap * 2);
-  const occupied = state.windows.filter((item) => item.open).map((item) => ({
-    x: item.x,
-    y: item.y,
-    right: item.x + windowWidth(item),
-    bottom: item.y + windowHeight(item)
-  }));
-  const rows = unique([origin.y, ...occupied.map((item) => item.bottom + gap).filter((y) => y >= origin.y)]).sort((a, b) => a - b);
-  for (const y of rows) {
-    let x = origin.x;
-    while (x + width <= right) {
-      const collision = occupied.find((item) => x < item.right + gap && x + width + gap > item.x && y < item.bottom + gap && y + height + gap > item.y);
-      if (!collision) return { x, y };
-      x = collision.right + gap;
-    }
-  }
-  return origin;
-}
-function openWindow(state, entity, options = {}) {
-  const next = normalizeCanvas(state);
-  const kind = entity?.kind ?? options.kind ?? "bot";
-  const entityId = idOf(entity?.entityId ?? entity?.id);
-  if (!entityId || !["bot", "room"].includes(kind)) return next;
-  let window2 = next.windows.find((item) => item.kind === kind && item.entityId === entityId);
-  if (!window2) {
-    const compact2 = options.compact !== false;
-    const baseId = windowId(kind, entityId);
-    let id = baseId, serial = 1;
-    while (next.windows.some((item) => item.id === id)) id = `${baseId}-${serial++}`;
-    window2 = normalizeWindow({
-      id,
-      kind,
-      entityId,
-      width: options.width,
-      height: options.height,
-      compact: compact2
-    }, next.windows.length);
-    const position = nextWindowPosition(next, window2);
-    window2.x = coordinate(finite(options.x, position.x));
-    window2.y = coordinate(finite(options.y, position.y));
-    next.windows.push(window2);
-  }
-  window2.open = true;
-  window2.compact = options.compact !== false;
-  Object.assign(window2, dimensions(window2));
-  bringForward(next, window2);
-  next.selected = [window2.id];
-  return next;
-}
-function collapseWindow(state, id) {
-  const next = normalizeCanvas(state);
-  const window2 = next.windows.find((item) => matching(item, id));
-  if (window2) window2.open = false;
-  return cleanReferences(next);
-}
-function setWindowCompact(state, id, compact2) {
-  const next = normalizeCanvas(state);
-  const window2 = next.windows.find((item) => matching(item, id));
-  if (window2) {
-    window2.compact = compact2 === true;
-    Object.assign(window2, dimensions(window2));
-  }
-  return next;
-}
-function compactConversations(state) {
-  const next = normalizeCanvas(state);
-  next.windows.forEach((window2) => {
-    window2.compact = true;
-  });
-  return next;
-}
-function arrangeCards(state) {
-  const next = compactConversations(state);
-  const remaining = new Set(next.windows.filter((window2) => window2.open).map((window2) => window2.id));
-  const blocks = next.groups.map((group) => group.members.filter((id) => remaining.has(id))).filter((ids) => ids.length);
-  blocks.flat().forEach((id) => remaining.delete(id));
-  if (remaining.size) blocks.push([...remaining]);
-  let y = 115;
-  for (const ids of blocks) {
-    for (let index = 0; index < ids.length; index += 3) {
-      const row = ids.slice(index, index + 3).map((id) => next.windows.find((window2) => window2.id === id));
-      let x = 42;
-      for (const window2 of row) {
-        window2.x = x;
-        window2.y = y;
-        x += windowWidth(window2) + 32;
-      }
-      y += Math.max(...row.map(windowHeight)) + 32;
-    }
-    y += 48;
-  }
-  return next;
-}
-var windowWidth = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarWidth : CANVAS_LIMITS.compactWidth : window2.width;
-var windowHeight = (window2) => window2.compact ? window2.kind === "bot" ? CANVAS_LIMITS.avatarHeight : CANVAS_LIMITS.compactHeight : window2.height;
-function windowBounds(state, ids) {
-  const wanted = ids === void 0 ? null : new Set(ids);
-  const windows = state.windows.filter((window2) => window2.open && (wanted === null || wanted.has(window2.id)));
-  if (!windows.length) return null;
-  const x = Math.min(...windows.map((window2) => window2.x)), y = Math.min(...windows.map((window2) => window2.y));
-  const right = Math.max(...windows.map((window2) => window2.x + windowWidth(window2))), bottom = Math.max(...windows.map((window2) => window2.y + windowHeight(window2)));
-  return { x, y, width: right - x, height: bottom - y, right, bottom };
-}
-function setCanvasSelection(state, ids, active) {
-  const next = normalizeCanvas(state);
-  next.selected = Array.isArray(ids) ? ids : [];
-  if (active !== void 0) next.active = active;
-  const window2 = next.windows.find((item) => item.id === next.active && item.open);
-  if (window2) bringForward(next, window2);
-  return cleanReferences(next);
-}
-function setCanvasViewport(state, viewport) {
-  const next = normalizeCanvas(state);
-  return normalizeCanvas({ ...next, viewport: { ...next.viewport, ...viewport } });
-}
-function groupWindows(state, ids = state.selected, options = {}) {
-  const next = normalizeCanvas(state);
-  const members = unique(Array.isArray(ids) ? ids : []).filter((id2) => next.windows.some((window2) => window2.id === id2));
-  if (members.length < 2) return next;
-  const used = new Set(next.groups.map((group) => group.id));
-  let serial = 1;
-  while (used.has(`canvas-group-${serial}`)) serial += 1;
-  const id = idOf(options.id) ?? `canvas-group-${serial}`;
-  next.groups = next.groups.filter((group) => group.id !== id).map((group) => ({ ...group, members: group.members.filter((member) => !members.includes(member)) }));
-  next.groups.push({ id, name: options.name ?? "Window group", members });
-  return cleanReferences(next);
-}
-function ungroupWindows(state, groupIdOrIds) {
-  const next = normalizeCanvas(state);
-  if (typeof groupIdOrIds === "string") next.groups = next.groups.filter((group) => group.id !== groupIdOrIds);
-  else {
-    const ids = new Set(Array.isArray(groupIdOrIds) ? groupIdOrIds : next.selected);
-    next.groups = next.groups.filter((group) => !group.members.some((id) => ids.has(id)));
-  }
-  return next;
-}
-function moveBounds(value, min, max) {
-  const lower = coordinate(finite(min, -CANVAS_LIMITS.coordinate));
-  const upper = Math.max(lower, coordinate(finite(max, CANVAS_LIMITS.coordinate)));
-  return clamp(value, lower, upper, 0);
-}
-function moveWindow(state, id, dx, dy, bounds = {}) {
-  const next = normalizeCanvas(state);
-  const ids = new Set(Array.isArray(id) ? id : [id]);
-  next.windows.forEach((window2) => {
-    if (!ids.has(window2.id) && !ids.has(window2.entityId)) return;
-    window2.x = moveBounds(window2.x + finite(dx, 0), bounds.minX, bounds.maxX);
-    window2.y = moveBounds(window2.y + finite(dy, 0), bounds.minY, bounds.maxY);
-  });
-  return next;
-}
-function resizeWindow(state, id, dw, dh, bounds = {}) {
-  const next = normalizeCanvas(state);
-  const window2 = next.windows.find((item) => matching(item, id));
-  if (!window2) return next;
-  const minWidth = clamp(bounds.minWidth, CANVAS_LIMITS.minWidth, CANVAS_LIMITS.maxSize, 0);
-  const minHeight = clamp(bounds.minHeight, CANVAS_LIMITS.minHeight, CANVAS_LIMITS.maxSize, 0);
-  window2.width = clamp(window2.width + finite(dw, 0), minWidth, clamp(bounds.maxWidth, minWidth, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.width);
-  window2.height = clamp(window2.height + finite(dh, 0), minHeight, clamp(bounds.maxHeight, minHeight, CANVAS_LIMITS.maxSize, CANVAS_LIMITS.maxSize), window2.height);
-  return next;
-}
-function fitViewport(state, viewportSize, padding = 40, ids) {
-  const next = normalizeCanvas(state);
-  let bounds = windowBounds(next, ids);
-  const width = viewportSize?.width, height = viewportSize?.height;
-  if (!bounds || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return next;
-  if (ids === void 0 && next.groups.some((group) => next.windows.some((window2) => window2.open && group.members.includes(window2.id)))) {
-    bounds = { ...bounds, x: bounds.x - 16, y: bounds.y - 45, width: bounds.width + 32, height: bounds.height + 61 };
-  }
-  const insets = object(padding) ? padding : { left: padding, right: padding, top: padding, bottom: padding };
-  const left = clamp(insets.left, 0, width / 2 - 1, 24), right = clamp(insets.right, 0, width / 2 - 1, 24);
-  const top = clamp(insets.top, 0, height - 2, 80), bottom = clamp(insets.bottom, 0, height - top - 1, 80);
-  const availableWidth = width - left - right, availableHeight = height - top - bottom;
-  const zoom = clamp(Math.min(availableWidth / bounds.width, availableHeight / bounds.height), CANVAS_LIMITS.minZoom, 1, 1);
-  next.viewport = { x: coordinate(left + (availableWidth - bounds.width * zoom) / 2 - bounds.x * zoom), y: coordinate(top + (availableHeight - bounds.height * zoom) / 2 - bounds.y * zoom), zoom };
-  return next;
-}
-
 // src/client/canvas-workspace.js
 var import_react39 = require("react");
-var button = (label, onClick, icon2, extra = {}) => (0, import_react39.createElement)("button", { type: "button", className: "bt-canvas-button", onClick, ...extra }, icon2 ? (0, import_react39.createElement)(icon2) : null, label);
+var button = (label, onClick, icon2, extra = {}) => (0, import_react39.createElement)("button", { type: "button", className: `bt-canvas-button glass-button${extra.className ? ` ${extra.className}` : ""}`, onClick, ...extra }, icon2 ? (0, import_react39.createElement)(icon2) : null, label);
 var entityOf = (window2, roster) => window2.kind === "room" ? roster.roomsById[window2.entityId] : roster.byId[window2.entityId];
 var employeesOf = (windows, ids, roster) => [...new Set(windows.filter((window2) => window2.open && window2.kind === "bot" && ids.includes(window2.id) && roster.byId[window2.entityId]).map((window2) => window2.entityId))];
 function RoomSummary({ room: room2, roster, work, actions }) {
@@ -14757,11 +15108,12 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     if (!delta) return;
     event.preventDefault();
     actions.selectCanvasWindow(window2.id);
+    actions.markCanvasWindowMoved?.(window2.id);
     const step = event.shiftKey ? 24 : 8;
     actions.updateCanvas((state) => (resizing ? resizeWindow : moveWindow)(state, window2.id, delta[0] * step, delta[1] * step));
   };
   const shell = {
-    className: "bt-canvas-window",
+    className: "bt-canvas-window agent-window",
     "data-window-id": window2.id,
     "data-entity-id": entity.id,
     "data-kind": window2.kind,
@@ -14784,7 +15136,7 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
       { className: "bt-canvas-avatar-node" },
       (0, import_react39.createElement)(
         "div",
-        { className: "bt-canvas-avatar-tools" },
+        { className: "bt-canvas-avatar-tools floating-toolbar" },
         (0, import_react39.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
         button(null, openMenu, DotsIcon, { "aria-label": t("{name} actions", { name: entity.name }), title: t("More"), "aria-haspopup": "menu" }),
         button(null, () => actions.updateCanvas((state) => collapseWindow(state, window2.id)), CloseIcon, { "aria-label": t("Close window"), title: t("Close window") })
@@ -14800,7 +15152,7 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
         "button",
         { type: "button", className: "bt-canvas-window-title", onPointerDown: (event) => start(event, "window", window2.id), onKeyDown: keyboard, "aria-label": t("Move {name}", { name: entity.name }) },
         (0, import_react39.createElement)("strong", null, entity.name),
-        (0, import_react39.createElement)("span", { className: "bt-canvas-window-meta" }, isMainOf(roster, entity.id) ? t("Main Bot") : entity.role || t("Employee"))
+        (0, import_react39.createElement)("span", { className: "bt-canvas-window-meta text-secondary" }, isMainOf(roster, entity.id) ? t("Main Bot") : entity.role || t("Employee"))
       ),
       button(null, () => actions.showDetails(sessionId), InfoIcon, { className: "bt-canvas-avatar-status", "data-state": statusKind, title: status, "aria-label": t("Details") })
     )
@@ -14810,17 +15162,17 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     shell,
     (0, import_react39.createElement)(
       "div",
-      { className: "bt-canvas-window-header" },
+      { className: "bt-canvas-window-header agent-window__header" },
       (0, import_react39.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
       (0, import_react39.createElement)(
         "button",
         { type: "button", className: "bt-canvas-window-title", onPointerDown: (event) => start(event, "window", window2.id), onKeyDown: keyboard, "aria-label": t("Move {name}", { name: entity.name }) },
         window2.kind === "room" ? (0, import_react39.createElement)(RoomAvatar, { room: entity, roster, size: window2.compact ? 36 : 28 }) : (0, import_react39.createElement)(BotAvatar, { bot: entity, size: window2.compact ? 36 : 28, main: isMainOf(roster, entity.id) }),
-        (0, import_react39.createElement)("span", null, (0, import_react39.createElement)("strong", null, entity.name), (0, import_react39.createElement)("span", { className: "bt-canvas-window-meta" }, window2.kind === "room" ? t("{count} members", { count: entity.members.length }) : [isMainOf(roster, entity.id) ? t("Main Bot") : null, entity.role || t("Employee")].filter(Boolean).join(" · ")))
+        (0, import_react39.createElement)("span", null, (0, import_react39.createElement)("strong", null, entity.name), (0, import_react39.createElement)("span", { className: "bt-canvas-window-meta text-secondary" }, window2.kind === "room" ? t("{count} members", { count: entity.members.length }) : [isMainOf(roster, entity.id) ? t("Main Bot") : null, entity.role || t("Employee")].filter(Boolean).join(" · ")))
       ),
       (0, import_react39.createElement)(
         "div",
-        { className: "bt-canvas-window-actions" },
+        { className: "bt-canvas-window-actions agent-window__toolbar" },
         window2.compact ? null : button("−", () => actions.updateCanvas((state) => setWindowCompact(state, window2.id, true)), null, { "aria-label": t("Compact window"), title: t("Compact window") }),
         button(null, openMenu, DotsIcon, { "aria-label": t("{name} actions", { name: entity.name }), title: t("More"), "aria-haspopup": "menu" }),
         button(null, () => actions.updateCanvas((state) => collapseWindow(state, window2.id)), CloseIcon, { "aria-label": t("Close window"), title: t("Close window") })
@@ -14851,6 +15203,103 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     window2.compact ? null : (0, import_react39.createElement)("button", { type: "button", className: "bt-canvas-resize", "aria-label": t("Resize {name}", { name: entity.name }), onPointerDown: (event) => start(event, "resize", window2.id), onKeyDown: (event) => keyboard(event, true) }, "⌟")
   );
 }
+function CanvasDrawer({ selectedBots, visible, state, update, actions, canvasRef }) {
+  const [open, setOpen] = (0, import_react39.useState)(false);
+  const drawerRef = (0, import_react39.useRef)(null);
+  (0, import_react39.useEffect)(() => {
+    if (!open) return void 0;
+    const down = (event) => {
+      if (drawerRef.current && !drawerRef.current.contains(event.target) && !event.target.closest(".bt-wallpaper-menu")) {
+        setOpen(false);
+      }
+    };
+    const key = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", down);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", down);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  const item = (label, onClick, icon2, extra = {}) => (0, import_react39.createElement)("button", {
+    type: "button",
+    className: "bt-drawer-item",
+    onClick: () => {
+      onClick();
+      if (extra.closeOnClick !== false) setOpen(false);
+    },
+    ...extra
+  }, icon2 ? (0, import_react39.createElement)(icon2) : null, (0, import_react39.createElement)("span", null, label));
+  return (0, import_react39.createElement)(
+    "nav",
+    {
+      ref: drawerRef,
+      className: "bt-canvas-toolbar bt-canvas-drawer floating-toolbar",
+      "data-open": open ? "true" : void 0,
+      "aria-label": t("Canvas tools")
+    },
+    !open ? (0, import_react39.createElement)(
+      "button",
+      {
+        type: "button",
+        className: "bt-canvas-drawer-trigger glass-button floating-toolbar",
+        onClick: () => setOpen(true),
+        "aria-expanded": false,
+        "aria-label": t("Expand navigation menu"),
+        title: t("Expand navigation menu")
+      },
+      (0, import_react39.createElement)("span", { className: "bt-drawer-trigger-icon", "aria-hidden": true }, "▦"),
+      (0, import_react39.createElement)("span", { className: "bt-drawer-trigger-text" }, t("Employee canvas")),
+      (0, import_react39.createElement)(ChevronRightIcon)
+    ) : (0, import_react39.createElement)(
+      "div",
+      { className: "bt-drawer-content" },
+      (0, import_react39.createElement)(
+        "header",
+        { className: "bt-drawer-header" },
+        (0, import_react39.createElement)(
+          "div",
+          { className: "bt-drawer-title" },
+          (0, import_react39.createElement)("span", { className: "bt-drawer-trigger-icon", "aria-hidden": true }, "▦"),
+          (0, import_react39.createElement)("strong", null, t("Employee canvas"))
+        ),
+        (0, import_react39.createElement)("button", {
+          type: "button",
+          className: "bt-drawer-close glass-button",
+          onClick: () => setOpen(false),
+          "aria-label": t("Collapse navigation menu"),
+          title: t("Collapse navigation menu")
+        }, (0, import_react39.createElement)(ChevronLeftIcon))
+      ),
+      (0, import_react39.createElement)(
+        "div",
+        { className: "bt-drawer-body" },
+        (0, import_react39.createElement)("div", { className: "bt-drawer-section-title" }, t("Collaboration")),
+        item(t("Create employee"), () => actions.openNewChat("create"), PlusIcon),
+        item(t(selectedBots.length >= 2 ? "Create group with selected" : "Create group chat"), () => actions.openNewChat("group", selectedBots.length >= 2 ? selectedBots : []), ChatsIcon),
+        item(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon),
+        selectedBots.length === 2 ? item(t("Bot exchange"), () => actions.openExchange(...selectedBots), ChatsIcon) : null,
+        (0, import_react39.createElement)("div", { className: "bt-drawer-separator", role: "separator" }),
+        (0, import_react39.createElement)("div", { className: "bt-drawer-section-title" }, t("Canvas layout")),
+        item(t("Arrange cards"), () => actions.arrangeCanvasCards(), null, { disabled: visible.length === 0, closeOnClick: false }),
+        item(t("Group windows"), () => update((current) => groupWindows(current, current.selected, { name: t("Window group") })), FolderIcon, { disabled: state.selected.length < 2, closeOnClick: false }),
+        item(t("Ungroup"), () => update((current) => ungroupWindows(current, current.selected)), null, { disabled: !state.groups.some((group) => group.members.some((id) => state.selected.includes(id))), closeOnClick: false }),
+        item(t("Collapse conversations"), () => actions.compactCanvasConversations(), null, { disabled: !visible.some((window2) => !window2.compact), closeOnClick: false }),
+        (0, import_react39.createElement)("div", { className: "bt-drawer-separator", role: "separator" }),
+        (0, import_react39.createElement)("div", { className: "bt-drawer-section-title" }, t("Spatial widgets")),
+        item(t("Quick message"), () => toggleSpatialWidget("quick"), ChatsIcon, { closeOnClick: false }),
+        item(t("Agenda"), () => toggleSpatialWidget("agenda"), CalendarIcon, { closeOnClick: false }),
+        (0, import_react39.createElement)(CanvasWallpaper, { canvasRef }),
+        (0, import_react39.createElement)("div", { className: "bt-drawer-separator", role: "separator" }),
+        (0, import_react39.createElement)("div", { className: "bt-drawer-section-title" }, t("System")),
+        item(t("Settings"), () => actions.openSettings(), GearIcon),
+        item(t("Classic view"), () => actions.openClassicSession(), SwitchIcon)
+      )
+    )
+  );
+}
 function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, SessionProvider, renderSlot }) {
   const roster = useRoster((value) => value);
   const state = useCanvas((value) => value);
@@ -14878,11 +15327,17 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
       const box = node.getBoundingClientRect();
       const widgetBottom = widgets.map((widget) => widget.getBoundingClientRect().bottom - box.top).filter((bottom2) => bottom2 < box.height * 0.55);
       const panel = team?.getBoundingClientRect();
-      const foldedTeamBottom = box.width <= 1100 && team?.dataset.folded === "true" ? panel.bottom - box.top : 0;
-      const top = Math.max(toolbar.getBoundingClientRect().bottom - box.top, ...widgetBottom, foldedTeamBottom) + 20;
-      const bottom = box.bottom - Math.min(dock.getBoundingClientRect().top, controls.getBoundingClientRect().top) + 20;
-      const left = box.width > 1100 && panel && panel.left - box.left < box.width / 3 ? panel.right - box.left + 24 : 24;
-      const right = box.width > 1100 && panel && panel.right - box.left > box.width * 2 / 3 ? box.right - panel.left + 24 : 24;
+      const isTeamFolded = team?.dataset.folded === "true";
+      const foldedTeamBottom = isTeamFolded && panel ? panel.bottom - box.top : 0;
+      const toolbarBottom = toolbar ? toolbar.getBoundingClientRect().bottom - box.top : 0;
+      const top = Math.max(toolbarBottom, ...widgetBottom, foldedTeamBottom) + 20;
+      const dockTop = dock ? dock.getBoundingClientRect().top : box.bottom;
+      const controlsTop = controls ? controls.getBoundingClientRect().top : box.bottom;
+      const bottom = box.bottom - Math.min(dockTop, controlsTop) + 20;
+      const isTeamLeft = panel && panel.left - box.left < box.width / 2;
+      const isTeamRight = panel && panel.right - box.left > box.width / 2;
+      const left = isTeamLeft ? Math.max(24, Math.round(panel.right - box.left + (isTeamFolded ? 16 : 24))) : 24;
+      const right = isTeamRight ? Math.max(24, Math.round(box.right - panel.left + (isTeamFolded ? 16 : 24))) : 24;
       const measured = { width: box.width, height: box.height, insets: { top, bottom, left, right } };
       setSize(measured);
       actions.setCanvasSize(measured);
@@ -14928,11 +15383,38 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     drag.current = { kind, id, ids, startX: event.clientX, startY: event.clientY, state: current, box, moved: false };
     root.current.setPointerCapture(event.pointerId);
   };
+  const startDockDrag = (event, entity) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const kind = roster.roomsById[entity.id] ? "room" : "bot";
+    const box = root.current.getBoundingClientRect();
+    drag.current = { kind: "dock", entity, entityKind: kind, startX: event.clientX, startY: event.clientY, moved: false, box };
+    root.current.setPointerCapture(event.pointerId);
+  };
   const move = (event) => {
     const current = drag.current;
     if (!current) return;
-    const dx = event.clientX - current.startX, dy = event.clientY - current.startY, v = current.state.viewport;
+    const dx = event.clientX - current.startX, dy = event.clientY - current.startY, v = current.state?.viewport ?? latest.current.viewport;
     if (Math.hypot(dx, dy) > 4) current.moved = true;
+    if (current.kind === "dock") {
+      if (current.moved) {
+        const x = (event.clientX - current.box.left - v.x) / v.zoom - CANVAS_LIMITS.avatarWidth / 2;
+        const y = (event.clientY - current.box.top - v.y) / v.zoom - CANVAS_LIMITS.avatarHeight / 2;
+        const nextState = openWindow(latest.current, { id: current.entity.id, kind: current.entityKind }, { x, y, compact: true });
+        const win = nextState.windows.find((w) => w.entityId === current.entity.id);
+        if (win) {
+          win.x = x;
+          win.y = y;
+          actions.markCanvasWindowMoved?.(win.id);
+        }
+        update(nextState, false);
+        if (win) {
+          drag.current = { kind: "avatar", id: win.id, ids: [win.id], startX: event.clientX, startY: event.clientY, state: nextState, box: current.box, moved: true };
+        }
+      }
+      return;
+    }
     if (current.kind === "pan") update(() => setCanvasViewport(current.state, { ...v, x: v.x + dx, y: v.y + dy }), false);
     if (current.kind === "window" || current.kind === "group" || current.kind === "avatar" && current.moved) update(() => current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids }), false);
     if (current.kind === "resize") update(() => resizeWindow(current.state, current.id, dx / v.zoom, dy / v.zoom), false);
@@ -14951,8 +15433,15 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     drag.current = null;
     setMarquee(null);
     if (root.current.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId);
+    if (current.moved && (current.kind === "window" || current.kind === "avatar" || current.kind === "group")) {
+      current.ids?.forEach((id) => actions.markCanvasWindowMoved?.(id));
+    }
     actions.saveCanvas();
-    if (current.kind === "avatar" && !current.moved && event.type !== "pointercancel") actions.openCanvasConversation(current.id);
+    if (current.kind === "dock" && !current.moved && event.type !== "pointercancel") {
+      actions.openCanvasEntity(current.entity.id, size);
+    } else if (current.kind === "avatar" && !current.moved && event.type !== "pointercancel") {
+      actions.openCanvasConversation(current.id);
+    }
   };
   (0, import_react39.useEffect)(() => {
     const node = root.current;
@@ -14969,33 +15458,65 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     return () => node.removeEventListener("wheel", wheel);
   }, [size.width, size.height]);
   const fit = () => update((current) => fitViewport(current, size, size.insets));
+  const onCanvasContextMenu = (event) => {
+    if (event.target.closest(".bt-canvas-window,.bt-canvas-toolbar,.bt-canvas-dock,.bt-spatial-widget,.bt-wallpaper-menu,.bt-canvas-zoom,.bt-drawer")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const box = root.current ? root.current.getBoundingClientRect() : { left: 0, top: 0 };
+    const v = latest.current.viewport;
+    const worldX = (event.clientX - box.left - v.x) / v.zoom;
+    const worldY = (event.clientY - box.top - v.y) / v.zoom;
+    actions.openMenu({ kind: "canvas", x: event.clientX, y: event.clientY, worldX, worldY });
+  };
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  };
+  const handleDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const raw = event.dataTransfer?.getData("application/x-ds-bot") || event.dataTransfer?.getData("text/plain");
+    if (!raw) return;
+    try {
+      const { id, kind } = JSON.parse(raw);
+      if (!id) return;
+      const box = root.current ? root.current.getBoundingClientRect() : { left: 0, top: 0 };
+      const v = latest.current.viewport;
+      const x = Math.round((event.clientX - box.left - v.x) / v.zoom - CANVAS_LIMITS.avatarWidth / 2);
+      const y = Math.round((event.clientY - box.top - v.y) / v.zoom - CANVAS_LIMITS.avatarHeight / 2);
+      update((current) => {
+        const next = openWindow(current, { id, kind }, { x, y, compact: true });
+        const win = next.windows.find((w) => w.entityId === id || w.id === id || String(w.entityId) === String(id));
+        if (win) {
+          win.open = true;
+          win.compact = true;
+          win.x = x;
+          win.y = y;
+          actions.markCanvasWindowMoved?.(win.id);
+        }
+        return next;
+      });
+      actions.saveCanvas?.();
+    } catch {
+    }
+  };
   return (0, import_react39.createElement)(
     "div",
-    { ref: root, className: "bt-canvas", "aria-label": t("Employee canvas"), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish },
+    { ref: root, className: "bt-canvas canvas-viewport", "aria-label": t("Employee canvas"), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish, onContextMenu: onCanvasContextMenu, onDragEnter: handleDragOver, onDragOver: handleDragOver, onDrop: handleDrop },
     (0, import_react39.createElement)("style", null, SPATIAL_WIDGET_CSS),
-    (0, import_react39.createElement)(
-      "nav",
-      { className: "bt-canvas-toolbar", "aria-label": t("Canvas tools") },
-      (0, import_react39.createElement)("strong", null, t("Employee canvas")),
-      button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon),
-      button(t("Create employee"), () => actions.openNewChat("create"), PlusIcon),
-      button(t(selectedBots.length >= 2 ? "Create group with selected" : "Create group chat"), () => actions.openNewChat("group", selectedBots.length >= 2 ? selectedBots : []), ChatsIcon),
-      selectedBots.length === 2 ? button(t("Bot exchange"), () => actions.openExchange(...selectedBots), ChatsIcon) : null,
-      button(t("Arrange cards"), () => actions.arrangeCanvasCards(), null, { disabled: visible.length === 0 }),
-      button(t("Group windows"), () => update((current) => groupWindows(current, current.selected, { name: t("Window group") })), FolderIcon, { disabled: state.selected.length < 2 }),
-      button(t("Ungroup"), () => update((current) => ungroupWindows(current, current.selected)), null, { disabled: !state.groups.some((group) => group.members.some((id) => state.selected.includes(id))) }),
-      button(t("Collapse conversations"), () => actions.compactCanvasConversations(), null, { disabled: !visible.some((window2) => !window2.compact) }),
-      button(t("Quick message"), () => toggleSpatialWidget("quick"), ChatsIcon),
-      button(t("Agenda"), () => toggleSpatialWidget("agenda"), CalendarIcon),
-      (0, import_react39.createElement)(CanvasWallpaper, { canvasRef: root }),
-      button(t("Settings"), () => actions.openSettings(), GearIcon),
-      button(t("Classic view"), () => actions.openClassicSession())
-    ),
+    (0, import_react39.createElement)(CanvasDrawer, { selectedBots, visible, state, update, actions, canvasRef: root }),
     (0, import_react39.createElement)(
       "main",
-      { className: "bt-canvas-stage", onPointerDown: (event) => {
-        if (!event.target.closest(".bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]")) start(event, event.shiftKey ? "marquee" : "pan");
-      } },
+      {
+        className: "bt-canvas-stage",
+        onContextMenu: onCanvasContextMenu,
+        onPointerDown: (event) => {
+          if (!event.target.closest(".bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]")) start(event, event.shiftKey ? "marquee" : "pan");
+        },
+        onDragEnter: handleDragOver,
+        onDragOver: handleDragOver,
+        onDrop: handleDrop
+      },
       (0, import_react39.createElement)("div", { className: "bt-canvas-background", "aria-hidden": true }),
       (0, import_react39.createElement)(
         "div",
@@ -15023,13 +15544,29 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
     (0, import_react39.createElement)(CanvasQuickMessage, { bot: quickBot, actions }),
     (0, import_react39.createElement)(CanvasAgenda, { roster, actions }),
     marquee ? (0, import_react39.createElement)("div", { className: "bt-canvas-marquee", style: marquee }) : null,
-    (0, import_react39.createElement)("nav", { className: "bt-canvas-dock", "aria-label": t("Employees and group chats") }, [...roster.bots, ...roster.rooms].filter((entity) => !entity.hidden).map((entity) => (0, import_react39.createElement)(
+    (0, import_react39.createElement)("nav", { className: "bt-canvas-dock agent-dock", "aria-label": t("Employees and group chats") }, [...roster.bots, ...roster.rooms].filter((entity) => !entity.hidden).map((entity) => (0, import_react39.createElement)(
       "button",
-      { type: "button", onClick: () => actions.openCanvasEntity(entity.id, size), key: entity.id, className: "bt-canvas-button bt-canvas-dock-item", "aria-label": entity.name, title: entity.name, "aria-pressed": visible.some((window2) => window2.entityId === entity.id && window2.id === state.active) },
+      {
+        type: "button",
+        key: entity.id,
+        className: "bt-canvas-button bt-canvas-dock-item dock-item",
+        "aria-label": entity.name,
+        title: t("Click to open · Drag to place on canvas"),
+        "aria-pressed": visible.some((window2) => window2.entityId === entity.id && window2.id === state.active),
+        onPointerDown: (event) => startDockDrag(event, entity),
+        draggable: true,
+        onDragStart: (event) => {
+          try {
+            event.dataTransfer.setData("application/x-ds-bot", JSON.stringify({ id: entity.id, kind: roster.roomsById[entity.id] ? "room" : "bot" }));
+            event.dataTransfer.effectAllowed = "copyMove";
+          } catch {
+          }
+        }
+      },
       roster.roomsById[entity.id] ? (0, import_react39.createElement)(RoomAvatar, { room: entity, roster, size: 36 }) : (0, import_react39.createElement)(BotAvatar, { bot: entity, size: 36, main: isMainOf(roster, entity.id) }),
       (0, import_react39.createElement)("span", null, entity.name)
     ))),
-    (0, import_react39.createElement)("div", { className: "bt-canvas-zoom" }, button("−", () => zoom(1 / 1.15), null, { "aria-label": t("Zoom out") }), (0, import_react39.createElement)("output", null, `${Math.round(state.viewport.zoom * 100)}%`), button("+", () => zoom(1.15), null, { "aria-label": t("Zoom in") }), button(t("Fit windows"), fit)),
+    (0, import_react39.createElement)("div", { className: "bt-canvas-zoom floating-toolbar" }, button("−", () => zoom(1 / 1.15), null, { "aria-label": t("Zoom out") }), (0, import_react39.createElement)("output", null, `${Math.round(state.viewport.zoom * 100)}%`), button("+", () => zoom(1.15), null, { "aria-label": t("Zoom in") }), button(t("Fit windows"), fit)),
     (0, import_react39.createElement)("div", { className: "bt-canvas-status" }, t("Drag background to pan · Shift-drag to select · Ctrl-scroll to zoom"))
   );
 }
@@ -15094,216 +15631,1289 @@ var canvasLandscapeUrl = `data:image/svg+xml,${encodeURIComponent(canvasLandscap
 
 // src/client/canvas-styles.js
 var canvasStyles = `
-.bt-canvas{
-  --bt-ink:#f5f8f7;--bt-ink-2:rgba(245,248,247,.76);--bt-ink-3:rgba(245,248,247,.55);
-  --bt-card:#34494b;--bt-main:#293c3f;--bt-sidebar:#293c3f;--bt-bubble:rgba(255,255,255,.09);
-  --bt-line:rgba(255,255,255,.12);--bt-line-2:rgba(255,255,255,.23);--bt-line-weak:rgba(255,255,255,.1);
-  --bt-hover:rgba(255,255,255,.1);--bt-active:rgba(255,255,255,.17);--bt-accent:#8de0cc;--bt-accent-ink:#153b33;
-  --bt-user:rgba(245,248,247,.9);--bt-user-ink:#203436;--bt-tag-bg:rgba(255,255,255,.1);--bt-tag-ink:rgba(245,248,247,.76);
-  --bt-canvas-glass:rgba(40,57,60,.58);
-  --bt-canvas-chrome:rgba(45,61,64,.62);
-  --bt-canvas-border:rgba(255,255,255,.2);
-  --bt-canvas-shadow:0 18px 52px -20px rgba(12,30,34,.45),inset 0 1px 0 rgba(255,255,255,.13);
-  position:relative;isolation:isolate;display:flex;flex:1 1 0;flex-direction:column;
-  width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;
-  container-type:inline-size;container-name:bt-canvas;
-  color:var(--bt-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-  font-size:14px;line-height:1.5;
-  background:#688b92;
+:root {
+  /* 背景：从上浅到下深 */
+  --canvas-background: linear-gradient(
+    180deg,
+    #e7e7e7 0%,
+    #dedede 50%,
+    #d4d4d4 100%
+  );
+
+  /* 乳白磨砂 */
+  --glass-window: rgba(255, 255, 255, 0.5);
+  --glass-floating: rgba(255, 255, 255, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.45);
+  --glass-blur: 50px;
+  --glass-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.08);
+
+  --text-primary: #262626;
+  --text-secondary: #757575;
+  --divider: rgba(0, 0, 0, 0.08);
 }
-body[data-ds-dark-theme] .bt-canvas{
-  --bt-canvas-glass:rgba(24,39,43,.66);
-  --bt-canvas-chrome:rgba(30,46,50,.72);
-  --bt-canvas-border:rgba(255,255,255,.18);
-  --bt-canvas-shadow:0 18px 44px -16px rgba(0,12,22,.5),inset 0 1px 0 rgba(255,255,255,.06);
+
+/* 添加在视口层，内部画布内容继续使用原来的 transform */
+.canvas-viewport {
+  background: var(--canvas-background);
+  color: var(--text-primary);
 }
-.bt-canvas::before{content:"";position:absolute;pointer-events:none;z-index:-1;
-  inset:0;background-image:linear-gradient(180deg,rgba(15,31,38,.08),rgba(15,31,38,.02) 50%,rgba(15,31,38,.18)),var(--bt-wallpaper-image,url("${canvasLandscapeUrl}"));
-  background-size:cover;background-position:center;background-repeat:no-repeat;
+
+/* 实色后备，同时保留组件原来的定位和尺寸 */
+.agent-window,
+.team-panel,
+.agent-dock,
+.floating-toolbar {
+  background: #f8f8f8;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: var(--glass-shadow);
 }
-body[data-ds-dark-theme] .bt-canvas::before{filter:brightness(.8) saturate(.85)}
-.bt-canvas [hidden]{display:none!important}
-.bt-canvas :is(.bt-canvas-toolbar,.bt-canvas-window,.bt-canvas-window-header,.bt-canvas-content,.bt-canvas-compact,.bt-canvas-group,.bt-canvas-group-header,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-button,.bt-canvas-dock-item,.bt-canvas-status,.bt-canvas-empty,.bt-canvas-session,.bt-canvas-session-error){box-sizing:border-box}
-.bt-canvas-toolbar,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-status{
-  position:absolute;z-index:30;border:1px solid var(--bt-canvas-border);
-  background:var(--bt-canvas-chrome);box-shadow:var(--bt-canvas-shadow);
-  -webkit-backdrop-filter:blur(22px) saturate(115%);backdrop-filter:blur(22px) saturate(115%);
+
+.team-panel,
+.agent-dock {
+  border-radius: 28px;
 }
-.bt-canvas-toolbar{top:16px;left:16px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;width:max-content;max-width:calc(100% - 32px);padding:6px;border-radius:16px}
-.bt-canvas-toolbar>strong{min-width:0;padding:0 8px;font-size:13px;font-weight:500;overflow-wrap:anywhere}
-.bt-canvas-toolbar>span[role=separator]{width:1px;height:20px;flex:none;margin:0 3px;background:var(--bt-line-2)}
-.bt-canvas-stage{position:absolute;inset:0;z-index:0;isolation:isolate;overflow:hidden;touch-action:auto;cursor:grab}
-.bt-canvas-background{position:absolute;inset:0;z-index:-1;touch-action:none}
-.bt-canvas-stage:is([data-dragging="true"],[data-dragging=""]),.bt-canvas:is([data-dragging="true"],[data-dragging=""]) .bt-canvas-stage{cursor:grabbing}
-.bt-canvas-world{position:absolute;left:0;top:0;isolation:isolate;transform-origin:0 0}
-.bt-canvas-window{
-  position:absolute;display:flex;flex-direction:column;min-width:240px;min-height:180px;
-  overflow:hidden;border:1px solid var(--bt-canvas-border);border-radius:22px;
-  background:var(--bt-canvas-glass);box-shadow:var(--bt-canvas-shadow);color:var(--bt-ink);cursor:default;
-  -webkit-backdrop-filter:blur(26px) saturate(116%);backdrop-filter:blur(26px) saturate(116%);
-  transition:border-color .14s ease,box-shadow .14s ease;
+
+.floating-toolbar {
+  border-radius: 16px;
 }
-.bt-canvas-window:is([data-active="true"],[data-active=""]){border-color:color-mix(in srgb,var(--bt-accent) 48%,var(--bt-canvas-border));box-shadow:0 18px 50px -18px rgba(16,35,43,.36),inset 0 0 0 1px color-mix(in srgb,var(--bt-accent) 15%,transparent)}
-.bt-canvas-window:is([data-selected="true"],[data-selected=""]){outline:2px solid color-mix(in srgb,var(--bt-accent) 70%,var(--bt-card));outline-offset:3px}
-.bt-canvas-window[data-mode=card]{border-radius:24px}
-.bt-canvas-window[data-mode=card][data-kind=bot]{min-width:0;min-height:0;overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none;outline:none;-webkit-backdrop-filter:none;backdrop-filter:none;cursor:grab}
-.bt-canvas-avatar-node{position:relative;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;width:120px;height:112px;max-width:100%;isolation:isolate;touch-action:none}
-.bt-canvas-avatar-open{box-sizing:border-box;display:flex;flex:none;align-items:center;justify-content:center;width:80px;min-width:0;height:74px;padding:9px 12px;border:0;border-radius:50%;background:transparent;color:var(--bt-ink);font:inherit;line-height:17px;text-align:center;cursor:grab;touch-action:none}
-.bt-canvas-avatar-open:active{cursor:grabbing}
-.bt-canvas-avatar-open>.bt-mark{flex:none;border-radius:50%;box-shadow:0 3px 12px rgba(12,29,34,.25),0 0 0 4px rgba(255,255,255,.13);transition:box-shadow .14s ease,transform .14s ease}
-.bt-canvas-avatar-node>.bt-canvas-window-title{box-sizing:border-box;display:flex;flex:none;flex-direction:column;justify-content:flex-start;gap:1px;width:100%;height:36px;min-height:36px;padding:0 3px;overflow:visible;text-align:center}
-.bt-canvas-avatar-node>.bt-canvas-window-title>strong{display:block;flex:none;width:100%;max-width:100%;height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;font-weight:600;text-shadow:0 1px 5px rgba(12,27,32,.85)}
-.bt-canvas-avatar-node>.bt-canvas-window-title>span{display:block;flex:none;width:100%;max-width:100%;height:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,.86);font-size:10px;line-height:14px;text-shadow:0 1px 5px rgba(12,27,32,.85)}
-.bt-canvas-avatar-open:hover>.bt-mark{box-shadow:0 4px 16px rgba(12,29,34,.3),0 0 0 5px rgba(255,255,255,.25);transform:translateY(-2px)}
-.bt-canvas-window[data-mode=card][data-kind=bot]:is([data-active=true],[data-active=""]) .bt-canvas-avatar-open>.bt-mark{box-shadow:0 4px 16px rgba(12,29,34,.3),0 0 0 4px rgba(141,224,204,.48)}
-.bt-canvas-window[data-mode=card][data-kind=bot]:is([data-selected=true],[data-selected=""]) .bt-canvas-avatar-open>.bt-mark{box-shadow:0 4px 16px rgba(12,29,34,.3),0 0 0 3px var(--bt-accent),0 0 0 7px rgba(141,224,204,.18)}
-.bt-canvas-avatar-open:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-canvas-avatar-tools{position:absolute;z-index:2;top:-12px;right:-3px;display:flex;align-items:center;gap:5px;padding:3px 4px;border:1px solid var(--bt-canvas-border);border-radius:999px;background:var(--bt-canvas-chrome);box-shadow:0 4px 12px rgba(12,30,34,.18);opacity:0;pointer-events:none;transition:opacity .14s ease;-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
-.bt-canvas-avatar-node:is(:hover,:focus-within) .bt-canvas-avatar-tools,.bt-canvas-window:is([data-selected=true],[data-selected=""]) .bt-canvas-avatar-tools{opacity:1;pointer-events:auto}
-.bt-canvas-avatar-tools>input[type=checkbox]{width:16px;height:16px;margin:0 3px;accent-color:var(--bt-accent);cursor:pointer}
-.bt-canvas-avatar-tools>.bt-canvas-button{width:26px;min-width:26px;min-height:26px;padding:3px;border-radius:50%}
-.bt-canvas-avatar-status{position:absolute;z-index:1;top:47px;left:74px;display:grid;place-items:center;width:24px;height:24px;padding:0;box-sizing:border-box;border:0;border-radius:50%;background:transparent;color:var(--bt-ink);cursor:pointer}
-.bt-canvas-avatar-status>svg{display:none}
-.bt-canvas-avatar-status::before{content:"";display:block;box-sizing:border-box;width:11px;height:11px;border:2px solid #4c6668;border-radius:50%;background:#b8c7c9}
-.bt-canvas-avatar-status[data-state=available]::before{background:#8de0cc}
-.bt-canvas-avatar-status[data-state=working]::before{background:#8de0cc;box-shadow:0 0 0 3px rgba(141,224,204,.22),0 0 12px rgba(141,224,204,.55)}
-.bt-canvas-avatar-status[data-state=waiting]::before{background:#ffd18a;box-shadow:0 0 0 3px rgba(255,209,138,.2)}
-.bt-canvas-avatar-status:hover{background:rgba(40,57,60,.6)}
-.bt-canvas-avatar-status:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-canvas-window-header{position:relative;display:flex;align-items:center;gap:10px;flex:none;min-height:62px;padding:10px 12px;touch-action:none;cursor:grab;user-select:none;border-bottom:1px solid color-mix(in srgb,var(--bt-line) 65%,transparent)}
-.bt-canvas-window[data-mode=card]>.bt-canvas-window-header{min-height:72px;padding:12px 12px 8px;gap:9px;border-bottom:0}
-.bt-canvas-window[data-mode=card][data-kind=room]>.bt-canvas-window-header{min-height:64px;padding:8px 12px 6px}
-.bt-canvas-window[data-mode=card]>.bt-canvas-window-header .bt-canvas-window-title{gap:10px}
-.bt-canvas-window[data-mode=card]>.bt-canvas-window-header .bt-canvas-window-title strong{font-size:15px;line-height:22px}
-.bt-canvas-window-header:active{cursor:grabbing}
-.bt-canvas-window-header>.bt-mark,.bt-canvas-window-header>.bt-cluster{flex:none}
-.bt-canvas-window-title{display:flex;align-items:center;gap:9px;min-width:0;flex:1 1 auto;min-height:32px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:14px;line-height:20px;font-weight:500;text-align:start;overflow:hidden;cursor:grab;touch-action:none}
-.bt-canvas-window-title>.bt-mark,.bt-canvas-window-title>.bt-cluster{flex:none}
-.bt-canvas-window-title>span:last-child{min-width:0;overflow:hidden}
-.bt-canvas-window-title strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-.bt-canvas-window-header>input[type=checkbox]{flex:none;width:15px;height:15px;margin:0;accent-color:var(--bt-accent);cursor:pointer}
-.bt-canvas-window-meta{display:block;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2);font-size:12px;line-height:18px;font-weight:400}
-.bt-canvas-window-actions{display:flex;align-items:center;gap:3px;flex:none;cursor:default}
-.bt-canvas-window>.bt-canvas-window-meta{display:flex;align-items:center;flex-wrap:wrap;gap:3px;flex:none;max-width:none;padding:4px 12px 6px;white-space:normal;overflow:visible}
-.bt-canvas-window>.bt-canvas-window-meta>span[role=status]{flex:1 0 100%;padding:1px 2px;font-size:11px;line-height:16px}
-.bt-canvas-window>.bt-canvas-window-meta .bt-canvas-button{min-height:27px;padding:3px 7px;font-size:12px}
-.bt-canvas-button,.bt-canvas-dock-item{
-  display:inline-flex;align-items:center;justify-content:center;gap:7px;
-  min-width:34px;min-height:34px;max-width:100%;padding:6px 10px;
-  border:1px solid transparent;border-radius:10px;background:transparent;color:var(--bt-ink);
-  font:inherit;font-size:13px;line-height:20px;font-weight:400;text-align:center;cursor:pointer;
-  transition:background-color .12s ease,border-color .12s ease,color .12s ease;
+
+/* 支持背景模糊时，启用透明玻璃 */
+@supports (
+  (backdrop-filter: blur(1px)) or
+  (-webkit-backdrop-filter: blur(1px))
+) {
+  .agent-window,
+  .team-panel,
+  .agent-dock,
+  .floating-toolbar {
+    background: var(--glass-window);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+  }
+
+  .team-panel,
+  .agent-dock,
+  .floating-toolbar {
+    background: var(--glass-floating);
+  }
 }
-.bt-canvas-window-actions .bt-canvas-button{flex:none;min-width:30px;min-height:30px;padding:5px;border-radius:9px}
-.bt-canvas-button>svg,.bt-canvas-dock-item>svg{display:block;flex:none;width:16px;height:16px}
-.bt-canvas-button>span,.bt-canvas-dock-item>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-canvas-button:hover:not(:disabled),.bt-canvas-dock-item:hover:not(:disabled){background:var(--bt-hover)}
-.bt-canvas-button:active:not(:disabled),.bt-canvas-dock-item:active:not(:disabled){background:var(--bt-active)}
-.bt-canvas :is(.bt-canvas-button,.bt-canvas-dock-item):is([data-active="true"],[data-active=""],[data-selected="true"],[data-selected=""],[aria-pressed=true],[aria-current=page]){background:color-mix(in srgb,var(--bt-accent) 12%,var(--bt-canvas-chrome));border-color:color-mix(in srgb,var(--bt-accent) 25%,transparent);color:var(--bt-ink)}
-.bt-canvas :is(.bt-canvas-button,.bt-canvas-dock-item):disabled{opacity:.45;cursor:default}
-.bt-canvas :is(.bt-canvas-button,.bt-canvas-dock-item,.bt-canvas-window-title,.bt-canvas-window-header,.bt-canvas-group-header,.bt-canvas-resize):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-canvas-content{display:flex;flex:1 1 0;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:transparent}
-.bt-canvas-compact{display:flex;flex:1 1 0;flex-direction:column;gap:6px;min-width:0;min-height:0;padding:0 14px 12px;overflow:hidden}
-.bt-canvas-card-state{display:block;align-self:stretch;max-width:100%;min-height:20px;flex:none;padding:0;border:0;border-radius:4px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:11px;line-height:20px;text-align:start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-.bt-canvas-card-state:hover{color:var(--bt-ink);background:var(--bt-hover)}
-.bt-canvas-card-state>span{display:inline-block;width:6px;height:6px;margin-inline-end:6px;vertical-align:1px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-2) 65%,transparent)}
-.bt-canvas-card-state[data-state=working]{color:var(--bt-accent)}
-.bt-canvas-card-state[data-state=working]>span{background:var(--bt-accent)}
-.bt-canvas-card-state[data-state=waiting]{color:var(--bt-ink)}
-.bt-canvas-card-state[data-state=waiting]>span{background:#b47b32;box-shadow:0 0 0 3px color-mix(in srgb,#b47b32 14%,transparent)}
-.bt-canvas-compact>p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:0;min-height:18px;color:var(--bt-ink-2);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-.bt-canvas-compact[data-has-groups]>p{-webkit-line-clamp:1}
-.bt-canvas-compact>footer{display:flex;align-items:center;gap:4px;flex:none;margin-top:auto;padding-top:0}
-.bt-canvas-compact>footer>.bt-canvas-button{min-width:0;min-height:32px;padding:5px 8px;font-size:12px;line-height:20px;white-space:nowrap}
-.bt-canvas-compact .bt-canvas-open-conversation{flex:1 1 auto;border-color:color-mix(in srgb,var(--bt-accent) 20%,transparent);background:color-mix(in srgb,var(--bt-accent) 7%,var(--bt-canvas-chrome))}
-.bt-canvas-compact .bt-canvas-open-conversation:hover{background:color-mix(in srgb,var(--bt-accent) 13%,var(--bt-canvas-chrome));border-color:color-mix(in srgb,var(--bt-accent) 32%,transparent)}
-.bt-canvas-room-summary{display:flex;flex:none;flex-direction:column;gap:4px;min-width:0;max-width:100%}
-.bt-canvas-room-mode{display:block;max-width:100%;height:18px;min-width:0;padding:0;border:0;border-radius:4px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:11px;line-height:18px;text-align:start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-.bt-canvas-room-mode:hover{color:var(--bt-ink);background:var(--bt-hover)}
-.bt-canvas-members{display:flex;align-items:center;gap:4px;min-width:0;max-width:100%;flex:none;overflow:hidden}
-.bt-canvas-members>.bt-canvas-button{position:relative;flex:0 1 auto;gap:5px;min-width:0;min-height:22px;max-width:100%;padding:1px 6px;border-radius:9px;background:var(--bt-hover);font-size:11px;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-canvas-member>.bt-mark{flex:none;border-radius:50%}
-.bt-canvas-member:has(>.bt-mark){padding:2px 6px 2px 2px}
-.bt-canvas-member:has(>.bt-mark)::before{position:absolute;left:25px;bottom:2px;width:6px;height:6px;border:1px solid var(--bt-card)}
-.bt-canvas-member[data-state]::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;background:var(--bt-ink-3,var(--bt-ink-2))}
-.bt-canvas-member[data-state=work]::before{background:var(--bt-accent)}
-.bt-canvas-member[data-state=ask]::before{background:#b47b32;box-shadow:0 0 0 2px color-mix(in srgb,#b47b32 14%,transparent)}
-.bt-canvas-resize{position:absolute;right:2px;bottom:2px;z-index:5;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--bt-ink-2);font-size:0;touch-action:none;cursor:nwse-resize}
-.bt-canvas-resize{z-index:15}
-.bt-canvas-resize::after{content:"";width:9px;height:9px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;border-bottom-right-radius:2px;opacity:.7}
-.bt-canvas-resize:has(svg)::after{display:none}
-.bt-canvas-resize>svg{width:14px;height:14px}
-.bt-canvas-resize:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-canvas-group{position:absolute;z-index:0;min-width:0;border:1px solid rgba(255,255,255,.2);border-radius:26px;background:rgba(35,54,57,.3);box-shadow:0 14px 40px -20px rgba(12,30,34,.3),inset 0 1px 0 rgba(255,255,255,.12);-webkit-backdrop-filter:blur(18px) saturate(112%);backdrop-filter:blur(18px) saturate(112%)}
-.bt-canvas-group:is([data-selected="true"],[data-selected=""]){border-color:var(--bt-accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--bt-accent) 30%,transparent)}
-.bt-canvas-group-header{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;padding:5px 12px 5px 16px;color:var(--bt-ink);font-size:12px;line-height:18px;cursor:grab;touch-action:none;user-select:none}
-.bt-canvas-group-header:active{cursor:grabbing}
-.bt-canvas-group-header>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-canvas-group-header .bt-canvas-button{min-height:28px;padding:3px 7px;font-size:12px}
-.bt-canvas-group-title{display:flex;align-items:center;gap:2px;flex:1 1 auto;min-width:0;overflow:hidden}
-.bt-canvas-group-title>.bt-canvas-button:first-child{justify-content:flex-start;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:grab;touch-action:none}
-.bt-canvas-group-title>.bt-canvas-button:last-child{flex:none;padding:3px;min-width:28px}
-.bt-canvas-group-name{box-sizing:border-box;flex:1 1 auto;min-width:0;width:100%;max-width:320px;height:28px;padding:3px 7px;border:1px solid var(--bt-accent);border-radius:7px;background:var(--bt-canvas-chrome);color:var(--bt-ink);font:inherit;font-size:12px;line-height:20px;outline:none}
-.bt-canvas :is(.bt-canvas-card-state,.bt-canvas-room-mode,.bt-canvas-group-name):focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-canvas-marquee{position:absolute;z-index:20;pointer-events:none;border:1px solid var(--bt-accent);border-radius:5px;background:color-mix(in srgb,var(--bt-accent) 14%,transparent)}
-.bt-canvas-dock{left:50%;bottom:16px;display:flex;align-items:center;flex-wrap:nowrap;gap:4px;width:max-content;max-width:min(760px,calc(100% - 500px));max-height:86px;overflow-x:auto;overflow-y:hidden;padding:6px 10px;border-radius:999px;transform:translateX(-50%);scrollbar-width:thin;scrollbar-color:var(--bt-line-2) transparent;overscroll-behavior:contain}
-.bt-canvas-dock-item{flex:0 0 auto;flex-direction:column;gap:2px;width:58px;min-width:0;max-width:76px;padding:4px;border-radius:18px;font-size:10px;line-height:14px;text-align:center}
-.bt-canvas-dock-item>.bt-mark,.bt-canvas-dock-item>.bt-cluster{flex:none;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.18)}
-.bt-canvas-dock-item>span:not(.bt-mark):not(.bt-cluster){max-width:100%}
-.bt-canvas-zoom{right:16px;bottom:16px;display:flex;align-items:center;gap:3px;padding:6px;border-radius:16px}
-.bt-canvas-zoom>output,.bt-canvas-zoom>span{min-width:42px;text-align:center;color:var(--bt-ink-2);font-size:12px;line-height:20px;font-variant-numeric:tabular-nums}
-.bt-canvas-status{right:16px;bottom:76px;max-width:248px;padding:6px 10px;border-radius:10px;color:var(--bt-ink-2);font-size:12px;line-height:18px;overflow-wrap:anywhere;pointer-events:none}
-.bt-canvas-status:empty{display:none}
-.bt-canvas-empty{position:absolute;z-index:1;top:50%;left:50%;display:flex;flex-direction:column;align-items:center;gap:12px;width:max-content;max-width:calc(100% - 40px);padding:22px 26px;border:1px solid var(--bt-canvas-border);border-radius:20px;background:var(--bt-canvas-chrome);box-shadow:var(--bt-canvas-shadow);transform:translate(-50%,-50%);text-align:center;color:var(--bt-ink);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
-.bt-canvas-empty>p{margin:0;max-width:34ch;color:var(--bt-ink-2);font-size:13px;line-height:20px}
-.bt-canvas-empty>:is(strong,h2){margin:0;font-size:16px;line-height:24px;font-weight:500}
-.bt-canvas-session{--bt-placeholder:"Message";--bt-first-sep:none;position:relative;display:flex;flex:1 1 0;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
-.bt-canvas-session-error{display:flex;flex:1 1 0;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-width:0;min-height:0;padding:20px;text-align:center;color:var(--bt-ink-2);font-size:13px;line-height:20px;overflow-wrap:anywhere}
-.bt-canvas-content>.bt-canvas-status{position:static;align-self:center;max-width:100%;margin:auto;padding:16px;background:none;border:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
-.bt-canvas [data-conversation-content]{display:flex;flex:1 1 0;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;background:transparent!important}
-.bt-canvas [data-conversation-content]>[data-conversation-scroll]{flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;background:transparent;scrollbar-width:thin;scrollbar-color:var(--bt-line-2) transparent}
-.bt-canvas [data-composer-seat]{margin-top:auto;background:linear-gradient(180deg,transparent 0,color-mix(in srgb,var(--bt-card) 40%,transparent) 32px)!important;-webkit-backdrop-filter:blur(18px) saturate(112%);backdrop-filter:blur(18px) saturate(112%)}
-.bt-canvas [data-composer-card]{background:color-mix(in srgb,var(--bt-card) 72%,transparent)!important;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
-.bt-canvas [data-composer-input]{color:var(--bt-ink);caret-color:var(--bt-ink)}
-/* Embedded conversations have their own window header, rather than the floating pill. */
-.bt-canvas-session [class*="_scroll"]:has(> [class*="_column"]){padding-top:12px!important}
-.bt-canvas-session [class*="_scroll"]>[class*="_column"]::before{margin-top:0}
-.bt-canvas-session [data-conversation-content]{--dsh-chat-content-width:min(960px,100%)}
-.bt-canvas-launcher{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;padding:0;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;line-height:1;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
-.bt-canvas-launcher>svg{display:block;width:18px;height:18px}
-.bt-canvas-launcher>span{display:flex;align-items:center;justify-content:center;font-size:20px}
-.bt-canvas-launcher:hover{background:var(--bt-hover);color:var(--bt-ink);border-color:var(--bt-line-2)}
-.bt-canvas-launcher:active{background:var(--bt-active)}
-.bt-canvas-launcher:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+
+/* 窗口内部保持完整玻璃感，不重复模糊 */
+.agent-window__header,
+.agent-window__toolbar,
+.agent-window__input-area {
+  background: transparent;
+  border-color: var(--divider);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 柔和白色按钮 */
+.glass-button {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.04);
+}
+
+.glass-button--pill {
+  border-radius: 999px;
+}
+
+/* 团队列表和 Dock 的选中态 */
+.team-item[aria-selected="true"],
+.dock-item[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 18px;
+  box-shadow:
+    0 5px 16px rgba(0, 0, 0, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.9);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.glass-button:focus-visible,
+.team-item:focus-visible,
+.dock-item:focus-visible {
+  outline: 2px solid #888;
+  outline-offset: 3px;
+}
+
+.bt-canvas {
+  --bt-ink: var(--text-primary);
+  --bt-ink-2: var(--text-secondary);
+  --bt-ink-3: #8c8c8c;
+  --bt-card: #f8f8f8;
+  --bt-main: #ffffff;
+  --bt-sidebar: #ffffff;
+  --bt-bubble: rgba(0, 0, 0, 0.04);
+  --bt-line: var(--divider);
+  --bt-line-2: rgba(0, 0, 0, 0.1);
+  --bt-line-weak: rgba(0, 0, 0, 0.04);
+  --bt-hover: rgba(0, 0, 0, 0.04);
+  --bt-active: rgba(0, 0, 0, 0.08);
+  --bt-accent: #10a37f;
+  --bt-accent-ink: #ffffff;
+  --bt-user: #262626;
+  --bt-user-ink: #ffffff;
+  --bt-tag-bg: rgba(0, 0, 0, 0.05);
+  --bt-tag-ink: var(--text-secondary);
+  --bt-canvas-glass: var(--glass-window);
+  --bt-canvas-chrome: var(--glass-floating);
+  --bt-canvas-border: var(--glass-border);
+  --bt-canvas-shadow: var(--glass-shadow);
+
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: bt-canvas;
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  background: var(--canvas-background);
+}
+
+.bt-canvas::before {
+  display: none !important;
+}
+
+.bt-canvas [hidden] { display: none !important; }
+.bt-canvas :is(.bt-canvas-toolbar,.bt-canvas-window,.bt-canvas-window-header,.bt-canvas-content,.bt-canvas-compact,.bt-canvas-group,.bt-canvas-group-header,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-button,.bt-canvas-dock-item,.bt-canvas-status,.bt-canvas-empty,.bt-canvas-session,.bt-canvas-session-error) { box-sizing: border-box; }
+
+.bt-canvas-toolbar, .bt-canvas-dock, .bt-canvas-zoom, .bt-canvas-status {
+  position: absolute;
+  z-index: 30;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+.bt-canvas-toolbar {
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 6px 8px;
+  border-radius: 16px;
+}
+.bt-canvas-toolbar > strong {
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.bt-canvas-toolbar > span[role=separator] {
+  width: 1px;
+  height: 18px;
+  flex: none;
+  margin: 0 4px;
+  background: var(--divider);
+}
+
+.bt-canvas-toolbar.bt-canvas-drawer {
+  top: 16px;
+  left: 16px;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  max-width: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.bt-canvas-drawer-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px 0 12px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease, transform .12s cubic-bezier(0.16,1,0.3,1);
+}
+.bt-canvas-drawer-trigger:hover {
+  background: #ffffff;
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+.bt-canvas-drawer-trigger:active { transform: scale(0.97); }
+.bt-drawer-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-primary);
+}
+.bt-drawer-trigger-text { min-width: 0; white-space: nowrap; }
+.bt-canvas-drawer-trigger svg { flex: none; width: 14px; height: 14px; color: var(--text-secondary); transition: transform .14s ease; }
+
+.bt-canvas-toolbar.bt-canvas-drawer[data-open=true] {
+  width: 260px;
+  max-height: calc(100% - 32px);
+  padding: 12px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  background: var(--glass-floating);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  animation: btDrawerSlide .2s cubic-bezier(0.16,1,0.3,1);
+  overflow: hidden;
+}
+@keyframes btDrawerSlide {
+  from { opacity: 0; transform: translateX(-10px) scale(0.98); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.bt-drawer-content { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
+.bt-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 4px 10px;
+  border-bottom: 1px solid var(--divider);
+  flex: none;
+}
+.bt-drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text-primary);
+}
+.bt-drawer-title strong { font-size: 14px; font-weight: 600; }
+.bt-drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .12s ease;
+}
+.bt-drawer-close:active { transform: scale(0.94); }
+.bt-drawer-close svg { width: 16px; height: 16px; }
+
+.bt-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,.15) transparent;
+  padding: 6px 0 2px;
+}
+.bt-drawer-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  padding: 10px 8px 3px;
+  user-select: none;
+}
+.bt-drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease, transform .12s cubic-bezier(0.16,1,0.3,1);
+}
+.bt-drawer-item > svg { flex: none; width: 15px; height: 15px; color: var(--text-secondary); transition: color .12s ease; }
+.bt-drawer-item > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-drawer-item:hover:not(:disabled) {
+  background: rgba(0,0,0,.04);
+  color: var(--text-primary);
+  transform: translateX(2px);
+}
+.bt-drawer-item:hover:not(:disabled) > svg { color: var(--text-primary); }
+.bt-drawer-item:active:not(:disabled) { background: rgba(0,0,0,.08); transform: scale(0.98); }
+.bt-drawer-item:disabled { opacity: .35; cursor: default; }
+.bt-drawer-separator { height: 1px; margin: 6px 8px; background: var(--divider); flex: none; }
+.bt-drawer-body .bt-wallpaper-control { display: flex; width: 100%; }
+.bt-drawer-body .bt-wallpaper-control > .bt-canvas-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color .12s ease, transform .12s cubic-bezier(0.16,1,0.3,1);
+}
+.bt-drawer-body .bt-wallpaper-control > .bt-canvas-button > svg { flex: none; width: 15px; height: 15px; color: var(--text-secondary); }
+.bt-drawer-body .bt-wallpaper-control > .bt-canvas-button:hover {
+  background: rgba(0,0,0,.04);
+  color: var(--text-primary);
+  transform: translateX(2px);
+}
+
+.bt-canvas-stage { position: absolute; inset: 0; z-index: 0; isolation: isolate; overflow: hidden; touch-action: auto; cursor: grab; }
+.bt-canvas-background { position: absolute; inset: 0; z-index: -1; touch-action: none; }
+.bt-canvas-stage:is([data-dragging="true"],[data-dragging=""]), .bt-canvas:is([data-dragging="true"],[data-dragging=""]) .bt-canvas-stage { cursor: grabbing; }
+.bt-canvas-world { position: absolute; left: 0; top: 0; isolation: isolate; transform-origin: 0 0; }
+
+.bt-canvas-window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  min-height: 180px;
+  overflow: hidden;
+  color: var(--text-primary);
+  cursor: default;
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.bt-canvas-window:focus,
+.bt-canvas-window:focus-visible,
+.bt-canvas-window:focus-within {
+  outline: none !important;
+}
+.bt-canvas-window:is([data-active="true"],[data-active=""]) {
+  outline: none !important;
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 6px 24px 0 rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.bt-canvas-window:is([data-selected="true"],[data-selected=""]) {
+  outline: none !important;
+  box-shadow: 0 6px 24px 0 rgba(0, 0, 0, 0.12), 0 0 0 2px rgba(255, 255, 255, 0.7);
+}
+.bt-canvas-window[data-mode=card] { border-radius: 24px; }
+.bt-canvas-window[data-mode=card][data-kind=bot] {
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  cursor: grab;
+}
+
+.bt-canvas-avatar-node {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 120px;
+  height: 114px;
+  max-width: 100%;
+  isolation: isolate;
+  touch-action: none;
+}
+.bt-canvas-avatar-open {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  min-width: 0;
+  height: 76px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1;
+  text-align: center;
+  cursor: grab;
+  touch-action: none;
+}
+.bt-canvas-avatar-open:active { cursor: grabbing; }
+.bt-canvas-avatar-open > .bt-mark {
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 4px 14px rgba(0,0,0,.08), 0 0 0 3px rgba(255,255,255,.9);
+  transition: box-shadow .16s cubic-bezier(0.16,1,0.3,1), transform .16s cubic-bezier(0.16,1,0.3,1);
+}
+.bt-canvas-avatar-open:hover > .bt-mark {
+  box-shadow: 0 6px 18px rgba(0,0,0,.12), 0 0 0 4px rgba(255,255,255,1);
+  transform: translateY(-2px);
+}
+.bt-canvas-window[data-mode=card][data-kind=bot]:is([data-active=true],[data-active=""]) .bt-canvas-avatar-open > .bt-mark {
+  box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 0 0 3px #10a37f;
+}
+.bt-canvas-window[data-mode=card][data-kind=bot]:is([data-selected=true],[data-selected=""]) .bt-canvas-avatar-open > .bt-mark {
+  box-shadow: 0 6px 20px rgba(0,0,0,.14), 0 0 0 3px #10a37f, 0 0 0 6px rgba(16,163,127,.25);
+}
+.bt-canvas-avatar-open:focus-visible { outline: 2px solid #888; outline-offset: 3px; }
+
+.bt-canvas-avatar-node > .bt-canvas-window-title {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 2px;
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 4px;
+  overflow: visible;
+  text-align: center;
+}
+.bt-canvas-avatar-node > .bt-canvas-window-title > strong {
+  display: block;
+  flex: none;
+  width: 100%;
+  max-width: 100%;
+  height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  text-shadow: 0 1px 2px rgba(255,255,255,.9);
+}
+.bt-canvas-avatar-node > .bt-canvas-window-title > span {
+  display: block;
+  flex: none;
+  width: 100%;
+  max-width: 100%;
+  height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 2px rgba(255,255,255,.9);
+}
+
+.bt-canvas-avatar-tools {
+  position: absolute;
+  z-index: 2;
+  top: -12px;
+  right: -3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease;
+}
+.bt-canvas-avatar-node:is(:hover,:focus-within) .bt-canvas-avatar-tools,
+.bt-canvas-window:is([data-selected=true],[data-selected=""]) .bt-canvas-avatar-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+.bt-canvas-avatar-tools > input[type=checkbox] {
+  width: 15px;
+  height: 15px;
+  margin: 0 2px;
+  accent-color: #10a37f;
+  cursor: pointer;
+}
+.bt-canvas-avatar-tools > .bt-canvas-button {
+  width: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 3px;
+  border-radius: 50%;
+}
+
+.bt-canvas-avatar-status {
+  position: absolute;
+  z-index: 1;
+  top: 48px;
+  left: 74px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.bt-canvas-avatar-status > svg { display: none; }
+.bt-canvas-avatar-status::before {
+  content: "";
+  display: block;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+}
+.bt-canvas-avatar-status[data-state=available]::before { background: #10a37f; }
+.bt-canvas-avatar-status[data-state=working]::before {
+  background: #10a37f;
+  box-shadow: 0 0 0 3px rgba(16,163,127,.24), 0 0 8px rgba(16,163,127,.5);
+}
+.bt-canvas-avatar-status[data-state=waiting]::before {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245,158,11,.22);
+}
+.bt-canvas-avatar-status:hover { background: rgba(0,0,0,.05); }
+.bt-canvas-avatar-status:focus-visible { outline: 2px solid #888; outline-offset: 2px; }
+
+.bt-canvas-window-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  min-height: 56px;
+  padding: 10px 14px;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  border-bottom: 1px solid var(--divider);
+}
+.bt-canvas-window[data-mode=card] > .bt-canvas-window-header {
+  min-height: 64px;
+  padding: 12px 14px 8px;
+  gap: 10px;
+  border-bottom: 0;
+}
+.bt-canvas-window[data-mode=card][data-kind=room] > .bt-canvas-window-header {
+  min-height: 60px;
+  padding: 10px 14px 6px;
+}
+.bt-canvas-window[data-mode=card] > .bt-canvas-window-header .bt-canvas-window-title { gap: 10px; }
+.bt-canvas-window[data-mode=card] > .bt-canvas-window-header .bt-canvas-window-title strong {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+.bt-canvas-window-header:active { cursor: grabbing; }
+.bt-canvas-window-header > .bt-mark, .bt-canvas-window-header > .bt-cluster { flex: none; }
+.bt-canvas-window-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  text-align: start;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.bt-canvas-window-title > .bt-mark, .bt-canvas-window-title > .bt-cluster { flex: none; }
+.bt-canvas-window-title > span:last-child { min-width: 0; overflow: hidden; }
+.bt-canvas-window-title strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text-primary);
+}
+.bt-canvas-window-header > input[type=checkbox] {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #10a37f;
+  cursor: pointer;
+}
+.bt-canvas-window-meta {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+}
+.bt-canvas-window-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  cursor: default;
+}
+.bt-canvas-window > .bt-canvas-window-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: none;
+  max-width: none;
+  padding: 4px 14px 8px;
+  white-space: normal;
+  overflow: visible;
+  border-bottom: 1px solid var(--divider);
+}
+.bt-canvas-window > .bt-canvas-window-meta > span[role=status] {
+  flex: 1 0 100%;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.bt-canvas-window > .bt-canvas-window-meta .bt-canvas-button {
+  min-height: 26px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.bt-canvas-button, .bt-canvas-dock-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 32px;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 12px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease, transform .12s cubic-bezier(0.16,1,0.3,1);
+}
+.bt-canvas-window-actions .bt-canvas-button {
+  flex: none;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border-radius: 8px;
+}
+.bt-canvas-button > svg, .bt-canvas-dock-item > svg { display: block; flex: none; width: 15px; height: 15px; }
+.bt-canvas-button > span, .bt-canvas-dock-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-canvas-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 1);
+  color: var(--text-primary);
+}
+.bt-canvas-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.bt-canvas :is(.bt-canvas-button):disabled { opacity: .4; cursor: default; }
+
+.bt-canvas-content {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.bt-canvas-compact {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 2px 14px 12px;
+  overflow: hidden;
+}
+.bt-canvas-card-state {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  max-width: 100%;
+  min-height: 22px;
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .7);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+.bt-canvas-card-state:hover { color: var(--text-primary); background: #ffffff; }
+.bt-canvas-card-state > span {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+.bt-canvas-card-state[data-state=working] {
+  color: #10a37f;
+  background: rgba(16,163,127,.08);
+  border-color: rgba(16,163,127,.2);
+}
+.bt-canvas-card-state[data-state=working] > span { background: #10a37f; }
+.bt-canvas-card-state[data-state=waiting] {
+  color: #b45309;
+  border-color: rgba(245,158,11,.3);
+  background: rgba(245,158,11,.1);
+}
+.bt-canvas-card-state[data-state=waiting] > span {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245,158,11,.25);
+}
+
+.bt-canvas-compact > p {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  min-height: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.bt-canvas-compact[data-has-groups] > p { -webkit-line-clamp: 1; }
+.bt-canvas-compact > footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.bt-canvas-compact > footer > .bt-canvas-button {
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.bt-canvas-compact .bt-canvas-open-conversation {
+  flex: 1 1 auto;
+}
+.bt-canvas-compact .bt-canvas-open-conversation:hover {
+  transform: translateY(-1px);
+}
+
+.bt-canvas-room-summary { display: flex; flex: none; flex-direction: column; gap: 6px; min-width: 0; max-width: 100%; }
+.bt-canvas-room-mode {
+  display: block;
+  max-width: 100%;
+  height: 20px;
+  min-width: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bt-canvas-room-mode:hover { color: var(--text-primary); background: rgba(0,0,0,.04); }
+.bt-canvas-members { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; flex: none; overflow: hidden; }
+.bt-canvas-members > .bt-canvas-button {
+  position: relative;
+  flex: 0 1 auto;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .7);
+  font-size: 11px;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bt-canvas-member > .bt-mark { flex: none; border-radius: 50%; }
+.bt-canvas-member:has(>.bt-mark) { padding: 2px 8px 2px 3px; }
+.bt-canvas-member[data-state]::before { content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: #94a3b8; }
+.bt-canvas-member[data-state=work]::before { background: #10a37f; }
+.bt-canvas-member[data-state=ask]::before { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,.22); }
+
+.bt-canvas-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0;
+  touch-action: none;
+  cursor: nwse-resize;
+  transition: color .12s ease, background-color .12s ease;
+}
+.bt-canvas-resize::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  border-bottom-right-radius: 2px;
+  opacity: .7;
+}
+.bt-canvas-resize:hover { background: rgba(0,0,0,.04); color: var(--text-primary); }
+
+.bt-canvas-group {
+  position: absolute;
+  z-index: 0;
+  min-width: 0;
+  border: 1px dashed rgba(0,0,0,.15);
+  border-radius: 24px;
+  background: rgba(255,255,255,.35);
+  box-shadow: 0 8px 24px rgba(0,0,0,.03);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+.bt-canvas-group:is([data-selected="true"],[data-selected=""]) {
+  border-color: #888;
+  border-style: solid;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.15);
+}
+.bt-canvas-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 12px 4px 14px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 18px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.bt-canvas-group-header:active { cursor: grabbing; }
+.bt-canvas-group-header > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-canvas-group-header .bt-canvas-button { min-height: 26px; padding: 2px 7px; font-size: 11px; }
+.bt-canvas-group-title { display: flex; align-items: center; gap: 3px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.bt-canvas-group-title > .bt-canvas-button:first-child {
+  justify-content: flex-start;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: grab;
+  touch-action: none;
+  font-weight: 600;
+}
+.bt-canvas-group-title > .bt-canvas-button:last-child { flex: none; padding: 3px; min-width: 26px; }
+.bt-canvas-group-name {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 320px;
+  height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--text-primary);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  outline: none;
+}
+
+.bt-canvas-marquee {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  border: 1px solid rgba(0,0,0,.2);
+  border-radius: 6px;
+  background: rgba(0,0,0,.04);
+}
+
+.bt-canvas-dock {
+  left: 50%;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  width: max-content;
+  max-width: min(780px, calc(100% - 460px));
+  max-height: 84px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 8px;
+  transform: translateX(-50%);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,.15) transparent;
+  overscroll-behavior: contain;
+}
+.bt-canvas-dock-item {
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 3px;
+  width: 56px;
+  min-width: 0;
+  max-width: 72px;
+  padding: 5px 4px 6px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+  letter-spacing: -0.005em;
+  text-align: center;
+  color: var(--text-primary);
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  cursor: grab;
+  -webkit-user-drag: element;
+  user-select: none;
+}
+.bt-canvas-dock-item:active {
+  cursor: grabbing;
+}
+.bt-row[draggable="true"] {
+  cursor: grab;
+  -webkit-user-drag: element;
+  user-select: none;
+}
+.bt-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+.bt-canvas-dock-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.7);
+}
+.bt-canvas-dock-item > .bt-mark, .bt-canvas-dock-item > .bt-cluster {
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08), 0 0 0 1px rgba(255,255,255,.9);
+  transition: transform .14s cubic-bezier(0.16,1,0.3,1);
+}
+.bt-canvas-dock-item:hover > .bt-mark, .bt-canvas-dock-item:hover > .bt-cluster {
+  transform: translateY(-2px);
+}
+.bt-canvas-dock-item > span:not(.bt-mark):not(.bt-cluster) { max-width: 100%; }
+
+.bt-canvas-zoom {
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px;
+}
+.bt-canvas-zoom > output, .bt-canvas-zoom > span {
+  min-width: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.bt-canvas-zoom .bt-canvas-button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.bt-canvas-status {
+  right: 16px;
+  bottom: 72px;
+  max-width: 260px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  background: var(--glass-floating);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+.bt-canvas-status:empty { display: none; }
+
+.bt-canvas-empty {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100% - 40px);
+  padding: 24px 28px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  background: var(--glass-floating);
+  box-shadow: var(--glass-shadow);
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--text-primary);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+.bt-canvas-empty > p { margin: 0; max-width: 34ch; color: var(--text-secondary); font-size: 13px; line-height: 20px; }
+.bt-canvas-empty > :is(strong,h2) { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -0.015em; color: var(--text-primary); }
+
+.bt-canvas-session {
+  --bt-placeholder: "Message";
+  --bt-first-sep: none;
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.bt-canvas-session-error {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.bt-canvas-content > .bt-canvas-status {
+  position: static;
+  align-self: center;
+  max-width: 100%;
+  margin: auto;
+  padding: 16px;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.bt-canvas [data-conversation-content] {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: transparent !important;
+}
+.bt-canvas [data-conversation-content] > [data-conversation-scroll] {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,.15) transparent;
+}
+.bt-canvas [data-composer-seat] {
+  margin-top: auto;
+  background: transparent !important;
+  border-top: 1px solid var(--divider) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.bt-canvas [data-composer-card] {
+  background: rgba(255, 255, 255, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  backdrop-filter: blur(16px) !important;
+}
+.bt-canvas [data-composer-input] {
+  color: var(--text-primary) !important;
+  caret-color: var(--text-primary) !important;
+}
+.bt-canvas .bt-bubble {
+  background: rgba(255, 255, 255, 0.35) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04) !important;
+}
+.bt-canvas-session [class*="_scroll"]:has(> [class*="_column"]) { padding-top: 12px !important; }
+.bt-canvas-session [class*="_scroll"] > [class*="_column"]::before { margin-top: 0; }
+.bt-canvas-session [data-conversation-content] { --dsh-chat-content-width: min(960px, 100%); }
+
+.bt-canvas-launcher {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+  transition: background-color .14s ease, color .14s ease, border-color .14s ease, transform .12s cubic-bezier(0.16,1,0.3,1);
+}
+.bt-canvas-launcher > svg { display: block; width: 18px; height: 18px; }
+.bt-canvas-launcher > span { display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.bt-canvas-launcher:hover { background: #ffffff; color: var(--text-primary); }
+.bt-canvas-launcher:active { transform: scale(0.96); }
+.bt-canvas-launcher:focus-visible { outline: 2px solid #888; outline-offset: 2px; }
+
 @container bt-canvas (max-width:900px){
-  .bt-canvas-dock{bottom:78px;max-width:calc(100% - 24px)}
+  .bt-canvas-dock{bottom:76px;max-width:calc(100% - 24px)}
 }
 @media(max-width:900px){
-  .bt-canvas-dock{bottom:78px;max-width:calc(100% - 24px)}
+  .bt-canvas-dock{bottom:76px;max-width:calc(100% - 24px)}
 }
 @container bt-canvas (max-width:640px){
-  .bt-canvas-toolbar{top:12px;left:12px;right:12px;width:auto;max-width:none;gap:3px;padding:5px;border-radius:14px}
-  .bt-canvas-toolbar>strong{flex-basis:100%;padding:3px 7px}
+  .bt-canvas-toolbar{top:12px;left:12px;right:12px;width:auto;max-width:none;gap:3px;padding:5px;border-radius:12px}
+  .bt-canvas-toolbar>strong{flex-basis:100%;padding:2px 6px}
   .bt-canvas-toolbar>span[role=separator]{display:none}
-  .bt-canvas-toolbar .bt-canvas-button{padding:6px 8px;font-size:12px}
-  .bt-canvas-dock{left:50%;right:auto;bottom:76px;max-width:calc(100% - 24px);max-height:86px;padding:5px 8px;border-radius:28px}
-  .bt-canvas-dock-item{width:54px;max-width:64px;padding:4px;font-size:10px}
-  .bt-canvas-zoom{right:12px;bottom:12px;padding:5px;border-radius:14px}
+  .bt-canvas-toolbar .bt-canvas-button{padding:5px 8px;font-size:11px}
+  .bt-canvas-dock{left:50%;right:auto;bottom:76px;max-width:calc(100% - 24px);max-height:84px;padding:5px 6px;border-radius:18px}
+  .bt-canvas-dock-item{width:52px;max-width:60px;padding:4px;font-size:10px}
+  .bt-canvas-zoom{right:12px;bottom:12px;padding:4px;border-radius:10px}
   .bt-canvas>.bt-canvas-status{display:none}
-  .bt-canvas-window-header{gap:7px;padding:9px 10px}
-  .bt-canvas-window-actions{gap:1px}
+  .bt-canvas-window-header{gap:8px;padding:8px 10px}
+  .bt-canvas-window-actions{gap:2px}
 }
 @media(max-width:640px){
-  .bt-canvas-toolbar{top:12px;left:12px;right:12px;width:auto;max-width:none;gap:3px;padding:5px;border-radius:14px}
-  .bt-canvas-toolbar>strong{flex-basis:100%;padding:3px 7px}
+  .bt-canvas-toolbar{top:12px;left:12px;right:12px;width:auto;max-width:none;gap:3px;padding:5px;border-radius:12px}
+  .bt-canvas-toolbar>strong{flex-basis:100%;padding:2px 6px}
   .bt-canvas-toolbar>span[role=separator]{display:none}
-  .bt-canvas-toolbar .bt-canvas-button{padding:6px 8px;font-size:12px}
-  .bt-canvas-dock{left:50%;right:auto;bottom:76px;max-width:calc(100% - 24px);max-height:86px;padding:5px 8px;border-radius:28px}
-  .bt-canvas-dock-item{width:54px;max-width:64px;padding:4px;font-size:10px}
-  .bt-canvas-zoom{right:12px;bottom:12px;padding:5px;border-radius:14px}
+  .bt-canvas-toolbar .bt-canvas-button{padding:5px 8px;font-size:11px}
+  .bt-canvas-dock{left:50%;right:auto;bottom:76px;max-width:calc(100% - 24px);max-height:84px;padding:5px 6px;border-radius:18px}
+  .bt-canvas-dock-item{width:52px;max-width:60px;padding:4px;font-size:10px}
+  .bt-canvas-zoom{right:12px;bottom:12px;padding:4px;border-radius:10px}
   .bt-canvas>.bt-canvas-status{display:none}
-  .bt-canvas-window-header{gap:7px;padding:9px 10px}
-  .bt-canvas-window-actions{gap:1px}
+  .bt-canvas-window-header{gap:8px;padding:8px 10px}
+  .bt-canvas-window-actions{gap:2px}
 }
 @media(pointer:coarse){
   .bt-canvas :is(.bt-canvas-button,.bt-canvas-dock-item){min-width:44px;min-height:44px}
@@ -15323,14 +16933,14 @@ body[data-ds-dark-theme] .bt-canvas::before{filter:brightness(.8) saturate(.85)}
   .bt-canvas-avatar-status{top:37px;left:64px;width:44px;height:44px}
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  .bt-canvas :is(.bt-canvas-toolbar,.bt-canvas-window,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-status,.bt-canvas-empty,.bt-canvas-group,.bt-canvas-avatar-tools){background:var(--bt-card)}
-  .bt-canvas-window[data-mode=card][data-kind=bot]{background:transparent}
-  .bt-canvas :is([data-composer-seat],[data-composer-card]){background:var(--bt-card)!important}
+  .bt-canvas :is(.bt-canvas-toolbar,.bt-canvas-window,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-status,.bt-canvas-empty,.bt-canvas-group,.bt-canvas-avatar-tools){background:#f8f8f8}
+  .bt-canvas-window[data-mode=card][data-kind=bot]{background:transparent!important}
+  .bt-canvas :is([data-composer-seat],[data-composer-card]){background:#f8f8f8!important}
 }
 @media(prefers-reduced-transparency:reduce){
-  .bt-canvas :is(.bt-canvas-toolbar,.bt-canvas-window,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-status,.bt-canvas-empty,.bt-canvas-group,.bt-canvas-avatar-tools){background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none}
-  .bt-canvas-window[data-mode=card][data-kind=bot]{background:transparent}
-  .bt-canvas :is([data-composer-seat],[data-composer-card]){background:var(--bt-card)!important;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .bt-canvas :is(.bt-canvas-toolbar,.bt-canvas-window,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-status,.bt-canvas-empty,.bt-canvas-group,.bt-canvas-avatar-tools){background:#f8f8f8;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .bt-canvas-window[data-mode=card][data-kind=bot]{background:transparent!important}
+  .bt-canvas :is([data-composer-seat],[data-composer-card]){background:#f8f8f8!important;-webkit-backdrop-filter:none;backdrop-filter:none}
 }
 @media(prefers-reduced-motion:reduce){
   .bt-canvas,.bt-canvas *,.bt-canvas *::before,.bt-canvas *::after,.bt-canvas-launcher{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -15339,7 +16949,7 @@ body[data-ds-dark-theme] .bt-canvas::before{filter:brightness(.8) saturate(.85)}
   .bt-canvas{--bt-ink:CanvasText;--bt-ink-2:CanvasText;--bt-ink-3:CanvasText;--bt-card:Canvas;--bt-main:Canvas;--bt-accent:Highlight;background:Canvas;color:CanvasText}
   .bt-canvas::before,.bt-canvas::after{display:none}
   .bt-canvas :is(.bt-canvas-toolbar,.bt-canvas-window,.bt-canvas-dock,.bt-canvas-zoom,.bt-canvas-status,.bt-canvas-empty){background:Canvas;border-color:CanvasText;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
-  .bt-canvas-window:is([data-active="true"],[data-active=""],[data-selected="true"],[data-selected=""]){outline:2px solid Highlight}
+  .bt-canvas-window:is([data-active="true"],[data-active=""],[data-selected="true"],[data-selected=""]){outline:none}
   .bt-canvas-window[data-mode=card][data-kind=bot]{background:transparent;outline:none}
   .bt-canvas-avatar-node>.bt-canvas-window-title>strong,.bt-canvas-avatar-node>.bt-canvas-window-title>span{color:CanvasText;text-shadow:none}
   .bt-canvas-avatar-open>.bt-mark{outline:1px solid CanvasText}
@@ -15349,6 +16959,139 @@ body[data-ds-dark-theme] .bt-canvas::before{filter:brightness(.8) saturate(.85)}
   .bt-canvas-group,.bt-canvas-marquee{border-color:Highlight}
   .bt-canvas :is([data-composer-seat],[data-composer-card]){background:Canvas!important;-webkit-backdrop-filter:none;backdrop-filter:none}
   .bt-canvas-launcher{background:ButtonFace;color:ButtonText;border-color:ButtonText}
+}
+
+/* Windows-style Canvas Context Menu - matching other canvas frosted-glass popups */
+.bt-canvas-menu {
+  min-width: 210px;
+  max-width: 270px;
+  padding: 8px;
+  background: var(--glass-window, rgba(255, 255, 255, 0.5)) !important;
+  backdrop-filter: blur(var(--glass-blur, 50px)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 50px)) !important;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.45)) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--glass-shadow, 0 4px 20px 0 rgba(0, 0, 0, 0.08)) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  user-select: none;
+  z-index: 10000;
+  animation: bt-canvas-menu-pop 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-color-scheme: dark) {
+  .bt-canvas-menu {
+    background: rgba(36, 36, 40, 0.65) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.35) !important;
+  }
+}
+@keyframes bt-canvas-menu-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(-2px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.bt-canvas-menu-item {
+  box-sizing: border-box;
+  display: flex !important;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  gap: 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary, #262626);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+@media (prefers-color-scheme: dark) {
+  .bt-canvas-menu-item {
+    color: #f0f0f0;
+  }
+}
+.bt-canvas-menu-item:hover,
+.bt-canvas-menu-item.is-active {
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+@media (prefers-color-scheme: dark) {
+  .bt-canvas-menu-item:hover,
+  .bt-canvas-menu-item.is-active {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+.bt-canvas-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-secondary, #757575);
+}
+@media (prefers-color-scheme: dark) {
+  .bt-canvas-menu-icon { color: #aaa; }
+}
+.bt-canvas-menu-item:hover .bt-canvas-menu-icon {
+  color: var(--text-primary, #111);
+}
+@media (prefers-color-scheme: dark) {
+  .bt-canvas-menu-item:hover .bt-canvas-menu-icon { color: #fff; }
+}
+.bt-canvas-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bt-canvas-menu-arrow {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  padding-left: 8px;
+}
+.bt-canvas-menu-divider {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--divider, rgba(0, 0, 0, 0.06));
+}
+@media (prefers-color-scheme: dark) {
+  .bt-canvas-menu-divider {
+    background: rgba(255, 255, 255, 0.09);
+  }
+}
+.bt-canvas-menu-parent {
+  position: relative;
+}
+.bt-canvas-menu-submenu {
+  position: absolute;
+  top: -4px;
+  left: calc(100% + 6px);
+  min-width: 190px;
+  padding: 8px;
+  background: var(--glass-window, rgba(255, 255, 255, 0.5)) !important;
+  backdrop-filter: blur(var(--glass-blur, 50px)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 50px)) !important;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.45)) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--glass-shadow, 0 4px 20px 0 rgba(0, 0, 0, 0.08)) !important;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  animation: bt-canvas-menu-pop 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bt-canvas-menu-submenu.is-rtl {
+  left: auto;
+  right: calc(100% + 6px);
+}
+@media (prefers-color-scheme: dark) {
+  .bt-canvas-menu-submenu {
+    background: rgba(36, 36, 40, 0.65) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.35) !important;
+  }
 }
 `;
 
@@ -16046,13 +17789,22 @@ function apply(ctx) {
     },
     dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state)
   };
+  const userMovedWindows = /* @__PURE__ */ new Set();
+  actions.markCanvasWindowMoved = (id) => {
+    if (id) userMovedWindows.add(id);
+  };
   actions.updateCanvas = updateCanvas;
   actions.saveCanvas = saveCanvas;
   actions.setCanvasSize = (size) => {
     canvasSize = size;
     if (size && pendingCanvasFocus) {
-      updateCanvas((state) => fitViewport(state, size, size.insets, pendingCanvasFocus === "all" ? void 0 : [pendingCanvasFocus]));
+      const focus = pendingCanvasFocus;
       pendingCanvasFocus = void 0;
+      if (focus === "all") {
+        updateCanvas((state) => fitViewport(state, size, size.insets));
+      } else {
+        actions.openCanvasConversation(focus, size);
+      }
     }
   };
   actions.retainCanvasSession = (id) => ctx.sessions.retain(id, { source: "dsBotCanvas" });
@@ -16072,18 +17824,40 @@ function apply(ctx) {
     const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id];
     if (!entity) return;
     const kind = snapshot.roomsById[entity.id] ? "room" : "bot";
-    const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind });
+    const current = canvas.getSnapshot();
+    let next = openWindow(current, { id: entity.id, kind });
     const window2 = next.windows.find((value) => value.entityId === entity.id);
+    if (window2) {
+      window2.width = 760;
+      window2.height = 540;
+    }
     updateCanvas(next);
     actions.openCanvasConversation(window2.id, size);
   };
   actions.openCanvasConversation = (id, size) => {
     const current = canvas.getSnapshot();
-    if (!current.windows.some((window2) => window2.id === id && window2.open)) return;
+    if (!current.windows.some((window3) => window3.id === id && window3.open)) return;
     let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false);
-    const viewport = size ?? canvasSize;
-    if (viewport) next = fitViewport(next, viewport, viewport.insets, [id]);
-    else pendingCanvasFocus = id;
+    const window2 = next.windows.find((item) => item.id === id);
+    if (window2) {
+      window2.width = 760;
+      window2.height = 540;
+      if (!userMovedWindows.has(window2.id)) {
+        const viewport = size ?? canvasSize;
+        if (viewport) {
+          const v = next.viewport;
+          const left = Math.min(Math.max(0, viewport.insets?.left ?? 24), viewport.width / 2 - 1);
+          const right = Math.min(Math.max(0, viewport.insets?.right ?? 24), viewport.width / 2 - 1);
+          const top = Math.min(Math.max(0, viewport.insets?.top ?? 70), viewport.height - 2);
+          const bottom = Math.min(Math.max(0, viewport.insets?.bottom ?? 70), viewport.height - top - 1);
+          const availW = viewport.width - left - right, availH = viewport.height - top - bottom;
+          const screenX = left + (availW - window2.width * v.zoom) / 2;
+          const screenY = top + (availH - window2.height * v.zoom) / 2;
+          window2.x = Math.round((screenX - v.x) / v.zoom);
+          window2.y = Math.round((screenY - v.y) / v.zoom);
+        }
+      }
+    }
     updateCanvas(next);
     actions.openCanvas(false);
   };

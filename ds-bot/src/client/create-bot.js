@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { BotMark } from './mark.js'
 import { CharacterGrid, avatarImage } from './bot-settings.js'
+import { IP_AVATARS } from './ip-avatars.js'
 import { DEFAULT_SHAPES, DEFAULT_COLORS } from './characters.js'
 import { ChevronLeftIcon, CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
@@ -61,6 +62,17 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       h('span', { className: 'bt-create-name' }, finalName)),
     h('div', { className: 'bt-create-step' }, t('Look')),
     h('div', { className: 'bt-create-looks' },
+      h('div', { className: 'bt-create-presets', style: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', marginBottom: '10px' } },
+        IP_AVATARS.map((src, idx) => h('button', {
+          key: idx, type: 'button', className: 'bt-create-preset-btn',
+          style: {
+            border: image === src ? '2px solid var(--bt-accent, #3b82f6)' : '1px solid var(--bt-line-2, #e5e7eb)',
+            borderRadius: '10px', padding: '2px', background: 'var(--bt-card, #fff)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', aspectRatio: '1',
+            outline: 'none', transition: 'transform .1s ease'
+          },
+          onClick: () => setImage(src),
+        }, h('img', { src, alt: '', style: { width: '100%', height: '100%', borderRadius: '8px', objectFit: 'cover' } })))),
       h(CharacterGrid, {
         look, hasPhoto: Boolean(image),
         onShape: (shape) => { setImage(null); setLook(current => ({ ...current, shape })) },

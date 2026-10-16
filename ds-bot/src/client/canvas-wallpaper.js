@@ -65,6 +65,11 @@ export function CanvasWallpaper({ canvasRef }) {
       canvas?.removeAttribute('data-wallpaper')
     }
   }, [])
+  useEffect(() => {
+    const onOpen = () => setOpen(true)
+    window.addEventListener('ds-bot:open-wallpaper', onOpen)
+    return () => window.removeEventListener('ds-bot:open-wallpaper', onOpen)
+  }, [])
   const change = async file => {
     if (!file || busy || loading) return
     const current = ++generation.current

@@ -10,6 +10,7 @@ import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide } from './motion.js'
+import { IP_AVATARS } from './ip-avatars.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -154,11 +155,22 @@ function AvatarEditor({ bot, actions, run, onClose }) {
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-        [['bot', 'Bot'], ['upload', 'Upload']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
+        [['preset', 'Preset'], ['bot', 'Bot'], ['upload', 'Upload']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
       h('button', {
         type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: t('Reset character to default'),
         onClick: () => run(actions.updateBot(bot.id, { avatar: null, color: null })),
       }, t('Reset'))),
+    tab === 'preset' ? h('div', { className: 'bt-avedit-presets', style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', padding: '4px 0' } },
+      IP_AVATARS.map((src, idx) => h('button', {
+        key: idx, type: 'button', className: 'bt-avedit-preset-btn',
+        style: {
+          border: look.image === src ? '2px solid var(--bt-accent, #3b82f6)' : '1px solid var(--bt-line-2, #e5e7eb)',
+          borderRadius: '12px', padding: '3px', background: 'var(--bt-card, #fff)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', aspectRatio: '1',
+          outline: 'none', transition: 'transform .1s ease'
+        },
+        onClick: () => run(actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image: src } })),
+      }, h('img', { src, alt: '', style: { width: '100%', height: '100%', borderRadius: '8px', objectFit: 'cover' } })))) : null,
     tab === 'bot' ? h(CharacterGrid, {
       look, hasPhoto,
       onShape: shape => run(actions.updateBot(bot.id, { avatar: { shape } })),
