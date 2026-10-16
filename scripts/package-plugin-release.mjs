@@ -99,11 +99,14 @@ export async function packagePluginRelease({ env = process.env } = {}) {
   const path = join(out, packed[0].filename);
   const size = (await stat(path)).size;
   if (size < 18 || size > 50 * 1024 * 1024) throw new Error('Package exceeds gateway size limits');
-  const manifest = JSON.parse(execFileSync('tar', ['-xzOf', path, 'package/package.json'], {
-    encoding: 'utf8', maxBuffer: 1024 * 1024,
+  // Git Bash tar interprets the colon in a Windows drive path as a remote host.
+  const manifest = JSON.parse(execFileSync('tar', ['-xzOf', basename(path), 'package/package.json'], {
+    cwd: out, encoding: 'utf8', maxBuffer: 1024 * 1024,
   }));
   const patch = validateManifest(manifest, config, true);
-  const patchBytes = execFileSync('tar', ['-xzOf', path, `package/${patch}`], { maxBuffer: 100 * 1024 * 1024 });
+  const patchBytes = execFileSync('tar', ['-xzOf', basename(path), `package/${patch}`], {
+    cwd: out, maxBuffer: 100 * 1024 * 1024,
+  });
   if (!patchBytes.length) throw new Error('Bundle patch is empty');
   const bytes = await readFile(path);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
