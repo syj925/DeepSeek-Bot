@@ -19,7 +19,7 @@ DeepSeek Bot (DS Bot) is a bot plugin for [DeepSeek Harness](https://github.com/
 
 ### QibitAI employee canvas fork
 
-Version **0.1.6** of this fork is distributed through QibitAI's plugin gateway. In **Plugins → Add plugin**, enter:
+Version **0.1.7** of this fork is distributed through QibitAI's plugin gateway. In **Plugins → Add plugin**, enter:
 
 ```text
 https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz
@@ -28,6 +28,8 @@ https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz
 The package remains `ds-bot`, so an existing installation is replaced in place and keeps its team data. Use **Settings → About DS Bot → Check for updates**, or the desktop plugin manager, to check manually. Confirm **Update** to install the selected release. If the result says a restart is required, quit QibitAI Desktop completely and reopen it. Older Desktop builds without the hosted-plugin API show an unsupported message; upgrade Desktop first. Linked development folders are updated locally.
 
 This fork declares `https://desktop.qibitai.ai` as its update source and does not fall back to upstream npm/GitHub releases. The npm and upstream instructions below install the original DS Bot, without this fork's canvas changes.
+
+Maintainers publish from `feat/employee-canvas` by pushing a `ds-bot-v<version>` tag. GitHub Actions tests, freezes and publishes the archive, then verifies the public download. See [the release guide](docs/plugin-release.md) for stable/beta channels and configuration.
 
 ### Original DS Bot
 

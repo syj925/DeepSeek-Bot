@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/employee-canvas]
   pull_request:
 
 permissions:
@@ -33,6 +33,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: Test release tooling
+        working-directory: .
+        run: node --test scripts/test/*.test.mjs
       - run: npm ci --no-fund --no-audit
       - name: Install DSH ${{ matrix.dsh }}
         run: npm run harness -- --no-save "@deepseek-ai/dsh@${{ matrix.dsh }}"

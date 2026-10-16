@@ -1,0 +1,131 @@
+name: DS Bot Plugin Release
+
+on:
+  push:
+    tags: ['ds-bot-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ds-bot-plugin-release
+  cancel-in-progress: false
+
+env:
+  PUBLIC_ORIGIN: https://desktop.qibitai.ai
+  PLUGIN_DIR: ds-bot
+  PLUGIN_ID: ds-bot
+  PLUGIN_PACKAGE_NAME: ds-bot
+  PLUGIN_DISPLAY_NAME: DS Bot
+  PLUGIN_NOTES_FILE: RELEASE_NOTES.md
+
+jobs:
+  package:
+    name: Validate and freeze plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.pack.outputs.version }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+      channel: ${{ steps.release.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release tag and source branch
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = syj925/DeepSeek-Bot
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/feat/employee-canvas
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const { version } = JSON.parse(readFileSync('ds-bot/package.json', 'utf8'));
+          if (process.env.GITHUB_REF !== `refs/tags/ds-bot-v${version}`) {
+            throw new Error('Tag must match the package version exactly');
+          }
+          const channel = version.split('+')[0].includes('-') ? 'beta' : 'stable';
+          appendFileSync(process.env.GITHUB_OUTPUT, `channel=${channel}\n`);
+          appendFileSync(process.env.GITHUB_ENV, `RELEASE_CHANNEL=${channel}\n`);
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ds-bot/package-lock.json
+
+      - name: Install locked build dependencies
+        working-directory: ds-bot
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
+      - name: Install pinned DSH test harness
+        working-directory: ds-bot
+        run: npm run harness
+
+      - name: Test release tooling
+        run: node --test scripts/test/*.test.mjs
+
+      - name: Prepare update channel
+        run: node scripts/package-plugin-release.mjs prepare
+
+      - name: Verify committed client and build runtime
+        working-directory: ds-bot
+        run: |
+          node scripts/build-client.mjs --check
+          npm run build
+
+      - name: Test and lint plugin
+        working-directory: ds-bot
+        run: |
+          npm test
+          node scripts/build-client.mjs --check
+          npm run lint
+
+      - name: Freeze tested archive and publishing metadata
+        id: pack
+        env:
+          PACKAGE_DIR: ${{ runner.temp }}/plugin-release
+        run: node scripts/package-plugin-release.mjs pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-ds-bot-${{ steps.pack.outputs.version }}
+          path: ${{ runner.temp }}/plugin-release
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish over HTTPS and verify public download
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: qibitai-release
+    env:
+      RELEASE_CHANNEL: ${{ needs.package.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-ds-bot-${{ needs.package.outputs.version }}
+          path: ${{ runner.temp }}/plugin-release
+
+      - name: Publish and verify frozen archive
+        env:
+          PACKAGE_DIR: ${{ runner.temp }}/plugin-release
+          EXPECTED_VERSION: ${{ needs.package.outputs.version }}
+          EXPECTED_SHA256: ${{ needs.package.outputs.sha256 }}
+          PLUGIN_PUBLISHER_EMAIL: ${{ secrets.PLUGIN_PUBLISHER_EMAIL }}
+          PLUGIN_PUBLISHER_PASSWORD: ${{ secrets.PLUGIN_PUBLISHER_PASSWORD }}
+          PLUGIN_CI_TOKEN: ${{ secrets.PLUGIN_CI_TOKEN }}
+        run: node scripts/publish-plugin.mjs

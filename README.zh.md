@@ -19,7 +19,7 @@ DeepSeek Bot（简称 DS Bot）是一个基于 [DeepSeek Harness](https://github
 
 ### QibitAI 员工画布二改版
 
-本分支的 **0.1.6** 通过 QibitAI 插件网关分发。在 **插件 → 添加插件** 中填写：
+本分支的 **0.1.7** 通过 QibitAI 插件网关分发。在 **插件 → 添加插件** 中填写：
 
 ```text
 https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz
@@ -28,6 +28,8 @@ https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz
 包名仍为 `ds-bot`，已有安装会原位替换并保留团队数据。在 **设置 → 关于 DS Bot → 检查更新**，或桌面插件管理器中手动检查，点击 **更新** 后安装选定版本。如果提示需要重启，请完全退出 QibitAI Desktop 再打开。旧桌面版本缺少托管插件 API 时会提示不支持，请先升级桌面端。本地链接的开发目录仍在本地更新。
 
 这个二改版声明的更新源为 `https://desktop.qibitai.ai`，不会回退到原版 npm／GitHub 更新。下方 npm 和上游安装步骤安装的是原版 DS Bot，不包含本分支的画布改动。
+
+维护者在 `feat/employee-canvas` 推送 `ds-bot-v<版本号>` 标签即可触发 GitHub Actions，自动测试、冻结安装包、发布并校验公网下载。正式版／测试版及配置见[发布指南](docs/plugin-release.md)。
 
 ### 原版 DS Bot
 
