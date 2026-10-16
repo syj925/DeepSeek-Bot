@@ -142,8 +142,13 @@ function fixture() {
     if (names.includes(node.type?.name)) return nested(render.render(node.type, node.props, `${node.type.name}:${node.props.group?.id ?? node.props.room?.id ?? node.props.window?.id}`), names)
     return { ...node, children: node.children.map(child => nested(child, names)) }
   }
-  const cards = tree => findAll(tree, value => value.type?.name === 'WindowCard').map(value => nested(value, ['WindowCard', 'RoomSummary']))
-  const card = (tree, id = 'writer') => cards(tree).find(value => value.props['data-entity-id'] === id)
+  const chat = tree => {
+    const value = find(tree, value => value.type?.name === 'CanvasChatWindow')
+    return value ? nested(value, ['CanvasChatWindow', 'WindowCard']) : null
+  }
+  const desktopCards = tree => findAll(tree, value => value.type?.name === 'WindowCard').map(value => nested(value, ['WindowCard', 'RoomSummary']))
+  const cards = tree => [...desktopCards(tree), ...findAll(chat(tree), value => value.props.className === 'bt-canvas-window')]
+  const card = (tree, id = 'writer') => cards(tree).findLast(value => value.props['data-entity-id'] === id)
   const group = tree => nested(find(tree, value => value.props.className === 'bt-canvas-group'), ['GroupTitle'])
   const addBot = (bot, inRoom = true) => {
     roster.bots.push(bot)
@@ -157,7 +162,7 @@ function fixture() {
     const node = find(draw(), value => value.type?.name === 'MainAgentGroup')
     return node ? render.render(node.type, node.props, 'group-dialog') : null
   }
-  return { draw, cards, card, group, addBot, modal, roster, room, work, calls, captures, actions, get state() { return state }, set state(value) { state = value } }
+  return { draw, cards, card, chat, desktopCards, group, addBot, modal, roster, room, work, calls, captures, actions, get state() { return state }, set state(value) { state = value } }
 }
 
 test('right-drag selects only Main Agents and a short right-click offers group actions', async () => {
@@ -315,8 +320,9 @@ test('Open conversation passes the stable window id and mounts only its current 
   assert.equal(session.props.sessionId, 'writer-current')
   assert.equal(session.props.actions, data.actions)
   assert.equal(hasSession(data.card(after, 'planning')), 0)
-  assert.equal(card.props.style.width, 560)
-  assert.equal(card.props.style.height, 640)
+  assert.equal(card.props.style.width, '100%')
+  assert.equal(card.props.style.height, '100%')
+  assert.equal(data.desktopCards(after).every(card => card.props['data-mode'] === 'card' && hasSession(card) === 0), true)
   assert.ok(button(card, 'Details'))
 })
 
@@ -328,6 +334,61 @@ test('Room conversation opening routes its own window and Session instead of the
   const after = data.draw()
   assert.equal(find(data.card(after, 'planning'), value => value.type?.name === 'CanvasSession').props.sessionId, 'planning')
   assert.equal(hasSession(data.card(after)), 0)
+})
+
+test('chat floats outside the transformed world while desktop icons keep their geometry at every zoom', () => {
+  for (const zoom of [.2, 1, 2]) {
+    const data = fixture(), window = data.state.windows[0]
+    data.state = { ...data.state, viewport: { x: -800, y: 350, zoom } }
+    const before = JSON.stringify(data.state)
+    data.actions.openCanvasConversation(window.id)
+    const tree = data.draw(), world = find(tree, value => value.props.className === 'bt-canvas-world')
+    assert.equal(find(world, value => value.type?.name === 'CanvasChatWindow'), undefined)
+    assert.equal(findAll(tree, value => value.type?.name === 'CanvasChatWindow').length, 1)
+    const avatar = data.desktopCards(tree).find(value => value.props['data-entity-id'] === 'writer')
+    assert.equal(avatar.props.style.left, window.x)
+    assert.equal(avatar.props.style.top, window.y)
+    assert.equal(avatar.props.style.width, 120)
+    assert.equal(hasSession(avatar), 0)
+    assert.equal(find(data.chat(tree), value => value.props.role === 'dialog').props['aria-label'], 'Writer')
+    assert.equal(JSON.stringify({ ...data.state, windows: data.state.windows.map(value => ({ ...value, compact: true })) }), before)
+  }
+})
+
+test('closing a floating chat waits for its own animation and keeps the employee on the desktop', () => {
+  const data = fixture(), window = data.state.windows[0]
+  data.actions.openCanvasConversation(window.id)
+  button(data.card(data.draw()), 'Close window').props.onClick()
+  const dialog = find(data.chat(data.draw()), value => value.props.role === 'dialog')
+  assert.equal(dialog.props['data-closing'], true)
+  dialog.props.onAnimationEnd({ target: {}, currentTarget: dialog })
+  assert.equal(data.state.windows[0].compact, false)
+  dialog.props.onAnimationEnd({ target: dialog, currentTarget: dialog })
+  assert.equal(data.state.windows[0].open, true)
+  assert.equal(data.state.windows[0].compact, true)
+  assert.equal(data.chat(data.draw()), null)
+  assert.equal(data.desktopCards(data.draw()).length, 2)
+})
+
+test('dragging a floating chat uses screen pixels, stays within the canvas and never moves its avatar', () => {
+  const data = fixture(), window = data.state.windows[0]
+  data.actions.openCanvasConversation(window.id)
+  const snapshot = JSON.stringify(data.state)
+  const tree = data.draw(), chat = data.chat(tree), dialog = find(chat, value => value.props.role === 'dialog')
+  const captured = new Set()
+  dialog.props.ref.current = {
+    getBoundingClientRect: () => ({ left: 100, top: 100, right: 900, bottom: 600 }),
+    parentElement: { getBoundingClientRect: () => ({ left: 0, top: 0, right: 1000, bottom: 700 }) },
+    setPointerCapture: id => captured.add(id), hasPointerCapture: id => captured.has(id), releasePointerCapture: id => captured.delete(id),
+  }
+  button(chat, 'Move Writer').props.onPointerDown(pointer())
+  dialog.props.onPointerMove(pointer({ clientX: 150, clientY: 125 }))
+  assert.equal(find(data.chat(data.draw()), value => value.props.role === 'dialog').props.style.translate, '50px 25px')
+  dialog.props.onPointerMove(pointer({ clientX: 10000, clientY: -10000 }))
+  assert.equal(find(data.chat(data.draw()), value => value.props.role === 'dialog').props.style.translate, '88px -88px')
+  dialog.props.onPointerCancel(pointer())
+  assert.equal(captured.size, 0)
+  assert.equal(JSON.stringify(data.state), snapshot)
 })
 
 test('checkbox, card selection, and keyboard movement never expand a lightweight card', () => {
@@ -494,6 +555,10 @@ test('collapsing an expanded conversation removes its Session and preserves the 
   const card = data.card(data.draw())
   assert.equal(hasSession(card), 1)
   button(card, 'Compact window').props.onClick()
+  const floating = find(data.chat(data.draw()), value => value.props.role === 'dialog')
+  assert.equal(floating.props['data-closing'], true)
+  assert.equal(data.state.windows.find(value => value.id === window.id).compact, false)
+  floating.props.onAnimationEnd({ target: floating, currentTarget: floating })
   const after = data.state.windows.find(value => value.id === window.id)
   assert.equal(after.open, true)
   assert.equal(after.compact, true)

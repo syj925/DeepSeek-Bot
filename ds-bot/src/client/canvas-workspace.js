@@ -53,7 +53,7 @@ function GroupTitle({ group, start, actions }) {
     button(null, edit, PencilIcon, { 'aria-label': t('Rename window group'), title: t('Rename window group') }))
 }
 
-function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget, canvasMenu }) {
+function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget, canvasMenu, floating, dismiss }) {
   const entity = entityOf(window, roster)
   const sessionId = canvasSessionId(window, roster)
   const preview = useSessions(list => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId]))
@@ -94,7 +94,7 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
     'data-drop-target': dropTarget || undefined,
     'data-mode': window.compact ? 'card' : 'conversation',
     'data-active': active || undefined, 'data-selected': selected || undefined, 'aria-label': entity.name,
-    style: { left: window.x, top: window.y, width: windowWidth(window), height: windowHeight(window), zIndex: window.z + 2 },
+    style: floating ? { left: 0, top: 0, width: '100%', height: '100%' } : { left: window.x, top: window.y, width: windowWidth(window), height: windowHeight(window), zIndex: window.z + 2 },
     onPointerDownCapture: select, onFocusCapture: select, onContextMenu: event => {
       if (selected && window.kind === 'bot' && isMainOf(roster, entity.id)) { event.preventDefault(); event.stopPropagation(); canvasMenu(event); return }
       if (!event.target.closest('.bt-canvas-content')) openMenu(event)
@@ -113,14 +113,14 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
       button(null, () => actions.showDetails(sessionId), InfoIcon, { className: 'bt-canvas-avatar-status', 'data-state': statusKind, title: status, 'aria-label': t('Details') })))
   return h('section', shell,
   h('div', { className: 'bt-canvas-window-header' },
-    h('input', { type: 'checkbox', checked: selected, 'aria-label': t('Select {name}', { name: entity.name }), onChange: event => actions.selectCanvasWindow(window.id, event.target.checked, true), onPointerDown: event => event.stopPropagation() }),
-    h('button', { type: 'button', className: 'bt-canvas-window-title', onPointerDown: event => start(event, 'window', window.id), onKeyDown: keyboard, 'aria-label': t('Move {name}', { name: entity.name }) },
+    floating ? null : h('input', { type: 'checkbox', checked: selected, 'aria-label': t('Select {name}', { name: entity.name }), onChange: event => actions.selectCanvasWindow(window.id, event.target.checked, true), onPointerDown: event => event.stopPropagation() }),
+    h('button', { type: 'button', className: 'bt-canvas-window-title', onPointerDown: event => start(event, 'window', window.id), onKeyDown: floating ? undefined : keyboard, 'aria-label': t('Move {name}', { name: entity.name }) },
       window.kind === 'room' ? h(RoomAvatar, { room: entity, roster, size: window.compact ? 36 : 28 }) : h(BotAvatar, { bot: entity, size: window.compact ? 36 : 28, main: isMainOf(roster, entity.id) }),
       h('span', null, h('strong', null, entity.name), h('span', { className: 'bt-canvas-window-meta' }, window.kind === 'room' ? t('{count} members', { count: entity.members.length }) : [isMainOf(roster, entity.id) ? t('Main Bot') : null, entity.role || t('Employee')].filter(Boolean).join(' · ')))),
     h('div', { className: 'bt-canvas-window-actions' },
-      window.compact ? null : button('−', () => actions.updateCanvas(state => setWindowCompact(state, window.id, true)), null, { 'aria-label': t('Compact window'), title: t('Compact window') }),
+      window.compact ? null : button('−', dismiss ?? (() => actions.updateCanvas(state => setWindowCompact(state, window.id, true))), null, { 'aria-label': t('Compact window'), title: t('Compact window') }),
       button(null, openMenu, DotsIcon, { 'aria-label': t('{name} actions', { name: entity.name }), title: t('More'), 'aria-haspopup': 'menu' }),
-      button(null, () => actions.updateCanvas(state => collapseWindow(state, window.id)), CloseIcon, { 'aria-label': t('Close window'), title: t('Close window') }))),
+      button(null, dismiss ?? (() => actions.updateCanvas(state => collapseWindow(state, window.id))), CloseIcon, { 'aria-label': t('Close window'), title: t('Close window') }))),
   window.compact ? null : h('div', { className: 'bt-canvas-window-meta' },
     h('span', { role: 'status', 'data-state': statusKind }, status),
     button(t('Details'), () => actions.showDetails(sessionId)),
@@ -135,7 +135,65 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
       button(t('Open conversation'), () => actions.openCanvasConversation(window.id), ChatsIcon, { className: 'bt-canvas-button bt-canvas-open-conversation', 'aria-expanded': false }),
       button(t(room ? 'Group settings' : 'Details'), () => room ? actions.openSettings('groups', entity.id) : actions.showDetails(sessionId))))
     : h('div', { className: 'bt-canvas-content' }, h(CanvasSession, { sessionId, actions, useSessions, SessionProvider, renderSlot })),
-  window.compact ? null : h('button', { type: 'button', className: 'bt-canvas-resize', 'aria-label': t('Resize {name}', { name: entity.name }), onPointerDown: event => start(event, 'resize', window.id), onKeyDown: event => keyboard(event, true) }, '⌟'))
+  window.compact || floating ? null : h('button', { type: 'button', className: 'bt-canvas-resize', 'aria-label': t('Resize {name}', { name: entity.name }), onPointerDown: event => start(event, 'resize', window.id), onKeyDown: event => keyboard(event, true) }, '⌟'))
+}
+
+function CanvasChatWindow(props) {
+  const { window, roster, actions } = props
+  const [closing, setClosing] = useState(false)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const node = useRef(null)
+  const drag = useRef(null)
+  const done = useRef(false)
+  const finish = () => {
+    if (done.current) return
+    done.current = true
+    actions.updateCanvas(state => setWindowCompact(state, window.id, true))
+  }
+  const dismiss = () => setClosing(true)
+  useEffect(() => {
+    if (!closing) return
+    // Also finish when animations are disabled or the window loses visibility.
+    const timer = setTimeout(finish, 240)
+    return () => clearTimeout(timer)
+  }, [closing])
+  useEffect(() => {
+    const previous = document.activeElement
+    node.current.focus({ preventScroll: true })
+    return () => { if (previous?.isConnected) previous.focus({ preventScroll: true }) }
+  }, [])
+  const start = event => {
+    if (event.button !== 0 || closing) return
+    event.preventDefault()
+    event.stopPropagation()
+    const box = node.current.getBoundingClientRect()
+    const bounds = node.current.parentElement.getBoundingClientRect()
+    drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, offset, box, bounds }
+    node.current.setPointerCapture(event.pointerId)
+  }
+  const end = event => {
+    if (drag.current?.id !== event.pointerId) return
+    drag.current = null
+    if (node.current.hasPointerCapture(event.pointerId)) node.current.releasePointerCapture(event.pointerId)
+  }
+  return h('div', { className: 'bt-canvas-chat-layer' },
+    h('div', { ref: node, className: 'bt-canvas-chat-float', role: 'dialog', tabIndex: -1, 'aria-label': entityOf(window, roster)?.name,
+      'data-closing': closing || undefined, style: { translate: `${offset.x}px ${offset.y}px` },
+      onPointerDown: event => event.stopPropagation(),
+      onPointerMove: event => {
+        const current = drag.current
+        if (current?.id !== event.pointerId) return
+        const { box, bounds } = current
+        const dx = Math.max(bounds.left + 12 - box.left, Math.min(bounds.right - 12 - box.right, event.clientX - current.x))
+        const dy = Math.max(bounds.top + 12 - box.top, Math.min(bounds.bottom - 12 - box.bottom, event.clientY - current.y))
+        setOffset({ x: current.offset.x + dx, y: current.offset.y + dy })
+        event.stopPropagation()
+      }, onPointerUp: end, onPointerCancel: end, onLostPointerCapture: () => { drag.current = null },
+      onKeyDown: event => {
+        if (event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent?.isComposing && !event.target.closest('[role=combobox],[aria-expanded=true]')) { event.preventDefault(); event.stopPropagation(); dismiss() }
+      },
+      onAnimationEnd: event => { if (closing && event.target === event.currentTarget) finish() },
+    }, h(WindowCard, { ...props, floating: true, selected: false, active: true, start, dismiss })))
 }
 
 export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, SessionProvider, renderSlot }) {
@@ -152,6 +210,8 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   const suppressContext = useRef(false)
   const [size, setSize] = useState({ width: 1000, height: 700 })
   const visible = state.windows.filter(window => window.open && entityOf(window, roster))
+  const desktop = visible.map(window => window.compact ? window : { ...window, compact: true })
+  const conversation = visible.filter(window => !window.compact).sort((a, b) => b.z - a.z)[0]
   const focused = useRef(null)
   const activeBot = visible.find(window => window.id === state.active && window.kind === 'bot')
   if (activeBot) focused.current = activeBot.entityId
@@ -300,7 +360,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   useEffect(() => {
     const node = root.current
     const wheel = event => {
-      if (event.target.closest('.bt-spatial-widget,.bt-wallpaper-menu')) return
+      if (event.target.closest('.bt-spatial-widget,.bt-wallpaper-menu,.bt-canvas-chat-layer')) return
       if (!event.ctrlKey && event.target.closest('.bt-canvas-window,.bt-canvas-toolbar,.bt-canvas-dock')) return
       event.preventDefault()
       if (event.ctrlKey) {
@@ -361,7 +421,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
             h('div', { className: 'bt-canvas-draft-members' }, selectedMains(state, roster, group.members, true).map(id => h(BotAvatar, { key: id, bot: roster.byId[id], size: 36, main: true }))),
             h('p', null, t(group.members.length ? 'Add another Main Agent to start a group conversation.' : 'Drag Main Agents here')),
             selectedMains(state, roster, group.members, true).length >= 2 ? button(t('Create group chat'), () => proposeGroup([], { kind: 'draft', id: group.id }), ChatsIcon) : null)
-          const members = visible.filter(window => group.members.includes(window.id))
+          const members = desktop.filter(window => group.members.includes(window.id))
           if (!members.length) return null
           const x = Math.min(...members.map(window => window.x)) - 16, y = Math.min(...members.map(window => window.y)) - 45
           return h('section', { key: group.id, className: 'bt-canvas-group', style: { left: x, top: y, width: Math.max(...members.map(window => window.x + windowWidth(window))) - x + 16, height: Math.max(...members.map(window => window.y + windowHeight(window))) - y + 16 } },
@@ -369,8 +429,9 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
               employeesOf(visible, group.members, roster).length >= 2 ? button(null, () => actions.openNewChat('group', employeesOf(visible, group.members, roster)), ChatsIcon, { title: t('Create group chat'), 'aria-label': t('Create group chat') }) : null,
               button(null, () => update(current => ungroupWindows(current, group.id)), CloseIcon, { title: t('Ungroup'), 'aria-label': t('Ungroup') })))
         }),
-        visible.map(window => h(WindowCard, { key: window.id, window, roster, selected: state.selected.includes(window.id), active: state.active === window.id, dropTarget: dropTarget === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, canvasMenu: event => { const box = root.current.getBoundingClientRect(); setMenu({ x: event.clientX - box.left, y: event.clientY - box.top }) } }))),
+        desktop.map(window => h(WindowCard, { key: window.id, window, roster, selected: state.selected.includes(window.id), active: state.active === window.id, dropTarget: dropTarget === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, canvasMenu: event => { const box = root.current.getBoundingClientRect(); setMenu({ x: event.clientX - box.left, y: event.clientY - box.top }) } }))),
       visible.length === 0 && !state.groups.some(group => group.draft) ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
+    conversation ? h(CanvasChatWindow, { key: conversation.id, window: conversation, roster, actions, useSessions, useWork, SessionProvider, renderSlot }) : null,
     menu ? h('div', { className: 'bt-canvas-context', role: 'menu', 'aria-label': t('Canvas actions'), style: { left: Math.max(0, Math.min(menu.x, size.width - 230)), top: Math.max(0, Math.min(menu.y, size.height - 150)) }, onContextMenu: event => event.preventDefault() },
       button(t('New empty group'), newEmptyGroup, FolderIcon, { role: 'menuitem' }),
       button(t('Create Main Agent group'), () => proposeGroup(mains), ChatsIcon, { role: 'menuitem', disabled: mains.length < 2 }),

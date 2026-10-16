@@ -620,14 +620,14 @@ export function apply(ctx) {
     if (current.active === id && JSON.stringify(current.selected) === JSON.stringify(ids)) return
     updateCanvas(setCanvasSelection(current, ids, id))
   }
-  actions.openCanvasEntity = (id, size) => {
+  actions.openCanvasEntity = id => {
     const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id]
     if (!entity) return
     const kind = snapshot.roomsById[entity.id] ? 'room' : 'bot'
     const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind })
     const window = next.windows.find(value => value.entityId === entity.id)
     updateCanvas(next)
-    actions.openCanvasConversation(window.id, size, { reveal: true })
+    actions.openCanvasConversation(window.id)
   }
   actions.placeCanvasMain = (id, point) => {
     const snapshot = roster.getSnapshot()
@@ -637,16 +637,11 @@ export function apply(ctx) {
       return { ...next, windows: next.windows.map(window => window.entityId === id && window.kind === 'bot' ? { ...window, x: point.x, y: point.y } : window) }
     })
   }
-  actions.openCanvasConversation = (id, size, { reveal = false } = {}) => {
+  actions.openCanvasConversation = id => {
     const current = canvas.getSnapshot()
     if (!current.windows.some(window => window.id === id && window.open)) return
-    let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
-    // Desktop icons open in place; directory and dock navigation can reveal offscreen chats.
-    if (reveal) {
-      const viewport = size ?? canvasSize
-      if (viewport) next = fitViewport(next, viewport, viewport.insets, [id])
-      else pendingCanvasFocus = id
-    } else pendingCanvasFocus = undefined
+    const next = setWindowCompact(setCanvasSelection(compactConversations(current), [id], id), id, false)
+    pendingCanvasFocus = undefined
     updateCanvas(next)
     actions.openCanvas(false)
   }

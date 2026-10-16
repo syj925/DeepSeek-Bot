@@ -43,6 +43,18 @@ body[data-ds-dark-theme] .bt-canvas::before{filter:brightness(.8) saturate(.85)}
 .bt-canvas-background{position:absolute;inset:0;z-index:-1;touch-action:none}
 .bt-canvas-stage:is([data-dragging="true"],[data-dragging=""]),.bt-canvas:is([data-dragging="true"],[data-dragging=""]) .bt-canvas-stage{cursor:grabbing}
 .bt-canvas-world{position:absolute;left:0;top:0;isolation:isolate;transform-origin:0 0}
+.bt-canvas-chat-layer{position:absolute;inset:0;z-index:60;display:grid;place-items:center;pointer-events:none}
+.bt-canvas-chat-float{position:relative;box-sizing:border-box;width:min(1040px,calc(100% - 48px));height:min(740px,calc(100% - 144px));min-height:0;pointer-events:auto;outline:none;border-radius:24px;background:linear-gradient(145deg,rgba(76,101,108,.68),rgba(25,43,49,.82));-webkit-backdrop-filter:blur(36px) saturate(125%);backdrop-filter:blur(36px) saturate(125%);transform-origin:50% 55%;animation:bt-chat-open .32s cubic-bezier(.16,1,.3,1) both}
+.bt-canvas-chat-float[data-closing=true]{pointer-events:none;animation:bt-chat-close .18s cubic-bezier(.4,0,1,1) both}
+.bt-canvas-chat-float>.bt-canvas-window{min-width:0;min-height:0;border-radius:24px;background:transparent;border-color:rgba(255,255,255,.24);box-shadow:0 30px 90px -20px rgba(4,18,26,.55),inset 0 1px 0 rgba(255,255,255,.2);-webkit-backdrop-filter:none;backdrop-filter:none}
+.bt-canvas-chat-float .bt-canvas-window-header{min-height:64px;padding:12px 20px;background:rgba(255,255,255,.025)}
+.bt-canvas-chat-float .bt-canvas-window-title{max-width:none}
+.bt-canvas-chat-float .bt-canvas-window>.bt-canvas-window-meta{gap:4px;padding:4px 18px 8px;border-bottom:1px solid var(--bt-line)}
+.bt-canvas-chat-float .bt-canvas-window>.bt-canvas-window-meta>span[role=status]{flex:1 1 auto}
+@keyframes bt-chat-open{from{opacity:0;transform:translateY(22px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes bt-chat-close{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(14px) scale(.96)}}
+@container bt-canvas (max-width:640px){.bt-canvas-chat-float{width:calc(100% - 24px);height:calc(100% - 48px)}}
+@media(prefers-reduced-motion:reduce){.bt-canvas-chat-float,.bt-canvas-chat-float[data-closing=true]{animation-duration:.01ms}}
 .bt-canvas-window{
   position:absolute;display:flex;flex-direction:column;min-width:240px;min-height:180px;
   overflow:hidden;border:1px solid var(--bt-canvas-border);border-radius:22px;

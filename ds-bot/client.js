@@ -14898,7 +14898,7 @@ function GroupTitle({ group, start, actions }) {
     button(null, edit, PencilIcon, { "aria-label": t("Rename window group"), title: t("Rename window group") })
   );
 }
-function WindowCard({ window: window2, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget, canvasMenu }) {
+function WindowCard({ window: window2, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget, canvasMenu, floating, dismiss }) {
   const entity = entityOf(window2, roster);
   const sessionId = canvasSessionId(window2, roster);
   const preview = useSessions((list) => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId]));
@@ -14943,7 +14943,7 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     "data-active": active || void 0,
     "data-selected": selected || void 0,
     "aria-label": entity.name,
-    style: { left: window2.x, top: window2.y, width: windowWidth(window2), height: windowHeight(window2), zIndex: window2.z + 2 },
+    style: floating ? { left: 0, top: 0, width: "100%", height: "100%" } : { left: window2.x, top: window2.y, width: windowWidth(window2), height: windowHeight(window2), zIndex: window2.z + 2 },
     onPointerDownCapture: select,
     onFocusCapture: select,
     onContextMenu: (event) => {
@@ -14991,19 +14991,19 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
     (0, import_react40.createElement)(
       "div",
       { className: "bt-canvas-window-header" },
-      (0, import_react40.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
+      floating ? null : (0, import_react40.createElement)("input", { type: "checkbox", checked: selected, "aria-label": t("Select {name}", { name: entity.name }), onChange: (event) => actions.selectCanvasWindow(window2.id, event.target.checked, true), onPointerDown: (event) => event.stopPropagation() }),
       (0, import_react40.createElement)(
         "button",
-        { type: "button", className: "bt-canvas-window-title", onPointerDown: (event) => start(event, "window", window2.id), onKeyDown: keyboard, "aria-label": t("Move {name}", { name: entity.name }) },
+        { type: "button", className: "bt-canvas-window-title", onPointerDown: (event) => start(event, "window", window2.id), onKeyDown: floating ? void 0 : keyboard, "aria-label": t("Move {name}", { name: entity.name }) },
         window2.kind === "room" ? (0, import_react40.createElement)(RoomAvatar, { room: entity, roster, size: window2.compact ? 36 : 28 }) : (0, import_react40.createElement)(BotAvatar, { bot: entity, size: window2.compact ? 36 : 28, main: isMainOf(roster, entity.id) }),
         (0, import_react40.createElement)("span", null, (0, import_react40.createElement)("strong", null, entity.name), (0, import_react40.createElement)("span", { className: "bt-canvas-window-meta" }, window2.kind === "room" ? t("{count} members", { count: entity.members.length }) : [isMainOf(roster, entity.id) ? t("Main Bot") : null, entity.role || t("Employee")].filter(Boolean).join(" · ")))
       ),
       (0, import_react40.createElement)(
         "div",
         { className: "bt-canvas-window-actions" },
-        window2.compact ? null : button("−", () => actions.updateCanvas((state) => setWindowCompact(state, window2.id, true)), null, { "aria-label": t("Compact window"), title: t("Compact window") }),
+        window2.compact ? null : button("−", dismiss ?? (() => actions.updateCanvas((state) => setWindowCompact(state, window2.id, true))), null, { "aria-label": t("Compact window"), title: t("Compact window") }),
         button(null, openMenu, DotsIcon, { "aria-label": t("{name} actions", { name: entity.name }), title: t("More"), "aria-haspopup": "menu" }),
-        button(null, () => actions.updateCanvas((state) => collapseWindow(state, window2.id)), CloseIcon, { "aria-label": t("Close window"), title: t("Close window") })
+        button(null, dismiss ?? (() => actions.updateCanvas((state) => collapseWindow(state, window2.id))), CloseIcon, { "aria-label": t("Close window"), title: t("Close window") })
       )
     ),
     window2.compact ? null : (0, import_react40.createElement)(
@@ -15028,7 +15028,85 @@ function WindowCard({ window: window2, roster, selected, active, actions, useSes
         button(t(room2 ? "Group settings" : "Details"), () => room2 ? actions.openSettings("groups", entity.id) : actions.showDetails(sessionId))
       )
     ) : (0, import_react40.createElement)("div", { className: "bt-canvas-content" }, (0, import_react40.createElement)(CanvasSession, { sessionId, actions, useSessions, SessionProvider, renderSlot })),
-    window2.compact ? null : (0, import_react40.createElement)("button", { type: "button", className: "bt-canvas-resize", "aria-label": t("Resize {name}", { name: entity.name }), onPointerDown: (event) => start(event, "resize", window2.id), onKeyDown: (event) => keyboard(event, true) }, "⌟")
+    window2.compact || floating ? null : (0, import_react40.createElement)("button", { type: "button", className: "bt-canvas-resize", "aria-label": t("Resize {name}", { name: entity.name }), onPointerDown: (event) => start(event, "resize", window2.id), onKeyDown: (event) => keyboard(event, true) }, "⌟")
+  );
+}
+function CanvasChatWindow(props) {
+  const { window: window2, roster, actions } = props;
+  const [closing, setClosing] = (0, import_react40.useState)(false);
+  const [offset, setOffset] = (0, import_react40.useState)({ x: 0, y: 0 });
+  const node = (0, import_react40.useRef)(null);
+  const drag = (0, import_react40.useRef)(null);
+  const done = (0, import_react40.useRef)(false);
+  const finish = () => {
+    if (done.current) return;
+    done.current = true;
+    actions.updateCanvas((state) => setWindowCompact(state, window2.id, true));
+  };
+  const dismiss = () => setClosing(true);
+  (0, import_react40.useEffect)(() => {
+    if (!closing) return;
+    const timer = setTimeout(finish, 240);
+    return () => clearTimeout(timer);
+  }, [closing]);
+  (0, import_react40.useEffect)(() => {
+    const previous = document.activeElement;
+    node.current.focus({ preventScroll: true });
+    return () => {
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, []);
+  const start = (event) => {
+    if (event.button !== 0 || closing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const box = node.current.getBoundingClientRect();
+    const bounds = node.current.parentElement.getBoundingClientRect();
+    drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, offset, box, bounds };
+    node.current.setPointerCapture(event.pointerId);
+  };
+  const end = (event) => {
+    if (drag.current?.id !== event.pointerId) return;
+    drag.current = null;
+    if (node.current.hasPointerCapture(event.pointerId)) node.current.releasePointerCapture(event.pointerId);
+  };
+  return (0, import_react40.createElement)(
+    "div",
+    { className: "bt-canvas-chat-layer" },
+    (0, import_react40.createElement)("div", {
+      ref: node,
+      className: "bt-canvas-chat-float",
+      role: "dialog",
+      tabIndex: -1,
+      "aria-label": entityOf(window2, roster)?.name,
+      "data-closing": closing || void 0,
+      style: { translate: `${offset.x}px ${offset.y}px` },
+      onPointerDown: (event) => event.stopPropagation(),
+      onPointerMove: (event) => {
+        const current = drag.current;
+        if (current?.id !== event.pointerId) return;
+        const { box, bounds } = current;
+        const dx = Math.max(bounds.left + 12 - box.left, Math.min(bounds.right - 12 - box.right, event.clientX - current.x));
+        const dy = Math.max(bounds.top + 12 - box.top, Math.min(bounds.bottom - 12 - box.bottom, event.clientY - current.y));
+        setOffset({ x: current.offset.x + dx, y: current.offset.y + dy });
+        event.stopPropagation();
+      },
+      onPointerUp: end,
+      onPointerCancel: end,
+      onLostPointerCapture: () => {
+        drag.current = null;
+      },
+      onKeyDown: (event) => {
+        if (event.key === "Escape" && !event.defaultPrevented && !event.nativeEvent?.isComposing && !event.target.closest("[role=combobox],[aria-expanded=true]")) {
+          event.preventDefault();
+          event.stopPropagation();
+          dismiss();
+        }
+      },
+      onAnimationEnd: (event) => {
+        if (closing && event.target === event.currentTarget) finish();
+      }
+    }, (0, import_react40.createElement)(WindowCard, { ...props, floating: true, selected: false, active: true, start, dismiss }))
   );
 }
 function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, SessionProvider, renderSlot }) {
@@ -15045,6 +15123,8 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
   const suppressContext = (0, import_react40.useRef)(false);
   const [size, setSize] = (0, import_react40.useState)({ width: 1e3, height: 700 });
   const visible = state.windows.filter((window2) => window2.open && entityOf(window2, roster));
+  const desktop = visible.map((window2) => window2.compact ? window2 : { ...window2, compact: true });
+  const conversation = visible.filter((window2) => !window2.compact).sort((a, b) => b.z - a.z)[0];
   const focused = (0, import_react40.useRef)(null);
   const activeBot = visible.find((window2) => window2.id === state.active && window2.kind === "bot");
   if (activeBot) focused.current = activeBot.entityId;
@@ -15210,7 +15290,7 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
   (0, import_react40.useEffect)(() => {
     const node = root.current;
     const wheel = (event) => {
-      if (event.target.closest(".bt-spatial-widget,.bt-wallpaper-menu")) return;
+      if (event.target.closest(".bt-spatial-widget,.bt-wallpaper-menu,.bt-canvas-chat-layer")) return;
       if (!event.ctrlKey && event.target.closest(".bt-canvas-window,.bt-canvas-toolbar,.bt-canvas-dock")) return;
       event.preventDefault();
       if (event.ctrlKey) {
@@ -15301,7 +15381,7 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
             (0, import_react40.createElement)("p", null, t(group.members.length ? "Add another Main Agent to start a group conversation." : "Drag Main Agents here")),
             selectedMains(state, roster, group.members, true).length >= 2 ? button(t("Create group chat"), () => proposeGroup([], { kind: "draft", id: group.id }), ChatsIcon) : null
           );
-          const members = visible.filter((window2) => group.members.includes(window2.id));
+          const members = desktop.filter((window2) => group.members.includes(window2.id));
           if (!members.length) return null;
           const x = Math.min(...members.map((window2) => window2.x)) - 16, y = Math.min(...members.map((window2) => window2.y)) - 45;
           return (0, import_react40.createElement)(
@@ -15316,13 +15396,14 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
             )
           );
         }),
-        visible.map((window2) => (0, import_react40.createElement)(WindowCard, { key: window2.id, window: window2, roster, selected: state.selected.includes(window2.id), active: state.active === window2.id, dropTarget: dropTarget === window2.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, canvasMenu: (event) => {
+        desktop.map((window2) => (0, import_react40.createElement)(WindowCard, { key: window2.id, window: window2, roster, selected: state.selected.includes(window2.id), active: state.active === window2.id, dropTarget: dropTarget === window2.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, canvasMenu: (event) => {
           const box = root.current.getBoundingClientRect();
           setMenu({ x: event.clientX - box.left, y: event.clientY - box.top });
         } }))
       ),
       visible.length === 0 && !state.groups.some((group) => group.draft) ? (0, import_react40.createElement)("div", { className: "bt-canvas-empty" }, (0, import_react40.createElement)("h2", null, t("Your team workspace")), (0, import_react40.createElement)("p", null, t("Open employees from the directory. Their conversations stay with them.")), button(t("Employee directory"), () => actions.openNewChat("chat"), PeopleIcon)) : null
     ),
+    conversation ? (0, import_react40.createElement)(CanvasChatWindow, { key: conversation.id, window: conversation, roster, actions, useSessions, useWork, SessionProvider, renderSlot }) : null,
     menu ? (0, import_react40.createElement)(
       "div",
       { className: "bt-canvas-context", role: "menu", "aria-label": t("Canvas actions"), style: { left: Math.max(0, Math.min(menu.x, size.width - 230)), top: Math.max(0, Math.min(menu.y, size.height - 150)) }, onContextMenu: (event) => event.preventDefault() },
@@ -15449,6 +15530,18 @@ body[data-ds-dark-theme] .bt-canvas::before{filter:brightness(.8) saturate(.85)}
 .bt-canvas-background{position:absolute;inset:0;z-index:-1;touch-action:none}
 .bt-canvas-stage:is([data-dragging="true"],[data-dragging=""]),.bt-canvas:is([data-dragging="true"],[data-dragging=""]) .bt-canvas-stage{cursor:grabbing}
 .bt-canvas-world{position:absolute;left:0;top:0;isolation:isolate;transform-origin:0 0}
+.bt-canvas-chat-layer{position:absolute;inset:0;z-index:60;display:grid;place-items:center;pointer-events:none}
+.bt-canvas-chat-float{position:relative;box-sizing:border-box;width:min(1040px,calc(100% - 48px));height:min(740px,calc(100% - 144px));min-height:0;pointer-events:auto;outline:none;border-radius:24px;background:linear-gradient(145deg,rgba(76,101,108,.68),rgba(25,43,49,.82));-webkit-backdrop-filter:blur(36px) saturate(125%);backdrop-filter:blur(36px) saturate(125%);transform-origin:50% 55%;animation:bt-chat-open .32s cubic-bezier(.16,1,.3,1) both}
+.bt-canvas-chat-float[data-closing=true]{pointer-events:none;animation:bt-chat-close .18s cubic-bezier(.4,0,1,1) both}
+.bt-canvas-chat-float>.bt-canvas-window{min-width:0;min-height:0;border-radius:24px;background:transparent;border-color:rgba(255,255,255,.24);box-shadow:0 30px 90px -20px rgba(4,18,26,.55),inset 0 1px 0 rgba(255,255,255,.2);-webkit-backdrop-filter:none;backdrop-filter:none}
+.bt-canvas-chat-float .bt-canvas-window-header{min-height:64px;padding:12px 20px;background:rgba(255,255,255,.025)}
+.bt-canvas-chat-float .bt-canvas-window-title{max-width:none}
+.bt-canvas-chat-float .bt-canvas-window>.bt-canvas-window-meta{gap:4px;padding:4px 18px 8px;border-bottom:1px solid var(--bt-line)}
+.bt-canvas-chat-float .bt-canvas-window>.bt-canvas-window-meta>span[role=status]{flex:1 1 auto}
+@keyframes bt-chat-open{from{opacity:0;transform:translateY(22px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes bt-chat-close{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(14px) scale(.96)}}
+@container bt-canvas (max-width:640px){.bt-canvas-chat-float{width:calc(100% - 24px);height:calc(100% - 48px)}}
+@media(prefers-reduced-motion:reduce){.bt-canvas-chat-float,.bt-canvas-chat-float[data-closing=true]{animation-duration:.01ms}}
 .bt-canvas-window{
   position:absolute;display:flex;flex-direction:column;min-width:240px;min-height:180px;
   overflow:hidden;border:1px solid var(--bt-canvas-border);border-radius:22px;
@@ -16381,14 +16474,14 @@ function apply(ctx) {
     if (current.active === id && JSON.stringify(current.selected) === JSON.stringify(ids)) return;
     updateCanvas(setCanvasSelection(current, ids, id));
   };
-  actions.openCanvasEntity = (id, size) => {
+  actions.openCanvasEntity = (id) => {
     const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id];
     if (!entity) return;
     const kind = snapshot.roomsById[entity.id] ? "room" : "bot";
     const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind });
     const window2 = next.windows.find((value) => value.entityId === entity.id);
     updateCanvas(next);
-    actions.openCanvasConversation(window2.id, size, { reveal: true });
+    actions.openCanvasConversation(window2.id);
   };
   actions.placeCanvasMain = (id, point) => {
     const snapshot = roster.getSnapshot();
@@ -16398,15 +16491,11 @@ function apply(ctx) {
       return { ...next, windows: next.windows.map((window2) => window2.entityId === id && window2.kind === "bot" ? { ...window2, x: point.x, y: point.y } : window2) };
     });
   };
-  actions.openCanvasConversation = (id, size, { reveal = false } = {}) => {
+  actions.openCanvasConversation = (id) => {
     const current = canvas.getSnapshot();
     if (!current.windows.some((window2) => window2.id === id && window2.open)) return;
-    let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false);
-    if (reveal) {
-      const viewport = size ?? canvasSize;
-      if (viewport) next = fitViewport(next, viewport, viewport.insets, [id]);
-      else pendingCanvasFocus = id;
-    } else pendingCanvasFocus = void 0;
+    const next = setWindowCompact(setCanvasSelection(compactConversations(current), [id], id), id, false);
+    pendingCanvasFocus = void 0;
     updateCanvas(next);
     actions.openCanvas(false);
   };
