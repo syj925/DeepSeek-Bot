@@ -305,7 +305,7 @@ export function TeamSidebar(props) {
           ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true })
           : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))),
     canvasActive ? h('div', { className: 'bt-team-footer' },
-      h('button', { type: 'button', className: 'bt-team-return', title: t('Open in classic view'), onClick: () => actions.openClassicSession() },
+      h('button', { type: 'button', className: 'bt-team-return', title: t('Switch to classic Agent mode'), onClick: () => actions.setSurface('agent') },
         h(ChevronLeftIcon), t('Return'))) : null)
 }
 

@@ -346,7 +346,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       button(t('Agenda'), () => toggleSpatialWidget('agenda'), CalendarIcon),
       h(CanvasWallpaper, { canvasRef: root }),
       button(t('Settings'), () => actions.openSettings(), GearIcon),
-      button(t('Classic view'), () => actions.openClassicSession())),
+      button(t('Classic Agent mode'), () => actions.setSurface('agent'))),
     h('main', { className: 'bt-canvas-stage', onContextMenu: event => {
       if (event.target.closest('.bt-canvas-window,.bt-canvas-group-header,button,input,textarea,a,[contenteditable]')) return
       event.preventDefault()

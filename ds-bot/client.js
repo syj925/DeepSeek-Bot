@@ -5923,7 +5923,7 @@ function TeamSidebar(props) {
       { className: "bt-team-footer" },
       (0, import_react10.createElement)(
         "button",
-        { type: "button", className: "bt-team-return", title: t("Open in classic view"), onClick: () => actions.openClassicSession() },
+        { type: "button", className: "bt-team-return", title: t("Switch to classic Agent mode"), onClick: () => actions.setSurface("agent") },
         (0, import_react10.createElement)(ChevronLeftIcon),
         t("Return")
       )
@@ -15273,7 +15273,7 @@ function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, 
       button(t("Agenda"), () => toggleSpatialWidget("agenda"), CalendarIcon),
       (0, import_react40.createElement)(CanvasWallpaper, { canvasRef: root }),
       button(t("Settings"), () => actions.openSettings(), GearIcon),
-      button(t("Classic view"), () => actions.openClassicSession())
+      button(t("Classic Agent mode"), () => actions.setSurface("agent"))
     ),
     (0, import_react40.createElement)(
       "main",
