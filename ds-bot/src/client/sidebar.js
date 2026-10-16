@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, PeopleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from './icons.js'
+import { PlusIcon, SearchIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, PeopleIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon } from './icons.js'
 import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
@@ -14,6 +14,7 @@ import { showsDshRow } from './dsh-offer.js'
 import { botUpdateHint, installedUpdateText } from './update-status.js'
 import { CANVAS_PANEL } from './canvas-session.js'
 import { useFloatingTeam, FLOATING_TEAM_CSS } from './floating-team.js'
+import { useMainAgentDrag } from './main-agent-drag.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -53,6 +54,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const unread = completed || pending || (marked && !reading)
   useMarkedUnread(id, reading, marked, actions)
   const main = isMainOf(roster, id)
+  const contactDrag = useMainAgentDrag(canvasActive, id)
   const tile = roster.mainBotId === id
   const approval = useApproval(useWork, entry => entry.botId === id)
   const alert = roster.questions?.[part] !== undefined || approval
@@ -62,40 +64,31 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const away = !running && groups.length > 0
   const state = botState(running || away, doing, alert)
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0].tool, groups.length - 1) : null
-  if (bot.hidden && !active && !main) return null
+  if (bot.hidden && !active && (!main || bot.formerGeneralAssistant)) return null
   const onContextMenu = (event) => {
     event.preventDefault()
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
-  const dragStart = (event, kind) => {
-    try {
-      const payload = JSON.stringify({ id, kind })
-      event.dataTransfer.setData('application/x-ds-bot', payload)
-      event.dataTransfer.setData('text/plain', payload)
-      event.dataTransfer.effectAllowed = 'copyMove'
-    } catch { /* dataTransfer error */ }
-  }
   if (tile && wide && !canvasActive) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
-      draggable: true, onDragStart: event => dragStart(event, 'bot'),
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
   }
   return h('button', {
-    type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
+    type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+    ...contactDrag, draggable: false,
     'data-bot-id': id, title: wide ? undefined : bot.name, onClick: () => actions.openSession(id), onContextMenu,
-    draggable: true, onDragStart: event => dragStart(event, 'bot'),
   },
   h(BotAvatar, { bot, size: 36, state, main }),
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
-    h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), pinned ? h(PinMark) : null),
+    h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), bot.generalAssistant ? h('small', { className: 'bt-assistant-label' }, t('General Assistant')) : null, pinned ? h(PinMark) : null),
     awayLine ? h('span', { className: 'bt-row-preview' }, awayLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && (completed || unread && !reading) ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
@@ -118,17 +111,9 @@ function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, use
   const pinned = room.pinned === true
   const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
   return h('button', {
-    type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
+    type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-room-id': id, onClick: () => actions.openSession(id),
     onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
-    draggable: true, onDragStart: event => {
-      try {
-        const payload = JSON.stringify({ id, kind: 'room' })
-        event.dataTransfer.setData('application/x-ds-bot', payload)
-        event.dataTransfer.setData('text/plain', payload)
-        event.dataTransfer.effectAllowed = 'copyMove'
-      } catch { /* dataTransfer error */ }
-    },
   },
   h(RoomAvatar, { room, roster, size: 36 }),
   pinned && !wide ? h(PinMark) : null,
@@ -220,7 +205,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
   const open = active && wide
   return h('div', { className: 'bt-agent' },
     h('button', {
-      type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
+      type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-agent-id': agent.id, title: wide ? undefined : 'DSH Agent', onClick: () => actions.openAgent(agent.id),
       onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'agent', id: agent.id, x: event.clientX, y: event.clientY }) },
     },
@@ -275,8 +260,6 @@ export function TeamSidebar(props) {
   const floating = useFloatingTeam(canvasActive, root)
   const canvasEntity = props.useCanvas(value => value.windows.find(window => window.id === value.active && window.open))
   props.useRegistry(value => value)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
   const updated = useSessions(list => {
     const stamps = {}
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
@@ -292,18 +275,8 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
-  const q = searchQuery.trim().toLowerCase()
-  const filteredOrder = useMemo(() => {
-    if (!q) return order
-    return order.filter(entry => {
-      const name = (entry.item.name ?? '').toLowerCase()
-      const role = (entry.item.role ?? '').toLowerCase()
-      return name.includes(q) || role.includes(q)
-    })
-  }, [order, q])
   const main = roster.byId[roster.mainBotId]
-  const showMain = main && (!q || main.name.toLowerCase().includes(q) || (main.role ?? '').toLowerCase().includes(q))
-  useListGlide(listRef, wide, filteredOrder.map(entry => entry.item.id).join(','))
+  useListGlide(listRef, wide, order.map(entry => entry.item.id).join(','))
   useLandOnMainBot(roster, useSessions, actions, canvasActive)
   const rowProps = { roster, actions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useCompletions: props.useCompletions, useActivity: props.useActivity, useWork: props.useWork, canvasActive, canvasEntity, wide }
   // Typing while the sidebar has focus starts a search.
@@ -311,99 +284,34 @@ export function TeamSidebar(props) {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     if (event.target instanceof Element && event.target.closest('input,textarea,[contenteditable]')) return
     event.preventDefault()
-    setSearchOpen(true)
-    setSearchQuery(event.key)
-  }
-  const onNewClick = (event) => {
-    event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
-    actions.openMenu({ kind: 'team-new', x: rect.left, y: rect.bottom + 6 })
+    actions.openPalette(event.key)
   }
   return h('div', { ref: root, className: wide ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     wide ? h('div', { className: 'bt-side-top' },
       canvasActive ? h('button', { type: 'button', className: 'bt-team-grip', 'aria-label': t('Move team panel'), title: t('Drag to move · Arrow keys to adjust · Home to reset'), ...floating.handle }, h(PeopleIcon), h('span', null, t('Team')))
         : h('span', { className: 'bt-brand' }, h(BrandMark, { size: 22 }), h(BrandName)),
       h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-      h('button', {
-        type: 'button',
-        className: searchOpen ? 'bt-round bt-round-active' : 'bt-round',
-        'aria-label': t('Search'),
-        title: t('Search'),
-        onClick: () => {
-          setSearchOpen(v => !v)
-          if (searchOpen) setSearchQuery('')
-        },
-      }, h(SearchIcon)),
-      h('button', {
-        type: 'button',
-        className: 'bt-round',
-        'aria-label': t('New…'),
-        title: t('New…'),
-        onClick: onNewClick,
-      }, h(PlusIcon)),
+      h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
+      h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
       canvasActive ? h('button', { type: 'button', className: 'bt-round bt-team-fold', 'aria-label': t(floating.folded ? 'Expand team panel' : 'Collapse team panel'), title: t(floating.folded ? 'Expand team panel' : 'Collapse team panel'), 'aria-expanded': !floating.folded, 'aria-controls': listId, onClick: floating.toggle }, h(floating.folded ? ChevronRightIcon : ChevronLeftIcon)) : null)
       : h(Fragment, null,
           h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-          h('button', {
-            type: 'button',
-            className: 'bt-round',
-            'aria-label': t('New…'),
-            title: t('New…'),
-            onClick: onNewClick,
-          }, h(PlusIcon))),
-    wide && searchOpen ? h('div', { className: 'bt-team-search' },
-      h('span', { className: 'bt-team-search-icon', 'aria-hidden': true }, h(SearchIcon)),
-      h('input', {
-        type: 'text',
-        className: 'bt-team-search-input',
-        value: searchQuery,
-        placeholder: t('Search team members…'),
-        autoFocus: true,
-        onChange: event => setSearchQuery(event.target.value),
-        onKeyDown: event => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            setSearchOpen(false)
-            setSearchQuery('')
-          } else if (event.key === 'Enter' && searchQuery.trim()) {
-            actions.openPalette(searchQuery.trim())
-          }
-        },
-      }),
-      searchQuery ? h('button', {
-        type: 'button',
-        className: 'bt-team-search-clear',
-        'aria-label': t('Clear search'),
-        title: t('Clear search'),
-        onClick: () => setSearchQuery(''),
-      }, '×') : null,
-      h('button', {
-        type: 'button',
-        className: 'bt-team-search-close',
-        'aria-label': t('Close search'),
-        title: t('Close search'),
-        onClick: () => { setSearchOpen(false); setSearchQuery('') },
-      }, h(CloseIcon))) : null,
+          h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon))),
     wide && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', { ref: listRef, id: listId, className: 'bt-list', role: 'region', 'aria-label': t('Bot list') },
-      showMain ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
-      filteredOrder.map(entry => (entry.kind === 'bot'
+      main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
+      wide ? (roster.teams ?? []).map(team => h('section', { key: team.id, className: 'bt-org-team', 'aria-label': team.name },
+        h('div', { className: 'bt-org-title', title: team.purpose }, team.name, h('small', null, team.members.length)),
+        [team.leaderId, ...team.members.filter(id => id !== team.leaderId)].filter(id => id !== main?.id && roster.byId[id]).map(id => h(BotRow, { key: id, ...rowProps, bot: roster.byId[id], marked: markedUnread[id] === true })))) : null,
+      wide && (roster.teams ?? []).length ? h('div', { className: 'bt-org-title' }, t('Independent employees & groups')) : null,
+      order.filter(entry => !wide || entry.kind !== 'bot' || !(roster.teams ?? []).some(team => team.members.includes(entry.item.id))).map(entry => (entry.kind === 'bot'
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
         : entry.kind === 'room'
           ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true })
-          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))),
-      q && filteredOrder.length === 0 && !showMain ? h('div', { className: 'bt-team-empty' },
-        h('span', null, t('No matching members')),
-        h('button', {
-          type: 'button',
-          className: 'bt-team-global-search-btn glass-button',
-          onClick: () => actions.openPalette(q),
-        }, t('Search in all messages “{query}”', { query: q }))) : null,
-      q && (filteredOrder.length > 0 || showMain) ? h('button', {
-        type: 'button',
-        className: 'bt-team-global-search-btn glass-button',
-        onClick: () => actions.openPalette(q),
-      }, t('Search in all messages “{query}”', { query: q })) : null))
+          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))),
+    canvasActive ? h('div', { className: 'bt-team-footer' },
+      h('button', { type: 'button', className: 'bt-team-return', title: t('Switch to classic Agent mode'), onClick: () => actions.setSurface('agent') },
+        h(ChatsIcon), t('Return to classic Agent mode'))) : null)
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -723,6 +631,7 @@ export function BrandName() {
 // and Connect plugins; FooterAccount only shows when the seat went to no one. The
 // shell's footer classes are CSS-module names, so they match on their stems.
 export const SIDEBAR_CSS = `
+.bt-assistant-label{flex:none;font-size:10px;font-weight:500;color:var(--bt-accent);padding:2px 5px;border:1px solid var(--bt-line);border-radius:5px}
 ${FLOATING_TEAM_CSS}
 .bt-side-top .bt-brand{cursor:default;padding-left:6px}
 .bt-side-top .bt-brand:hover{background:none}

@@ -115,6 +115,27 @@ function pointer(values = {}) {
 
 const pixels = (page, name) => Number.parseFloat(page.column.properties.get(`--bt-team-${name}`))
 
+test('every chat uses a stable left rail regardless of team folding or saved panel position', () => {
+  const page = runtime()
+  for (const area of [{ width: 2560 }, { width: 1000 }, { width: 640 }]) {
+    const left = page.teamChatLayout({ x: 20, folded: false }, area)
+    const right = page.teamChatLayout({ x: area.width - 300, folded: false }, area)
+    assert.equal(left.right, 0)
+    assert.equal(right.right, 0)
+    assert.deepEqual(plain(left), plain(right))
+    assert.ok(left.x + left.width < left.left)
+    assert.ok(area.width - left.left >= area.width * .6 - 40)
+  }
+  const full = page.teamChatLayout({ x: 20, folded: false }, { width: 1200 })
+  const folded = page.teamChatLayout({ x: 20, folded: true }, { width: 1200 })
+  assert.equal(folded.left, full.left)
+  assert.ok(folded.width < full.width)
+  page.draw()
+  assert.equal(page.frame.properties.get('--bt-chat-left'), '328px')
+  page.unmount()
+  assert.equal(page.frame.properties.has('--bt-chat-left'), false)
+})
+
 test('missing, corrupted and denied team-panel storage recover independently without accepting invalid fields', () => {
   const page = runtime(), fallback = { x: 20, y: 104, folded: false }
   for (const value of [null, '{broken', 'null', '[]', '42', '"layout"', '{"x":"88","y":null,"folded":"true"}', '{"x":1e999,"y":-1e999}']) {

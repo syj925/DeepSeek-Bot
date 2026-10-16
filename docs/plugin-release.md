@@ -6,15 +6,15 @@ unified [QibitAI publishing protocol](https://github.com/syj925/qibitai-site/blo
 
 ## Release a version
 
-1. On `feat/employee-canvas`, update `ds-bot/package.json`, both version fields
+1. On `main` in [syj925/DeepSeek-Bot](https://github.com/syj925/DeepSeek-Bot), update `ds-bot/package.json`, both version fields
    in `ds-bot/package-lock.json`, and `RELEASE_NOTES.md`. Keep notes below 2,000
    characters and the complete publishing metadata below 4,096 UTF-8 bytes.
-2. Commit and push the branch. Check the **Test** workflow.
+2. Commit and push `main` to this fork. Wait for the **Test** workflow to pass.
 3. Tag that commit with exactly `ds-bot-v<package version>` and push the tag:
 
    ```sh
-   git tag ds-bot-v0.1.7
-   git push fork ds-bot-v0.1.7
+   git tag ds-bot-v0.1.21
+   git push fork ds-bot-v0.1.21
    ```
 
 4. Wait for **DS Bot Plugin Release** to finish both jobs. It installs the pinned
@@ -24,15 +24,19 @@ unified [QibitAI publishing protocol](https://github.com/syj925/qibitai-site/blo
    publishes through HTTPS, then checks the latest metadata, redirect,
    immutable archive size and SHA-256 of the entire public download.
 
-Plain versions publish to `stable`; prereleases such as `0.1.8-beta.1` publish to
+The commands assume this fork's remote is named `fork`; use your remote name
+for `https://github.com/syj925/DeepSeek-Bot.git` if it differs.
+
+Plain versions publish to `stable`; prereleases such as `0.1.22-beta.1` publish to
 `beta`. The workflow writes the selected update channel into the packed manifest.
 Every version must be globally newer than previously published versions across
 both channels. Published versions are immutable: use a new version for a fix.
 Do not delete or move release tags to try to replace an existing release.
 
-Tags must point to commits on `feat/employee-canvas`. This branch is deliberately
-used because the fork's `main` follows a separate upstream history. Tag triggers
-also work before this workflow is present on the repository's default branch.
+`main` is the canonical development and release branch for this fork. Release
+tags must point to commits already pushed to its `main`; the workflow rejects
+tags outside that history. Main pushes and all pull requests run tests without
+publishing. Only a matching version tag starts publication.
 
 ## One-time publishing configuration
 

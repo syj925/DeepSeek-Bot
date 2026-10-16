@@ -103,12 +103,37 @@ async function start(seed) {
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
 
-test('message_bot steers by default; on an idle Bot it opens the next turn', async (t) => {
+test('independent Main Bots collaborate without changing children or interrupting their tasks', async t => {
+  const seed = team()
+  seed.mainBotIds.push('c')
+  seed.bots.c = { id: 'c', name: 'Partner', sessionId: 'c', createdAt: 3 }
+  seed.bots.b.createdBy = 'c'
+  const app = await start(seed)
+  t.after(app.stop)
+  app.emit('b', 'turn/start', { turn: 1 })
+  const room = await app.call('create-room', { members: ['a', 'c'], mainOnly: true })
+  assert.equal(room.ok, true)
+  assert.equal(room.value.mainOnly, undefined)
+  assert.deepEqual(room.value.members, ['a', 'c'])
+  assert.equal(app.agents.get('b')?.calls.length ?? 0, 0)
+  assert.match(await app.tool('message_bot', { to: 'Writer', message: 'direct' }, 'a'), /Queued for Writer/)
+  await assert.rejects(app.tool('stop_bot', { bot: 'Writer' }, 'a'), /managed by Partner/)
+  assert.match(await app.tool('update_bot', { bot: 'Writer', name: 'Taken' }, 'a'), /managed by Partner/)
+  const invalid = await app.call('update-room', { id: room.value.id, members: ['a', 'b'] })
+  assert.equal(invalid.ok, true)
+  assert.match(await app.tool('message_bot', { to: 'Partner', message: 'Please ask Writer', when: 'now' }, 'a'), /Delivered to Partner/)
+  assert.match(await app.tool('message_bot', { to: 'Writer', message: 'Work for me' }, 'c'), /Queued for Writer/)
+  assert.equal(app.agents.get('b').calls.some(([kind]) => kind === 'cancel'), false)
+  const legacy = await app.call('create-room', { members: ['a', 'b'] })
+  assert.equal(legacy.ok, true)
+})
+
+test('message_bot with when now steers; on an idle Bot it opens the next turn', async (t) => {
   const { agents, emit, tool, stop } = await start(team())
   t.after(stop)
 
   // Idle: the message goes to the Bot's own chat and starts its next turn.
-  const idle = await tool('message_bot', { to: 'Writer', message: 'how are you' }, 'a')
+  const idle = await tool('message_bot', { to: 'Writer', message: 'how are you', when: 'now' }, 'a')
   assert.equal(idle, 'Delivered to Writer. Its reply will arrive later as a new message; do not wait for it.')
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer'])
   assert.match(textOf(agents.get('b').calls[0][1].content), /^\[Message from Chief\]/)
@@ -116,7 +141,7 @@ test('message_bot steers by default; on an idle Bot it opens the next turn', asy
 
   // Running: the message cuts into that turn instead of queuing.
   emit('b', 'turn/start', { turn: 1 })
-  const busy = await tool('message_bot', { to: 'Writer', message: 'watch out' }, 'a')
+  const busy = await tool('message_bot', { to: 'Writer', message: 'watch out', when: 'now' }, 'a')
   assert.equal(busy, 'Delivered to Writer while it is working: it reads your message at its next step and answers once that work is done. Its reply will arrive later as a new message; do not wait for it.')
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer', 'steer'])
 })
@@ -136,6 +161,33 @@ test('message_bot when "queue" waits for the current work, and reply_to "user" a
   assert.equal(agents.get('b').calls[1][1].source.audience, 'user')
 })
 
+test('ordinary employees directly assign across teams and queue new work by default', async t => {
+  const seed = team()
+  seed.organizationVersion = 1
+  seed.bots.b.teamId = 'writing'
+  seed.bots.c = { id: 'c', name: 'Analyst', teamId: 'research', sessionId: 'c' }
+  seed.bots.d = { id: 'd', name: 'Research lead', teamId: 'research', sessionId: 'd' }
+  seed.teams = {
+    writing: { id: 'writing', name: 'Writing', leaderId: 'a', members: ['a', 'b'] },
+    research: { id: 'research', name: 'Research', leaderId: 'd', members: ['c', 'd'] },
+  }
+  const app = await start(seed)
+  t.after(app.stop)
+  app.emit('c', 'turn/start', { turn: 1 })
+  assert.match(await app.tool('message_bot', { to: 'Analyst', message: 'Research a new topic' }, 'b'), /^Queued for Analyst/)
+  assert.deepEqual(app.agentOf('c').calls.map(([kind]) => kind), ['followup'])
+  assert.equal(app.agentOf('d').calls.length, 0, 'No relay through the team leader')
+  assert.match(await app.tool('message_bot', { to: 'Analyst', message: 'Correction', when: 'now' }, 'b'), /^Delivered to Analyst while it is working/)
+  assert.deepEqual(app.agentOf('c').calls.map(([kind]) => kind), ['followup', 'steer'])
+  const group = await app.tool('create_group', { name: 'Joint project', members: ['Analyst'] }, 'b')
+  assert.match(group, /Created group/)
+  assert.match(await app.tool('post_to_group', { group: 'Joint project', message: 'Work together' }, 'b'), /Posted in/)
+  assert.equal(app.agentOf('c').calls.some(([kind]) => kind === 'cancel'), false)
+  const live = (await app.call('state', {})).value
+  assert.equal(live.bots.find(bot => bot.id === 'b').teamId, 'writing')
+  assert.equal(live.bots.find(bot => bot.id === 'c').teamId, 'research')
+})
+
 test('a Bot busy in a group gets the message in its own chat, and the sender is told', async (t) => {
   const seed = team({ group: true })
   seed.rooms.r1.sessions.a = 'ga'
@@ -143,14 +195,14 @@ test('a Bot busy in a group gets the message in its own chat, and the sender is 
   t.after(stop)
 
   emit('gb', 'turn/start', { turn: 1 })
-  const out = await tool('message_bot', { to: 'Writer', message: 'status?' }, 'a')
+  const out = await tool('message_bot', { to: 'Writer', message: 'status?', when: 'now' }, 'a')
   assert.equal(out, 'Delivered to Writer. Its reply will arrive later as a new message; do not wait for it. Writer is also working in group "Ops"; your message does not reach that work. If it must not go on there, use stop_bot.')
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer'])
   assert.equal(agents.get('gb'), undefined)
 
   // A non-Main sender gets no stop_bot hint.
   emit('ga', 'turn/start', { turn: 1 })
-  const back = await tool('message_bot', { to: 'Chief', message: 'done' }, 'b')
+  const back = await tool('message_bot', { to: 'Chief', message: 'done', when: 'now' }, 'b')
   assert.equal(back, 'Delivered to Chief. Its reply will arrive later as a new message; do not wait for it. Chief is also working in group "Ops"; your message does not reach that work.')
 })
 
@@ -160,7 +212,7 @@ test('a request steered into a running turn is recorded once and answered in a t
 
   emit('b', 'turn/start', { turn: 1 })
   emit('b', 'user/message', { content: textBlock('write the letter'), source: { kind: 'user' } })
-  await tool('message_bot', { to: 'Writer', message: 'which year is the data?' }, 'a')
+  await tool('message_bot', { to: 'Writer', message: 'which year is the data?', when: 'now' }, 'a')
   const steered = agents.get('b').calls[0][1]
   emit('b', 'user/message', { content: steered.content, source: steered.source })
   emit('b', 'assistant/message', assistantText('the letter, for the user'))
@@ -195,29 +247,29 @@ test('message_bot names the messages a Bot has not read yet, and stops sending t
   writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
   emit('b', 'turn/start', { turn: 1 })
 
-  const first = await tool('message_bot', { to: 'Writer', message: 'task 1' }, 'a')
+  const first = await tool('message_bot', { to: 'Writer', message: 'task 1', when: 'now' }, 'a')
   assert.equal(first, 'Delivered to Writer while it is working: it reads your message at its next step and answers once that work is done. Its reply will arrive later as a new message; do not wait for it.')
-  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 2' }, 'a'), /Writer has not read an earlier message from Bots yet\.$/)
-  for (let index = 3; index <= 10; index += 1) await tool('message_bot', { to: 'Writer', message: `task ${index}` }, 'a')
-  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 10b' }, 'a').catch(error => error.message), /^Not sent: Writer has not read the last 10 messages from Bots yet/)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 2', when: 'now' }, 'a'), /Writer has not read an earlier message from Bots yet\.$/)
+  for (let index = 3; index <= 10; index += 1) await tool('message_bot', { to: 'Writer', message: `task ${index}`, when: 'now' }, 'a')
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 10b', when: 'now' }, 'a').catch(error => error.message), /^Not sent: Writer has not read the last 10 messages from Bots yet/)
   assert.equal(writer.calls.length, 10)
   assert.equal((await exchanges()).length, 10)
 
   // Once a step takes them up, messages go through again.
   writer.inbox.nextStep.length = 0
-  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 11' }, 'a'), /^Delivered to Writer while it is working/)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 11', when: 'now' }, 'a'), /^Delivered to Writer while it is working/)
 
   // An approval the Bot waits for holds its messages too.
   writer.inbox.nextStep.length = 0
   for (const listener of ctx.listeners.get('approval/request')) void listener({ agent: { session: { id: 'b' } }, toolName: 'bash', reason: 'rm' }, () => new Promise(() => {}))
-  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 12' }, 'a'), /Writer is waiting for the user's approval, so it reads your message only after the user answers\.$/)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'task 12', when: 'now' }, 'a'), /Writer is waiting for the user's approval, so it reads your message only after the user answers\.$/)
 })
 
 test('a non-Main Bot can steer a message to a Main Bot', async (t) => {
   const { agents, tool, stop } = await start(team())
   t.after(stop)
 
-  const out = await tool('message_bot', { to: 'Chief', message: 'heads up' }, 'b')
+  const out = await tool('message_bot', { to: 'Chief', message: 'heads up', when: 'now' }, 'b')
   assert.equal(out, 'Delivered to Chief. Its reply will arrive later as a new message; do not wait for it.')
   assert.deepEqual(agents.get('a').calls.map(([kind]) => kind), ['steer'])
   assert.equal(agents.get('a').calls[0][1].source.senderSessionId, 'b')
@@ -434,7 +486,7 @@ test('the caller hop is the highest of the turn\'s trigger and joined requests',
   emit('b', 'turn/start', { turn: 1 })
   emit('b', 'user/message', { content: textBlock('[Message from Chief]\ntask'), source: replySource('request', { exchangeId: 'e0', hop: 1 }) })
   emit('b', 'user/message', { content: textBlock('[Message from Chief]\nmore'), source: replySource('request', { exchangeId: 'e1', hop: 4 }) })
-  await tool('message_bot', { to: 'Chief', message: 'onward' }, 'b')
+  await tool('message_bot', { to: 'Chief', message: 'onward', when: 'now' }, 'b')
   assert.equal(agents.get('a').calls[0][1].source.hop, 4)
 })
 

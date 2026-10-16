@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { manageProblem } from './ownership.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -156,6 +157,8 @@ export function install(rt) {
     const target = targetRef ? rt.findBot(targetRef) : caller
     if (!target) throw new Error(`No Bot named ${targetRef}.`)
     if (target.id !== caller.id && !rt.isMain(callerId)) throw new Error('Only a Main Bot can change another Bot’s capabilities.')
+    const boundary = manageProblem(state, callerId, target.id)
+    if (boundary) throw new Error(boundary)
     const item = ensureLibrary()[String(name ?? '')]
     if (!item) throw new Error(`No capability named ${name}.`)
     await setAttached(target, item.name, endpoint === 'attach')

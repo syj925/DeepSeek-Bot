@@ -8,6 +8,10 @@ Tested with dsh `0.2.0-rc.2` (Web and Desktop) on Linux.
 
 ## Features
 
+- **Canvas appearance**: the supplied Starbots visual design uses a gray gradient, milky glass panels and restrained teal accents, with a host-aware dark variant. Seven bundled role portraits complement the existing characters and image uploads. Existing avatars, roles, models, permissions and canvas interactions are preserved.
+
+- **General Assistant and organization**: Chief is the unique General Assistant with its original identity and conversation. `create_department` creates a lasting team and a separate chat; `organize_team` organizes existing employees, and `assign_employee` explicitly transfers them. Each employee is independent or belongs to one team, and may join many groups. Cross-team messages and tasks go directly to employees. Leaders coordinate progress and results; leadership does not grant management or filesystem rights. Group and canvas operations never change affiliation. Busy employees queue new requests by default; `when: now` is for corrections or urgent updates. Explicit legacy departments migrate once; ordinary groups remain groups. The team panel stays visible beside open chats. Legacy dedicated assistant conversations are retained in the directory.
+- **Desktop interactions**: folding or moving floating widgets leaves employee positions unchanged. Selected employees show only a soft highlight, with management actions available on right-click. Widgets expand toward the canvas interior, temporarily avoid overlap, and restore their saved position on collapse; manual overlap and click-to-front remain available. Dragging from the team list follows the avatar rather than copying the entire row. All conversations open in the same area beside a stable left team rail and can still be moved manually.
 - **Long-lived Bots**: each Bot is a dsh Session in the "DS Bot" workspace, with its own name, role, instructions and model.
 - **Working folders**: a Bot can work in a folder you choose instead of the team workspace, and a group chat can set one folder for all its members there. Pick it in the Bot's settings or details panel or in the group's settings, or ask a Bot (`update_bot`, `update_group`). After a change, the chat goes on in a fresh part that starts in the new folder. When a Bot sets a folder outside the team workspace, or adds a Bot to a group that works in one, it asks for your approval if those Bots can only write in their folder. Folders that hold dsh data (`$DSH_HOME`, the team's data) are refused.
 - **Bots work together**: `message_bot` sends a message to another Bot, `create_bot` and `update_bot` add and set up Bots, and `ask_user` asks you a question without blocking the other Bots.
@@ -28,13 +32,17 @@ Tested with dsh `0.2.0-rc.2` (Web and Desktop) on Linux.
 - **Images**: for a model that cannot read images, a vision model first turns the image into text.
 - **Secrets**: a Bot asks for an API key or token with a card in its own chat and never sees the value. See [Secrets](#secrets).
 - **Usage**: Settings → Usage shows token usage by time (24 hours to 12 months, or days picked on a calendar), by Bot and by model, with a page for each Bot and each model. Calls that a Session logs are read from the logs, so older chats count too. Calls that leave no log (checkpoints, handoff notes, the steward, image readings, dsh titles and compaction) are counted while they stream, from the time the plugin runs. Tokens only, no cost.
-- **Make it yours**: name, role, instructions, model and look (20 characters and 12 colors, or your own photo) for each Bot; a theme, an accent color and an avatar animation level (quiet, normal or lively) for the team. A pinned Bot or group chat shows a small pushpin in the sidebar. Settings has these pages: General (look), Bots (Main Bots and each Bot's settings), Group chats (each group's settings), Connectors, Capabilities, Scheduled tasks, Usage, Secrets, Feedback and About DS Bot (versions, updates and links).
+- **Make it yours**: name, role, instructions, model and look (seven role portraits, 20 characters and 12 colors, or your own photo) for each Bot; a theme, an accent color and an avatar animation level (quiet, normal or lively) for the team. A pinned Bot or group chat shows a small pushpin in the sidebar. Settings has these pages: General (look), Bots (Main Bots and each Bot's settings), Group chats (each group's settings), Connectors, Capabilities, Scheduled tasks, Usage, Secrets, Feedback and About DS Bot (versions, updates and links).
 
 ## Install
 
-This QibitAI employee canvas fork uses the package name `ds-bot` and the hosted plugin ID `ds-bot`. In QibitAI Desktop, open Plugins → Add plugin and enter `https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz`, or select the hosted DS Bot entry in the plugin catalog. An existing `ds-bot` installation is replaced in place and keeps its team data. A `restart-required` result needs a full quit and reopen of Desktop before the new code runs.
+The [project page](../README.md#install) has the full steps for dsh Desktop and dsh Web. In short:
 
-The public npm package and `Fei2411/DeepSeek-Bot` GitHub releases install the upstream project, without this fork's canvas changes. See the [project page](../README.md#install) for both installation paths.
+- QibitAI Desktop: Plugins → Add plugin → enter `https://desktop.qibitai.ai/plugins/ds-bot/stable/latest.tgz` for the latest published stable release.
+- Main source (needs Git): `github:syj925/DeepSeek-Bot#main&path:/ds-bot`.
+- Command line: `dsh plugin --profile web add "github:syj925/DeepSeek-Bot#main&path:/ds-bot"` (or `--profile desktop`). The npm package `ds-bot` installs the original upstream plugin.
+
+This fork is maintained on `main` in [syj925/DeepSeek-Bot](https://github.com/syj925/DeepSeek-Bot). Releases use the hosted [publishing workflow](../docs/plugin-release.md). A newer source snapshot does not change the stable download until a version is published.
 
 To work on the plugin from a checkout, add it to a dsh profile as a linked dependency and a bundle:
 
@@ -70,13 +78,14 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own remember calls
     diagnosticsFile: false          # keep the error log in memory only; default <home>/logs/diagnostics.jsonl
-    updateCheck: true               # enable manual hosted update checks; default true
+    updateCheck: true               # startup checks for packages without a hosted update declaration
+    updateRegistry: https://registry.example/   # registry checks for non-hosted packages only
     github: false                   # hide the GitHub connector; default shown in Connectors
 ```
 
-**Updates**: this fork declares `dsh.update` with source `https://desktop.qibitai.ai`, plugin ID `ds-bot` and channel `stable`. Settings → About DS Bot → **Check for updates** asks the native Desktop plugin manager for the latest release. Opening the page or polling install status does not query the gateway automatically. **Update** passes the selected identity, version and SHA256 to the manager, which revalidates the release and verifies the download before installing. Release notes are shown in About. Failed checks, unpublished releases, incompatible versions and cancellations have separate states; no error falls back to upstream npm/GitHub. Local linked folders remain developer-managed; installed local `.tgz` packages can receive hosted updates.
+**Updates**: this fork declares QibitAI's hosted plugin source. Open **Settings → About DS Bot → Check for updates**, or use the desktop plugin manager, to query it explicitly. **Update** installs the selected release through the host's verified installer; restart QibitAI Desktop when requested. There is no startup network check or fallback to upstream npm/GitHub releases for this hosted package. Older hosts without the API show an unsupported state. Linked or local development folders are updated locally.
 
-This requires a QibitAI Desktop build with `checkPluginUpdates` and `installHostedPlugin`. Older carriers show an unsupported message. The plugin distinguishes an applied update from an installed update awaiting restart. QibitAI Desktop manages its own runtime updates; this fork does not offer upstream DSH replacements. `updateRegistry` only affects legacy packages without a hosted update declaration.
+Hosted fork releases do not offer upstream DSH runtime replacements. Update QibitAI Desktop through its own updater. Packages without a hosted declaration retain the upstream npm/GitHub update path and verified-DSH compatibility checks.
 
 ## Models
 

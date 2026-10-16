@@ -1,3 +1,4 @@
+import { isPortrait, PortraitGrid, PORTRAIT_CSS } from './portrait-presets.js'
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { paintCss } from './inks.js'
 import { CHARACTERS, PICKER_SHAPES, PICKER_COLUMNS, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
@@ -10,7 +11,6 @@ import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide } from './motion.js'
-import { IP_AVATARS } from './ip-avatars.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -123,12 +123,12 @@ export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
 // Upload tab takes a photo, and Reset returns to the look the Bot id gives.
 function AvatarEditor({ bot, actions, run, onClose }) {
   const look = lookOf(bot)
-  const [tab, setTab] = useState(look.image ? 'upload' : 'bot')
+  const [tab, setTab] = useState(isPortrait(look.image) ? 'portraits' : look.image ? 'upload' : 'bot')
   const [over, setOver] = useState(false)
   const ref = useRef(null)
   const fileRef = useRef(null)
   const upload = (file) => {
-    if (file) void run(avatarImage(file).then(image => actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image } })))
+    if (file) void run(avatarImage(file).then(image => actions.updateBot(bot.id, { avatar: { ...bot.avatar, image } })))
   }
   useEffect(() => {
     const onDown = (event) => {
@@ -155,22 +155,12 @@ function AvatarEditor({ bot, actions, run, onClose }) {
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-        [['preset', 'Preset'], ['bot', 'Bot'], ['upload', 'Upload']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
+        [['portraits', 'Portraits'], ['bot', 'Bot'], ['upload', 'Upload']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
       h('button', {
         type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: t('Reset character to default'),
         onClick: () => run(actions.updateBot(bot.id, { avatar: null, color: null })),
       }, t('Reset'))),
-    tab === 'preset' ? h('div', { className: 'bt-avedit-presets', style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', padding: '4px 0' } },
-      IP_AVATARS.map((src, idx) => h('button', {
-        key: idx, type: 'button', className: 'bt-avedit-preset-btn',
-        style: {
-          border: look.image === src ? '2px solid var(--bt-accent, #3b82f6)' : '1px solid var(--bt-line-2, #e5e7eb)',
-          borderRadius: '12px', padding: '3px', background: 'var(--bt-card, #fff)', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', aspectRatio: '1',
-          outline: 'none', transition: 'transform .1s ease'
-        },
-        onClick: () => run(actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image: src } })),
-      }, h('img', { src, alt: '', style: { width: '100%', height: '100%', borderRadius: '8px', objectFit: 'cover' } })))) : null,
+    tab === 'portraits' ? h(PortraitGrid, { image: look.image, generalAssistant: bot.generalAssistant === true, onPick: image => run(actions.updateBot(bot.id, { avatar: { ...bot.avatar, image } })) }) : null,
     tab === 'bot' ? h(CharacterGrid, {
       look, hasPhoto,
       onShape: shape => run(actions.updateBot(bot.id, { avatar: { shape } })),
@@ -232,6 +222,11 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Profile') },
       h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
       h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
+    bot.generalAssistant ? null : h(Card, { title: t('Team membership') },
+      h(Row, { label: t('Lasting team'), hint: t('Groups do not change affiliation, conversations or permissions.') },
+        h('select', { className: 'bt-input', 'aria-label': t('Team membership'), value: bot.teamId ?? '', onChange: event => save({ teamId: event.target.value || null }) },
+          h('option', { value: '' }, t('Independent employee')),
+          (roster.teams ?? []).map(team => h('option', { key: team.id, value: team.id }, `${team.name}${team.leaderId === bot.id ? ` · ${t('Team leader')}` : ''}`))))),
     h(Card, { title: t('Model') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), h('span', { className: 'bt-set-hint' }, modelHint(bot, roster))),
@@ -246,19 +241,19 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),
-    h(Card, { title: t('Main Bot') },
+    h(Card, { title: t('Management rights') },
       onlyMain
         ? h('div', { className: 'bt-set-row bt-bs-row' },
             h('span', { className: 'bt-set-copy' },
               h('span', { className: 'bt-bs-label' }, t('Main Bot')),
               h('span', { className: 'bt-set-hint' }, t('The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.'))),
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('bots') }, t('Change')))
-        : h(SwitchRow, { label: t('Main Bot'), hint: t('Can create and change Bots, and runs every group chat.'), on: isMainBot, onChange: on => run(actions.setMain(bot.id, on)) })),
+        : h(SwitchRow, { label: t('Management rights'), hint: t('Separate from team membership. Allows employee management within its existing boundaries.'), on: isMainBot, onChange: on => run(actions.setMain(bot.id, on)) })),
     // The Main Bot tile is always first and always shown, like in the context menu.
     isTile ? null : h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
       isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),
-    h(Card, { title: t('Manage') },
+    bot.generalAssistant ? null : h(Card, { title: t('Manage') },
       h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: duplicate },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Duplicate')), h('span', { className: 'bt-set-hint' }, t('A copy with the same job and model, and fresh memory.'))),
         h('span', { className: 'bt-chevron' }, h(ChevronRightIcon))),
@@ -270,6 +265,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
 }
 
 export const BOT_SETTINGS_CSS = `
+${PORTRAIT_CSS}
 .bt-bs{display:flex;flex-direction:column;gap:18px}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}

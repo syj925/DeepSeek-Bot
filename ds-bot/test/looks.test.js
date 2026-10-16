@@ -3,8 +3,27 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { DEFAULT_COLORS, DEFAULT_SHAPES, MAIN_LOOK, defaultColor, defaultShape, lookOf } from '../src/client/characters.js'
 import { indexRoster } from '../src/client/sources.js'
+import { ASSISTANT_PORTRAIT, PORTRAITS, portraitsFor, isPortrait } from '../src/client/portraits.js'
 
 const ids = Array.from({ length: 3000 }, (_, index) => `session-${index.toString(16).padStart(8, '0')}-look`)
+
+test('only the General Assistant defaults to its portrait while custom looks survive', () => {
+  const chief = { id: 'chief', generalAssistant: true, avatar: { shape: 'whale' } }
+  assert.equal(lookOf(chief).image, ASSISTANT_PORTRAIT.image)
+  assert.equal(lookOf({ ...chief, avatar: undefined }).image, ASSISTANT_PORTRAIT.image)
+  assert.equal(lookOf({ ...chief, avatar: { image: 'custom-photo' } }).image, 'custom-photo')
+  assert.equal(lookOf({ ...chief, avatar: { shape: DEFAULT_SHAPES[0] } }).image, undefined)
+  assert.equal(lookOf({ ...chief, generalAssistant: false }).image, undefined)
+  assert.deepEqual(chief.avatar, { shape: 'whale' }, 'Rendering does not rewrite stored data')
+})
+
+test('employee portraits exclude the assistant while saved assistant artwork remains recognized', () => {
+  assert.equal(PORTRAITS.length, 6)
+  assert.ok(!PORTRAITS.includes(ASSISTANT_PORTRAIT))
+  assert.deepEqual(portraitsFor(false), PORTRAITS)
+  assert.ok(portraitsFor(true).includes(ASSISTANT_PORTRAIT))
+  assert.ok(isPortrait(ASSISTANT_PORTRAIT.image))
+})
 
 test('a Bot with no look of its own never gets the whale, gray, brown, or black', () => {
   assert.ok(!DEFAULT_SHAPES.includes('whale'))

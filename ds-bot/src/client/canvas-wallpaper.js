@@ -1,3 +1,4 @@
+import { canvasTheme } from './canvas-theme.js'
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderIcon, CloseIcon } from './icons.js'
@@ -65,11 +66,6 @@ export function CanvasWallpaper({ canvasRef }) {
       canvas?.removeAttribute('data-wallpaper')
     }
   }, [])
-  useEffect(() => {
-    const onOpen = () => setOpen(true)
-    window.addEventListener('ds-bot:open-wallpaper', onOpen)
-    return () => window.removeEventListener('ds-bot:open-wallpaper', onOpen)
-  }, [])
   const change = async file => {
     if (!file || busy || loading) return
     const current = ++generation.current
@@ -98,15 +94,16 @@ export function CanvasWallpaper({ canvasRef }) {
 }
 
 const WALLPAPER_CSS = `
+${canvasTheme('.bt-wallpaper-menu')}
 .bt-wallpaper-control{display:inline-flex}
-.bt-wallpaper-menu{position:fixed;z-index:90;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;width:280px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;overscroll-behavior:contain;padding:14px;border:1px solid rgba(255,255,255,.2);border-radius:20px;background:rgba(26,42,49,.88);box-shadow:0 18px 54px rgba(0,12,22,.3);color:#f4f7fa;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-backdrop-filter:blur(26px);backdrop-filter:blur(26px)}
+.bt-wallpaper-menu{position:fixed;z-index:90;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;width:280px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;overscroll-behavior:contain;padding:14px;border:1px solid var(--bt-canvas-border);border-radius:24px;background:var(--bt-canvas-chat);box-shadow:var(--bt-canvas-shadow);color:var(--bt-ink);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
 .bt-wallpaper-menu header{display:flex;align-items:center;justify-content:space-between;gap:8px}.bt-wallpaper-menu header button{padding:4px;min-height:30px}
-.bt-wallpaper-menu p{margin:0;color:rgba(244,247,250,.8)}.bt-wallpaper-menu small{font-size:11px;color:rgba(244,247,250,.6)}
-.bt-wallpaper-menu button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:7px 10px;border:1px solid rgba(255,255,255,.16);border-radius:10px;background:rgba(255,255,255,.06);color:inherit;font:inherit;cursor:pointer}
-.bt-wallpaper-menu button:hover:not(:disabled){background:rgba(255,255,255,.13)}.bt-wallpaper-menu button:focus-visible{outline:2px solid #8de0cc;outline-offset:2px}.bt-wallpaper-menu button:disabled{opacity:.45;cursor:default}
-.bt-wallpaper-menu .bt-wallpaper-choose{background:#8de0cc;color:#153b33}.bt-wallpaper-menu .bt-wallpaper-choose:hover:not(:disabled){background:#abeadb}
-.bt-wallpaper-menu .bt-wallpaper-error{color:#ffc0b6;overflow-wrap:anywhere}.bt-wallpaper-feedback{font-size:11px;color:#8de0cc}.bt-wallpaper-feedback:empty{display:none}
+.bt-wallpaper-menu p{margin:0;color:var(--bt-ink-2)}.bt-wallpaper-menu small{font-size:11px;color:var(--bt-ink-3)}
+.bt-wallpaper-menu button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:7px 10px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-canvas-button);color:inherit;font:inherit;cursor:pointer}
+.bt-wallpaper-menu button:hover:not(:disabled){background:var(--bt-hover)}.bt-wallpaper-menu button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}.bt-wallpaper-menu button:disabled{opacity:.45;cursor:default}
+.bt-wallpaper-menu .bt-wallpaper-choose{background:var(--bt-accent);color:var(--bt-accent-ink)}.bt-wallpaper-menu .bt-wallpaper-choose:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 88%,var(--bt-card))}
+.bt-wallpaper-menu .bt-wallpaper-error{color:var(--bt-canvas-error);overflow-wrap:anywhere}.bt-wallpaper-feedback{font-size:11px;color:var(--bt-accent)}.bt-wallpaper-feedback:empty{display:none}
 @media (pointer:coarse){.bt-wallpaper-menu button{min-height:44px}}
-@media (prefers-reduced-transparency:reduce){.bt-wallpaper-menu{background:#1a2a31;-webkit-backdrop-filter:none;backdrop-filter:none}}
+@media (prefers-reduced-transparency:reduce){.bt-wallpaper-menu{background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none}}
 @media (forced-colors:active){.bt-wallpaper-menu{background:Canvas;color:CanvasText;border-color:CanvasText}.bt-wallpaper-menu :is(p,small,.bt-wallpaper-error,.bt-wallpaper-feedback){color:CanvasText}.bt-wallpaper-menu button,.bt-wallpaper-menu .bt-wallpaper-choose{background:ButtonFace;color:ButtonText;border-color:ButtonText}}
 `

@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = syj925/DeepSeek-Bot
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/feat/employee-canvas
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           node --input-type=module <<'NODE'
           import { readFileSync, appendFileSync } from 'node:fs';
           const { version } = JSON.parse(readFileSync('ds-bot/package.json', 'utf8'));

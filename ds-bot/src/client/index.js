@@ -37,7 +37,8 @@ import { CANVAS_PANEL, CANVAS_CONVERSATION, CanvasConversation, CanvasLauncher, 
 import { CanvasWorkspace } from './canvas-workspace.js'
 import { canvasStyles } from './canvas-styles.js'
 import { watchCompletions } from './completion-unread.js'
-import { readCanvas, writeCanvas, reconcileCanvas, openWindow, setCanvasSelection, fitViewport, setWindowCompact, compactConversations, arrangeCards } from './canvas-state.js'
+import { fixedDesktop } from './canvas-desktop.js'
+import { readCanvas, writeCanvas, reconcileCanvas, openWindow, setCanvasSelection, setWindowCompact, compactConversations, arrangeCards } from './canvas-state.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -68,10 +69,10 @@ export function apply(ctx) {
   try { canvasPreferred = localStorage.getItem(STORAGE.workspaceView) !== 'classic' } catch { /* storage unavailable */ }
   const canvasVisible = () => ctx.layout.panelInfo?.getSnapshot().activePanelId === CANVAS_PANEL
   let canvasSaveTimer
-  let canvasSize, pendingCanvasFocus
+  let canvasSize
   const saveCanvas = () => { clearTimeout(canvasSaveTimer); writeCanvas(undefined, canvas.getSnapshot()) }
   const updateCanvas = (next, persist = true) => {
-    canvas.set(next)
+    canvas.set(state => fixedDesktop(typeof next === 'function' ? next(state) : next, canvasSize))
     if (persist) { clearTimeout(canvasSaveTimer); canvasSaveTimer = setTimeout(saveCanvas, 180) }
   }
   ctx.effect(() => {
@@ -546,6 +547,10 @@ export function apply(ctx) {
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
     closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),
+    createTeam: payload => after(call('create-team', payload)),
+    updateTeam: (id, patch) => after(call('update-team', { id, ...patch })),
+    setTeam: (id, teamId) => after(call('set-team', { id, teamId })),
+    deleteTeam: id => after(call('delete-team', { id })),
     createRoom: (members, options = {}) => after(call('create-room', { members, ...options })),
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     refreshModels: () => after(call('models')).catch(() => {}),
@@ -598,28 +603,36 @@ export function apply(ctx) {
     },
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
   }
-  const userMovedWindows = new Set()
-  actions.markCanvasWindowMoved = id => { if (id) userMovedWindows.add(id) }
   actions.updateCanvas = updateCanvas
+  let openingAssistant
+  actions.openGeneralAssistant = () => {
+    if (!openingAssistant) openingAssistant = (async () => {
+      const bot = await after(call('ensure-general-assistant'))
+      actions.openCanvasEntity(bot.id)
+    })().finally(() => { openingAssistant = undefined })
+    return openingAssistant
+  }
+  actions.showDepartment = room => updateCanvas(state => {
+    let next = state
+    for (const entity of [{ id: room.admin, kind: 'bot' }, { id: room.id, kind: 'room' }]) {
+      if (next.windows.some(window => window.entityId === entity.id)) continue
+      next = openWindow(next, entity)
+      const added = next.windows.find(window => window.entityId === entity.id)
+      next = setWindowCompact(next, added.id, true)
+    }
+    return { ...next, active: state.active, selected: state.selected }
+  })
   actions.saveCanvas = saveCanvas
   actions.setCanvasSize = size => {
     canvasSize = size
-    if (size && pendingCanvasFocus) {
-      const focus = pendingCanvasFocus
-      pendingCanvasFocus = undefined
-      if (focus === 'all') {
-        updateCanvas(state => fitViewport(state, size, size.insets))
-      } else {
-        actions.openCanvasConversation(focus, size)
-      }
-    }
+    if (size) updateCanvas(state => state)
   }
   actions.retainCanvasSession = id => ctx.sessions.retain(id, { source: 'dsBotCanvas' })
   actions.refreshCanvasSessions = () => ctx.sessions.refresh()
   actions.compactCanvasConversations = () => updateCanvas(state => compactConversations(state))
   actions.arrangeCanvasCards = () => updateCanvas(state => {
     const next = arrangeCards(state)
-    return canvasSize ? fitViewport(next, canvasSize, canvasSize.insets) : next
+    return fixedDesktop(next, canvasSize)
   })
   actions.selectCanvasWindow = (id, selected = true, additive = false) => {
     const current = canvas.getSnapshot()
@@ -627,44 +640,27 @@ export function apply(ctx) {
     if (current.active === id && JSON.stringify(current.selected) === JSON.stringify(ids)) return
     updateCanvas(setCanvasSelection(current, ids, id))
   }
-  actions.openCanvasEntity = (id, size) => {
+  actions.openCanvasEntity = id => {
     const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id]
     if (!entity) return
     const kind = snapshot.roomsById[entity.id] ? 'room' : 'bot'
-    const current = canvas.getSnapshot()
-    let next = openWindow(current, { id: entity.id, kind })
+    const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind })
     const window = next.windows.find(value => value.entityId === entity.id)
-    if (window) {
-      window.width = 760
-      window.height = 540
-    }
     updateCanvas(next)
-    actions.openCanvasConversation(window.id, size)
+    actions.openCanvasConversation(window.id)
   }
-  actions.openCanvasConversation = (id, size) => {
+  actions.placeCanvasMain = (id, point) => {
+    const snapshot = roster.getSnapshot()
+    if (!snapshot.byId[id]) return
+    updateCanvas(state => {
+      const next = openWindow(state, { id, kind: 'bot' })
+      return { ...next, windows: next.windows.map(window => window.entityId === id && window.kind === 'bot' ? { ...window, compact: true, x: point.x, y: point.y } : window) }
+    })
+  }
+  actions.openCanvasConversation = id => {
     const current = canvas.getSnapshot()
     if (!current.windows.some(window => window.id === id && window.open)) return
-    let next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
-    const window = next.windows.find(item => item.id === id)
-    if (window) {
-      window.width = 760
-      window.height = 540
-      if (!userMovedWindows.has(window.id)) {
-        const viewport = size ?? canvasSize
-        if (viewport) {
-          const v = next.viewport
-          const left = Math.min(Math.max(0, viewport.insets?.left ?? 24), viewport.width / 2 - 1)
-          const right = Math.min(Math.max(0, viewport.insets?.right ?? 24), viewport.width / 2 - 1)
-          const top = Math.min(Math.max(0, viewport.insets?.top ?? 70), viewport.height - 2)
-          const bottom = Math.min(Math.max(0, viewport.insets?.bottom ?? 70), viewport.height - top - 1)
-          const availW = viewport.width - left - right, availH = viewport.height - top - bottom
-          const screenX = left + (availW - window.width * v.zoom) / 2
-          const screenY = top + (availH - window.height * v.zoom) / 2
-          window.x = Math.round((screenX - v.x) / v.zoom)
-          window.y = Math.round((screenY - v.y) / v.zoom)
-        }
-      }
-    }
+    const next = setWindowCompact(setCanvasSelection(compactConversations(current), [id], id), id, false)
     updateCanvas(next)
     actions.openCanvas(false)
   }
@@ -682,7 +678,6 @@ export function apply(ctx) {
       })
       next = arrangeCards(next)
       if (next.windows.length) next = setCanvasSelection(next, [next.windows[0].id], next.windows[0].id)
-      pendingCanvasFocus = next.windows.length ? 'all' : undefined
       updateCanvas(next)
     }
     surface.set(state => ({ ...state, canvas: true }))

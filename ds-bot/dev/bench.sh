@@ -31,17 +31,18 @@ if [ -z "${DSH_HARNESS:-}" ]; then
   [ -d "$DSH_HARNESS" ] || DSH_HARNESS="$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")/deepseek-harness"
 fi
 
-alive() { [ -f "$HOME_DIR/$1.pid" ] && kill -0 "$(cat "$HOME_DIR/$1.pid")" 2>/dev/null; }
+alive() { [ -f "$HOME_DIR/$1.pid" ] && kill -0 "-$(cat "$HOME_DIR/$1.pid")" 2>/dev/null; }
 
-# Each process runs in background; on macOS kill by direct pid
+# Each process runs in its own session (setsid), so its pid is also its process group, which
+# outlives it: pnpm exits before the dsh it started. dash's kill takes no `--`.
 stop_one() {
   file="$HOME_DIR/$1.pid"
   [ -f "$file" ] || return 0
   pid=$(cat "$file")
-  kill -TERM "$pid" 2>/dev/null || true
+  kill -TERM "-$pid" 2>/dev/null || true
   i=0
-  while kill -0 "$pid" 2>/dev/null && [ $i -lt 50 ]; do sleep 0.2; i=$((i + 1)); done
-  kill -KILL "$pid" 2>/dev/null || true
+  while kill -0 "-$pid" 2>/dev/null && [ $i -lt 50 ]; do sleep 0.2; i=$((i + 1)); done
+  kill -KILL "-$pid" 2>/dev/null || true
   rm -f "$file"
 }
 
@@ -64,18 +65,18 @@ EOF
 # Bench-only plugin config, layered over the profile with --patch.
 write_overlay() {
   overlay="$HOME_DIR/bench.patch.yml"
-  : > "$overlay"
+  printf '[]\n' > "$overlay"
   if [ -n "${CHECK_RATIO:-}" ]; then
-    printf -- '- id: bot\n  config:\n    checkRatio: %s\n' "$CHECK_RATIO" >> "$overlay"
+    printf -- '- id: bot\n  config:\n    checkRatio: %s\n' "$CHECK_RATIO" > "$overlay"
   fi
   if [ -n "${CONTEXT_WINDOW:-}" ]; then
+    [ -n "${CHECK_RATIO:-}" ] || : > "$overlay"
     {
       printf -- '- id: llm-deepseek\n  config:\n    models:\n'
       printf -- '      - { id: deepseek-flash, contextWindow: %s, maxTokens: 8000, inputModalities: [text, image] }\n' "$CONTEXT_WINDOW"
       printf -- '      - { id: deepseek-v4-pro, contextWindow: %s, maxTokens: 8000 }\n' "$CONTEXT_WINDOW"
     } >> "$overlay"
   fi
-  printf -- '- id: locale\n  config:\n    preference: zh\n' >> "$overlay"
 }
 
 start() {
@@ -83,36 +84,15 @@ start() {
   ensure_profile
   write_overlay
   if ! alive mock; then
-    node -e '
-      const { spawn } = require("child_process");
-      const fs = require("fs");
-      const out = fs.openSync(process.argv[2] + "/mock.out", "a");
-      const p = spawn("node", ["dev/mock-llm.mjs", process.argv[2]], {
-        cwd: process.argv[1],
-        detached: true,
-        stdio: ["ignore", out, out],
-        env: { ...process.env, MOCK_PORT: process.argv[3], MOCK_DELAY_MS: process.env.MOCK_DELAY_MS || "300", MOCK_LOG: process.argv[2] + "/mock.jsonl" }
-      });
-      p.unref();
-      fs.writeFileSync(process.argv[2] + "/mock.pid", String(p.pid));
-    ' "$PLUGIN" "$HOME_DIR" "$MOCK_PORT"
+    (cd "$PLUGIN" && MOCK_PORT="$MOCK_PORT" MOCK_DELAY_MS="${MOCK_DELAY_MS:-300}" MOCK_LOG="$HOME_DIR/mock.jsonl" \
+      setsid node dev/mock-llm.mjs "$HOME_DIR" </dev/null >"$HOME_DIR/mock.out" 2>&1 & echo $! >"$HOME_DIR/mock.pid")
   fi
   if ! alive web; then
     log="$HOME_DIR/web.log"
     rm -f "$log"
-    node -e '
-      const { spawn } = require("child_process");
-      const fs = require("fs");
-      const out = fs.openSync(process.argv[2] + "/web.log", "a");
-      const p = spawn("pnpm", ["-s", "dsh", "--profile", "web", "--patch", "apps/web/tests/pin-browse-picker.overlay.yml", "--patch", process.argv[2] + "/bench.patch.yml", "--no-open", "--port", process.argv[4]], {
-        cwd: process.argv[1],
-        detached: true,
-        stdio: ["ignore", out, out],
-        env: { ...process.env, DSH_HOME: process.argv[2], DEEPSEEK_BASE_URL: "http://127.0.0.1:" + process.argv[3] + "/v1", DEEPSEEK_API_KEY: "mock-key" }
-      });
-      p.unref();
-      fs.writeFileSync(process.argv[2] + "/web.pid", String(p.pid));
-    ' "$DSH_HARNESS" "$HOME_DIR" "$MOCK_PORT" "$WEB_PORT"
+    (cd "$DSH_HARNESS" && DSH_HOME="$HOME_DIR" DEEPSEEK_BASE_URL="http://127.0.0.1:$MOCK_PORT/v1" DEEPSEEK_API_KEY=mock-key \
+      setsid pnpm -s dsh --profile web --patch apps/web/tests/pin-browse-picker.overlay.yml --patch "$HOME_DIR/bench.patch.yml" \
+      --no-open --port "$WEB_PORT" </dev/null >"$log" 2>&1 & echo $! >"$HOME_DIR/web.pid")
     i=0
     until grep -q "dsh web: http" "$log" 2>/dev/null; do
       i=$((i + 1))

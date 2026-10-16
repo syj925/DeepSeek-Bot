@@ -39,9 +39,6 @@ test('copy follows the DSH language and stays English without a locale service',
     assert.equal(hostText('A Bot named Writer already exists'), '已经有叫 Writer 的 Bot 了')
     assert.equal(hostText('The team needs at least one Main Bot'), '团队至少要有一个主 Bot')
     assert.equal(hostText('Something new'), 'Something new')
-    assert.equal(hostText('Use Check for updates to query QibitAI.'), '点击“检查更新”查询 QibitAI 插件版本。')
-    assert.equal(hostText('No release has been published for this update channel.'), '这个更新渠道还没有发布版本。')
-    assert.equal(hostText('This host does not support QibitAI hosted plugin updates. Update QibitAI Desktop first.'), '当前桌面端不支持 QibitAI 托管插件更新，请先升级 QibitAI Desktop。')
     // Whole memory messages, not only their first words, become Chinese.
     assert.equal(hostText('An entry holds at most 300 characters; this one has 301. Keep one fact per entry, or save the details as several entries in a topic.'), '一条记忆最多 300 个字符，这条有 301 个')
     assert.equal(hostText("Writer's memory's MEMORY.md would have 4100 of its 4000 characters. Make room first: move details into a topic."), '主记忆会超过 4000 个字符的上限，请先删掉一些')

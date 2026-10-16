@@ -113,7 +113,7 @@ export function NewChat({ mode, roster, actions, initialMembers = [] }) {
   const drop = useRef(null)
   useMorph(drop, listed)
   if (draft) {
-    return h('div', { className: 'bt-pane', style: { left: paneLeft }, onMouseDown: event => { if (event.target === event.currentTarget) close() } },
+    return h('div', { className: 'bt-pane', style: { left: paneLeft } },
       h(CreateBot, {
         roster, actions, start: draft, brief: message.trim(), canGoBack: draft.fromList,
         onBack: draft.fromList ? () => { setDraft(null); setTimeout(() => inputRef.current?.focus()) } : close,
@@ -127,7 +127,7 @@ export function NewChat({ mode, roster, actions, initialMembers = [] }) {
     if (picked.length > 0) setPicked(current => current.slice(0, -1))
     else if (admin !== null) setAdmin(null)
   }
-  return h('div', { className: 'bt-pane', style: { left: paneLeft }, onMouseDown: event => { if (event.target === event.currentTarget) close() } },
+  return h('div', { className: 'bt-pane', style: { left: paneLeft } },
     h('div', { className: 'bt-newchat', role: 'dialog', 'aria-label': mode === 'search' ? t('Search') : t('New chat') },
       h('div', { className: 'bt-to' },
         h('span', { className: 'bt-to-label' }, t('To:')),

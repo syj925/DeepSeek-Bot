@@ -1,6 +1,6 @@
 {
   "name": "ds-bot",
-  "version": "0.1.7",
+  "version": "0.1.21",
   "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
   "keywords": [
     "dsh-plugin",
@@ -11,7 +11,7 @@
     "multi-agent",
     "agents"
   ],
-  "homepage": "https://github.com/syj925/DeepSeek-Bot/tree/feat/employee-canvas#readme",
+  "homepage": "https://github.com/syj925/DeepSeek-Bot/tree/main#readme",
   "bugs": {
     "url": "https://github.com/syj925/DeepSeek-Bot/issues"
   },
@@ -37,7 +37,8 @@
     "web-search.js",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "build": "node scripts/build-client.mjs",

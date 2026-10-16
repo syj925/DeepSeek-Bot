@@ -1,3 +1,4 @@
+import { canvasTheme } from './canvas-theme.js'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { STORAGE } from './storage.js'
 
@@ -19,8 +20,15 @@ export function fitTeamPanel(panel, area) {
   return { ...panel, x: Math.max(12, Math.min(panel.x, area.width - width - 12)), y: Math.max(panelTop(area), Math.min(panel.y, area.height - height - 12)) }
 }
 
-// The sidebar slot keeps the original list and footer occupants. Only its shell
-// geometry changes in canvas mode; leaving that mode removes every owned style.
+export function teamChatLayout(panel, area) {
+  const slot = Math.min(288, Math.max(164, area.width * .24), Math.max(0, area.width - 24))
+  const width = panel.folded ? Math.min(164, slot) : slot
+  // A stable left rail gives every conversation the same opening position.
+  return { width, x: 20, left: slot + 40, right: 0 }
+}
+
+// The sidebar slot keeps the original list. Canvas mode replaces the shell's
+// footer with a return button; leaving that mode removes every owned style.
 export function useFloatingTeam(enabled, root) {
   const [panel, setPanel] = useState(readTeamPanel)
   const [area, setArea] = useState({ width: 1200, height: 800, top: 0 })
@@ -31,7 +39,7 @@ export function useFloatingTeam(enabled, root) {
     const column = root.current?.closest('[class*="_sidebarCol"]')
     const frame = column?.parentElement
     if (!frame) return undefined
-    column.classList.add('bt-floating-team', 'team-panel')
+    column.classList.add('bt-floating-team')
     frame.classList.add('bt-canvas-frame')
     const center = frame.querySelector('[class*="_centerCol"]')
     const toolbar = root.current?.ownerDocument?.querySelector('.bt-canvas-toolbar')
@@ -50,10 +58,11 @@ export function useFloatingTeam(enabled, root) {
     measure()
     return () => {
       observer.disconnect()
-      column.classList.remove('bt-floating-team', 'team-panel')
+      column.classList.remove('bt-floating-team')
       frame.classList.remove('bt-canvas-frame')
       column.removeAttribute('data-folded')
-      for (const name of ['--bt-team-x', '--bt-team-y', '--bt-team-height']) column.style.removeProperty(name)
+      for (const name of ['--bt-team-x', '--bt-team-y', '--bt-team-height', '--bt-team-chat-x', '--bt-team-chat-width']) column.style.removeProperty(name)
+      for (const name of ['--bt-chat-left', '--bt-chat-right']) frame.style.removeProperty(name)
     }
   }, [enabled])
   useLayoutEffect(() => {
@@ -64,7 +73,12 @@ export function useFloatingTeam(enabled, root) {
     column.style.setProperty('--bt-team-x', `${current.x}px`)
     column.style.setProperty('--bt-team-y', `${current.y + area.top}px`)
     column.style.setProperty('--bt-team-height', `${panelHeight(panel, area)}px`)
-  }, [enabled, current.x, current.y, area.top, area.height, area.minY, panel.folded])
+    const chat = teamChatLayout(current, area)
+    column.style.setProperty('--bt-team-chat-x', `${chat.x}px`)
+    column.style.setProperty('--bt-team-chat-width', `${chat.width}px`)
+    column.parentElement.style.setProperty('--bt-chat-left', `${chat.left}px`)
+    column.parentElement.style.setProperty('--bt-chat-right', `${chat.right}px`)
+  }, [enabled, current.x, current.y, area.top, area.width, area.height, area.minY, panel.folded])
   useEffect(() => {
     if (!enabled) return undefined
     const timer = setTimeout(() => {
@@ -107,67 +121,56 @@ export function useFloatingTeam(enabled, root) {
 }
 
 export const FLOATING_TEAM_CSS = `
+${canvasTheme('.bt-canvas-frame>.bt-floating-team')}
 .bt-canvas-frame>[class*="_centerCol"]{grid-column:1 / 3;grid-row:1;border-left:0;border-radius:0}
 .bt-canvas-frame>[class*="_rightbarCol"]{grid-column:3;grid-row:1}
 .bt-canvas-frame>[data-side=sidebar]{display:none}
-.bt-canvas-frame>.bt-floating-team,
-.team-panel{
-  --bt-ink:var(--text-primary,#262626);--bt-ink-2:var(--text-secondary,#757575);--bt-ink-3:#8c8c8c;
-  --bt-card:#ffffff;--bt-main:#ffffff;--bt-sidebar:#ffffff;
-  --bt-line:var(--divider,rgba(0,0,0,.06));--bt-line-2:rgba(0,0,0,.1);
-  --bt-hover:rgba(0,0,0,.04);--bt-active:rgba(0,0,0,.08);--bt-accent:#10a37f;--bt-accent-ink:#ffffff;
-  --bt-tag-bg:rgba(0,0,0,.05);--bt-tag-ink:var(--text-secondary,#757575);
+.bt-canvas-frame>.bt-floating-team{
   position:absolute;z-index:18;left:var(--bt-team-x,20px);top:var(--bt-team-y,104px);
   width:min(288px,calc(100% - 24px));height:var(--bt-team-height,640px);box-sizing:border-box;
-  border:1px solid var(--glass-border,rgba(255,255,255,.85))!important;border-radius:28px!important;
-  background:#f8f8f8!important;
-  box-shadow:var(--glass-shadow,0 8px 28px rgba(0,0,0,.05),inset 0 1px 0 rgba(255,255,255,.8))!important;
-  color:var(--text-primary,#262626);overflow:hidden;transition:width .18s ease,height .18s ease;
+  border:1px solid var(--bt-canvas-border)!important;border-radius:26px;
+  background:transparent!important;
+  box-shadow:var(--bt-canvas-shadow);
+  color:var(--bt-ink);overflow:hidden;transition:width .18s ease,height .18s ease;
 }
-@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  .bt-canvas-frame>.bt-floating-team,
-  .team-panel{
-    background:var(--glass-floating,rgba(255,255,255,.65))!important;
-    -webkit-backdrop-filter:blur(var(--glass-blur,24px));
-    backdrop-filter:blur(var(--glass-blur,24px));
-  }
-}
-.bt-floating-team::before{display:none!important}
+.bt-floating-team::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:var(--bt-canvas-glass);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+.bt-canvas-frame:has(.bt-canvas-chat-float)>.bt-floating-team{left:var(--bt-team-chat-x);width:var(--bt-team-chat-width)}
 .bt-floating-team>[class*="_root"],.bt-floating-team>[data-slot=sidebar]>[class*="_root"]{width:100%!important;padding:8px!important;background:transparent!important;box-sizing:border-box}
 .bt-floating-team [class*="_regionArea"]{display:flex!important;min-height:0;padding:0!important;margin:0!important}
-.bt-floating-team [class*="_footArea"]{display:flex!important;gap:4px;padding-top:8px;border-top:1px solid var(--bt-line)}
+.bt-canvas-frame>.bt-floating-team [class*="_footArea"]{display:none!important}
+.bt-team-footer{flex:none;padding-top:8px;border-top:1px solid var(--bt-line)}
+.bt-team-return{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:36px;padding:0 12px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-canvas-button);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer}
+.bt-team-return>svg{width:16px;height:16px;flex:none}
+.bt-team-return:hover{background:var(--bt-hover)}
+.bt-team-return:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-floating-team .bt-side{padding:0;overflow:hidden}
 .bt-floating-team .bt-side-top{gap:4px;padding:0 0 8px;min-height:40px;flex:none}
-.bt-floating-team .bt-side-top .bt-round{width:30px;height:30px;flex:none;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.9);color:var(--text-primary,#262626);border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.04)}
-.bt-team-grip{display:flex;align-items:center;gap:7px;flex:1;min-width:0;height:36px;padding:0 5px;border:0;border-radius:10px;background:transparent;color:var(--text-primary,#262626);font:inherit;font-size:13px;font-weight:600;cursor:grab;touch-action:none;user-select:none;text-align:start}
+.bt-floating-team .bt-side-top .bt-round{width:30px;height:30px;flex:none;background:var(--bt-canvas-button);border-color:var(--bt-line)}
+.bt-team-grip{display:flex;align-items:center;gap:7px;flex:1;min-width:0;height:36px;padding:0 5px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;font-weight:600;cursor:grab;touch-action:none;user-select:none;text-align:start}
 .bt-team-grip:active{cursor:grabbing}
 .bt-team-grip>svg{flex:none;width:17px;height:17px;opacity:.7}
 .bt-team-grip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-team-grip:focus-visible{outline:2px solid #888;outline-offset:3px}
+.bt-team-grip:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-floating-team .bt-list{gap:4px;scrollbar-width:thin}
-.bt-floating-team .bt-row{min-height:52px;border:1px solid transparent;border-radius:14px;color:var(--text-primary,#262626);transition:background-color .12s ease,box-shadow .12s ease}
-.bt-floating-team .bt-row:hover{border-color:var(--bt-line);background:rgba(0,0,0,.04)}
-.bt-floating-team .bt-row:is([aria-current=page],[aria-selected="true"]),
-.team-item[aria-selected="true"]{
-  background:rgba(255,255,255,.95)!important;
-  border-radius:18px!important;
-  box-shadow:0 5px 16px rgba(0,0,0,.05),inset 0 0 0 1px rgba(255,255,255,.9)!important;
-  color:var(--text-primary,#262626)!important;
-}
-.bt-floating-team .bt-connect{background:rgba(255,255,255,.9)}
-.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,.bt-you,[class*="_footArea"] button){background:rgba(255,255,255,.9)!important;color:var(--text-primary,#262626)!important;border:1px solid rgba(255,255,255,.9)!important;border-radius:12px!important;box-shadow:0 3px 10px rgba(0,0,0,.04)!important}
-.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,[class*="_footArea"] button):hover{background:#ffffff!important;box-shadow:0 4px 12px rgba(0,0,0,.06)!important}
-.bt-floating-team[data-folded=true]{width:min(164px,calc(100% - 24px));border-radius:20px!important}
+.bt-floating-team .bt-row{min-height:58px;border:1px solid transparent;border-radius:15px}
+.bt-floating-team .bt-row:hover{border-color:var(--bt-line);background:var(--bt-canvas-button)}
+.bt-floating-team .bt-row[aria-current=page]{border-color:var(--bt-canvas-border);background:var(--bt-active);box-shadow:0 3px 10px rgba(28,32,40,.04)}
+.bt-floating-team .bt-connect{background:var(--bt-canvas-button)}
+.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,.bt-you,[class*="_footArea"] button){background:var(--bt-canvas-button)!important;color:var(--bt-ink)!important;border-color:var(--bt-line)!important}
+.bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,[class*="_footArea"] button):hover{background:var(--bt-hover)!important}
+.bt-floating-team[data-folded=true]{width:min(164px,calc(100% - 24px));border-radius:18px}
 .bt-floating-team[data-folded=true] .bt-side-top{padding:0;gap:3px}
-.bt-floating-team[data-folded=true] :is(.bt-list,.bt-read-only,[class*="_footArea"],.bt-side-top>.bt-round:not(.bt-team-fold)){display:none!important}
+.bt-floating-team[data-folded=true] :is(.bt-list,.bt-read-only,.bt-team-footer,[class*="_footArea"],.bt-side-top>.bt-round:not(.bt-team-fold)){display:none!important}
 @media (prefers-reduced-motion:reduce){.bt-canvas-frame>.bt-floating-team{transition:none}}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-floating-team::before{display:none}}
-@media (prefers-reduced-transparency:reduce){.bt-floating-team::before{display:none}}
-@media(pointer:coarse){.bt-floating-team .bt-side-top .bt-round{width:44px;height:44px}.bt-team-grip{min-height:44px}.bt-floating-team[data-folded=true]>[class*="_root"],.bt-floating-team[data-folded=true]>[data-slot=sidebar]>[class*="_root"]{padding:4px!important}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-floating-team::before{background:var(--bt-card)!important}}
+@media (prefers-reduced-transparency:reduce){.bt-floating-team::before{background:var(--bt-card)!important;-webkit-backdrop-filter:none;backdrop-filter:none}}
+@media(pointer:coarse){.bt-floating-team .bt-side-top .bt-round{width:44px;height:44px}.bt-team-grip,.bt-team-return{min-height:44px}.bt-floating-team[data-folded=true]>[class*="_root"],.bt-floating-team[data-folded=true]>[data-slot=sidebar]>[class*="_root"]{padding:4px!important}}
 @media(forced-colors:active){
   .bt-canvas-frame>.bt-floating-team{--bt-ink:CanvasText;--bt-ink-2:CanvasText;--bt-ink-3:CanvasText;--bt-card:Canvas;--bt-main:Canvas;--bt-accent:Highlight;border-color:CanvasText!important;box-shadow:none}
-  .bt-floating-team::before{display:none}
+  .bt-floating-team::before{background:Canvas!important;-webkit-backdrop-filter:none;backdrop-filter:none}
   .bt-floating-team .bt-row[aria-current=page]{border-color:Highlight;background:Canvas}
+  .bt-team-return{background:ButtonFace;color:ButtonText;border-color:ButtonText}
+  .bt-team-return:hover{background:Highlight;color:HighlightText}
   .bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,.bt-you,[class*="_footArea"] button){background:ButtonFace!important;color:ButtonText!important;border-color:ButtonText!important}
   .bt-canvas-frame>.bt-floating-team :is(.bt-round,.bt-connect,.bt-account,[class*="_footArea"] button):hover{background:Highlight!important;color:HighlightText!important}
 }

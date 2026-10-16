@@ -4,11 +4,41 @@ import {
   CANVAS_LIMITS, CANVAS_STORAGE_KEY, DEFAULT_CANVAS, collapseWindow, compactConversations, createCanvasState,
   fitViewport, groupWindows, moveWindow, normalizeCanvas, openWindow, readCanvas,
   reconcileCanvas, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact,
-  ungroupWindows, windowBounds, windowHeight, windowWidth, writeCanvas, arrangeCards,
+  ungroupWindows, windowBounds, windowHeight, windowWidth, writeCanvas, arrangeCards, createEmptyGroup, addDraftMembers, moveDraftGroup,
 } from '../src/client/canvas-state.js'
 
 const employee = id => ({ id, kind: 'bot' })
 const room = id => ({ id, kind: 'room' })
+
+test('empty and one-member draft groups persist independently of actual Rooms', () => {
+  const storage = memoryStorage()
+  const original = withEmployees()
+  const state = createEmptyGroup(original, { x: -300, y: 200, name: 'Project' })
+  const group = state.groups[0], id = state.windows[0].id
+  assert.deepEqual(group, { id: 'canvas-group-1', name: 'Project', members: [], draft: true, x: -300, y: 200 })
+  assert.equal(writeCanvas(storage, state), true)
+  assert.deepEqual(readCanvas(storage), state)
+  const added = addDraftMembers(state, group.id, [id, id, 'missing'])
+  assert.deepEqual(added.groups[0].members, [id])
+  assert.deepEqual(added.windows, original.windows)
+  const moved = moveDraftGroup(added, group.id, 50, -40)
+  assert.equal(moved.groups[0].x, -250)
+  assert.equal(moved.groups[0].y, 160)
+  assert.deepEqual(moved.windows, original.windows)
+  assert.equal(writeCanvas(storage, moved), true)
+  assert.deepEqual(readCanvas(storage), moved)
+  assert.deepEqual(reconcileCanvas(moved, roster([])).groups[0].members, [])
+  assert.equal(ungroupWindows(moved, group.id).groups.length, 0)
+})
+
+test('fit can frame an empty group without any Bot windows', () => {
+  const state = createEmptyGroup(createCanvasState(), { x: 2000, y: -1000 })
+  const fitted = fitViewport(state, { width: 1000, height: 700 }, 40)
+  const group = state.groups[0], v = fitted.viewport
+  assert.ok(v.x + group.x * v.zoom >= 40)
+  assert.ok(v.y + group.y * v.zoom >= 40)
+  assert.ok(v.x + (group.x + 280) * v.zoom <= 960)
+})
 const roster = (bots, rooms = [], ready = true) => ({ ready, bots: bots.map(id => ({ id, sessionId: `${id}-part` })), rooms: rooms.map(id => ({ id })) })
 const memoryStorage = () => {
   const values = new Map()
@@ -161,7 +191,7 @@ test('movement and resize are immutable and bounded without changing entity refe
   assert.equal(resized.windows[0].width, CANVAS_LIMITS.minWidth)
   assert.equal(resized.windows[0].height, CANVAS_LIMITS.maxSize)
   assert.equal(resized.windows[0].entityId, 'chief')
-  assert.equal(state.windows[0].width, 760)
+  assert.equal(state.windows[0].width, 420)
 })
 
 test('compact toggles preserve a window identity and its expanded dimensions', () => {
