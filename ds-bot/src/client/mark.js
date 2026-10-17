@@ -1,8 +1,16 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
+import { getLetterAvatarProps } from './avatar-colors.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
+export { getAvatarBgColor, getAvatarTheme, getLetterAvatarProps, AVATAR_BG_COLORS, getContrastTextColor } from './avatar-colors.js'
+
+export function LetterAvatar(props) {
+  const { text, ...domProps } = getLetterAvatarProps(props)
+  domProps.style = { ...domProps.style, backgroundColor: 'transparent' }
+  return h('span', domProps, text)
+}
 
 // -------------------------------------------------------------------------
 // Bot mark: the Bot's character (or its uploaded photo), looked up by lookOf.
@@ -108,7 +116,7 @@ export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true
   const settled = useSettled(state)
   if (bot === undefined) return h(BotMark, { size })
   const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' ? 'working' : admin ? 'admin' : main ? 'main' : null
-  return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
+  return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px`, backgroundColor: 'transparent' } },
     h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,
     badgeKind === 'alert' ? h('span', { className: 'bt-badge bt-badge-alert', 'aria-label': t('Waiting for your answer'), role: 'img' }, '?') : null,

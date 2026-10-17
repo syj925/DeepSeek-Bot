@@ -37,6 +37,9 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: state lock',
     'on llm/adapters-updated',
     'on session/event',
+    'tool organize_team',
+    'tool assign_employee',
+    'tool create_department',
     'effect ds-bot: agent tool restrict retry',
     'on agent/created',
     'effect ds-bot: identity section',
@@ -60,6 +63,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool delete_capability',
     'tool attach_capability',
     'tool detach_capability',
+    'tool complete_task',
     'effect ds-bot: chat index',
     'tool group_relay',
     'tool read_own_chat',
@@ -132,7 +136,7 @@ test('the client channel answers from the saved state', async (t) => {
   assert.deepEqual(await call('room-progress', { roomId: 'r' }), { ok: true, value: [] })
   assert.deepEqual(await call('send', { text: ' ' }), { ok: false, error: { code: 'bot/invalid', message: 'Nothing to send', details: {} } })
   assert.deepEqual(await call('nope'), { ok: false, error: { code: 'bot/not-found', message: 'Unknown endpoint nope', details: {} } })
-  assert.deepEqual(await call('set-prefs', { accent: 'red' }), { ok: false, error: { code: 'bot/invalid', message: 'Accent must be a #rrggbb color', details: {} } })
+  assert.deepEqual(await call('set-prefs', { accent: 'red' }), { ok: false, error: { code: 'bot/invalid', message: 'Theme and accent customization is no longer supported', details: {} } })
   // The motion level is kept unless it is the default, and only the three levels pass.
   assert.equal((await call('set-prefs', { motion: 'lively' })).value.motion, 'lively')
   assert.equal('motion' in (await call('set-prefs', { motion: 'normal' })).value, false)

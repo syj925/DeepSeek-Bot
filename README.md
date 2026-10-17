@@ -1,3 +1,5 @@
+QibitAI canvas snapshot 0.1.31: [source handoff, build steps and known limits](docs/qibitai-0.1.31-handoff.md).
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
@@ -14,6 +16,12 @@ English | [中文](README.zh.md)
 DeepSeek Bot (DS Bot) is a bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns DSH into bots. You create your own bots, then talk and work with them.
 
 ![Say one sentence to Chief, and it sets up the bots and the group chat](docs/images/team.png)
+
+## Task completion notifications
+
+Employees declare verified final deliveries with `complete_task`. After that turn succeeds, a quiet card appears at the bottom right with the employee, task and result links. Ordinary replies, failed/stopped turns, pending approvals and internal member work do not announce completion; a group coordinator declares its final combined delivery. This is an explicit agent declaration, not an independent assessment of result quality.
+
+The team bell retains the latest 100 deliveries and unread markers. Cards dismiss after six visible seconds, pause on hover/focus, and merge bursts into at most three cards. Opening a conversation uses the existing canvas window without recentering; opening a file uses the classic conversation's built-in file viewer. Notifications for the conversation currently being read are quietly recorded as read. Popup and optional sound settings are local to this browser profile. Background system notifications require permission, enabled explicitly in the notification center; the app/host must remain running. Restarting the window preserves history without replaying old popups.
 
 ## Install
 
@@ -44,24 +52,32 @@ I strongly recommend that you set up your other bots and group chats by just tal
 
 ### Employee canvas (unreleased)
 
-This development branch adds a canvas for persistent employees and group chats. The background fills the workspace, with dark translucent glass panels, a movable, collapsible team list and a centered avatar dock. This glass theme is local to the canvas. Use **Create employee** to configure a new Bot, or open an existing one from **Employee directory**, the team list or the dock. Expanded conversations can move and resize; compacting or closing them preserves the employee, memory and conversation.
+**Chief is the unique General Assistant**, shown as an ordinary pinned employee with its existing avatar and conversation. Describe a lasting department in one sentence: Chief creates its leader, specialists and a separate group using `create_department`. Use `organize_team` to organize existing employees, and `assign_employee` for explicit transfers. A team has a name, ongoing purpose, leader and fixed membership; an employee may be independent or belong to one team, while joining many groups. Employees communicate and request tasks directly across teams. Leaders coordinate work, progress and results without forwarding every message. Opening a chat keeps the team list visible beside it. Older dedicated assistant conversations are retained in the directory; opening Chief makes no model call or permission change.
+
+Group membership and canvas arrangement never change team affiliation, private conversations, running work or filesystem permissions. Groups retain their reply modes: admin-first by default, with `@Name` for a particular member. New requests queue by default when an employee is busy; explicit `when: now` is for corrections or urgent updates. Organizational leadership does not automatically grant employee-management rights. A leader must hand over leadership before leaving or being deleted. Only explicit legacy departments migrate to teams; ordinary groups never become teams automatically.
+
+Floating components leave desktop Agent positions unchanged. Team-list drags follow a compact avatar and name; selected Agents show only a soft highlight and expose their management menu on right-click. Widgets expand toward the canvas interior and temporarily avoid overlap, returning to their saved position when collapsed. Manual placement remains free; click a widget to bring it forward. Conversations open in a consistent area beside the left team rail and can still be moved manually.
+
+This development branch adds a canvas for persistent employees and group chats. The background fills the workspace, with a light gray gradient, milky translucent panels, a movable, collapsible team list and a centered avatar dock, following the supplied Starbots visual design. A slate variant follows the host dark theme. This theme is local to the canvas. Use **Create employee** to configure a new Bot, or open an existing one from **Employee directory**, the team list or the dock. Expanded conversations can move and resize; compacting or closing them preserves the employee, memory and conversation.
 
 Employees start as draggable 120×112 avatar entries; Rooms remain 320×200 summaries with their real members. Click an employee avatar or a Room's **Open conversation** to load its conversation. Several manually opened conversations can stay visible together. Reloading restores compact entries and positions without loading all histories. **Arrange cards** packs entries by their actual sizes and visual groups; **Collapse conversations** keeps their positions. Moving and grouping entries never loads a conversation or stops background work.
 
 **Quick message** and **Agenda** are separate movable, collapsible panels. Quick message identifies its employee recipient and sends through the existing messaging action without opening history; each employee has a separate locally saved quick-message draft. Agenda reads the existing scheduled-task catalog and links to its settings, showing empty or unavailable states when appropriate.
 
-The default wallpaper is an original illustration of a misty lake, distant mountains and forest, bundled for offline use. Choose **Wallpaper → Choose local image** in the canvas toolbar to replace it with a picture from your computer. JPEG, PNG, WebP and AVIF files up to 25 MB are supported. The image fills the workspace, stays centered while you pan or zoom, and has a dark overlay to keep the glass panels readable. It is resized and saved only in the current browser or app profile, with no upload or image-generation API call. **Restore default background** removes the saved image and returns to the lake illustration. A failed selection keeps the previous wallpaper.
+The default background is a bundled light gray gradient. Choose **Wallpaper → Choose local image** in the canvas toolbar to use a picture from your computer. JPEG, PNG, WebP and AVIF files up to 25 MB are supported. The image fills the workspace with a subtle overlay for readability. It is resized and saved only in the current browser or app profile, with no upload or image-generation API call. **Restore default background** removes the saved image and returns to the gradient. A failed selection keeps the previous wallpaper.
 
-Drag the background to pan, Shift-drag to select windows, and Ctrl-scroll to zoom. **Group windows** arranges windows together; rename its label to organize the layout. Select employees or use a visual group's **Create group chat** action to preselect members in the original group form, then choose its admin and confirm. Room cards expose their admin, reply mode, member avatars and work, and group settings. Employee avatars retain details and the original management menu; selecting exactly two employees also opens their Bot exchange. There are no manual connection lines or workflow actions. Choose **Classic view** in the toolbar for the original conversation pane and sidebar, and **Employee canvas** in the sidebar to return. Layout, panel positions, quick-message drafts and view preference are saved in this browser, without syncing to other devices.
+Seven bundled Starbots role portraits are available in employee creation and avatar settings: General Assistant, Engineering, Design, Administration, Operations, Finance and Sales. Existing avatars stay unchanged; uploads and the original Bot characters remain available. Choosing a portrait changes only the image, never the employee role, model or permissions.
 
-Main Agent groups also support desktop-style gestures:
+The desktop uses a fixed viewport: drag entries and floating components to arrange them, or right-drag empty canvas to select employees. Background panning and wheel zoom are disabled. **Group windows** arranges windows together; rename its label to organize the layout. Select employees or use a visual group's **Create group chat** action to preselect members in the original group form, then choose its admin and confirm. Room cards expose their admin, reply mode, member avatars and work, and group settings. Employee avatars retain details and the original management menu; selecting exactly two employees also opens their Bot exchange. There are no manual connection lines or workflow actions. Choose **Classic view** in the toolbar for the original conversation pane and sidebar, and **Employee canvas** in the sidebar to return. Layout, panel positions, quick-message drafts and view preference are saved in this browser, without syncing to other devices.
 
-- Overlap two Main Agent avatars, then confirm to create a group.
+Employee groups also support desktop-style gestures:
+
+- Overlap two employee avatars, then confirm to create a group.
 - Right-click empty canvas and choose **New empty group**, or use the toolbar button. Drag its title to move it; double-click the name to rename it.
-- Hold the right mouse button and drag to select Main Agents. Right-click the selection to create a group, or drag any selected avatar to move the selection into an empty group or an existing Main Agent group.
-- Drag one more Main Agent, including one from the employee directory, onto a Main Agent group to add it. A confirmation lists the incoming members; existing members are not added twice.
+- Hold the right mouse button and drag to select employees. Right-click empty canvas to create a group from the selection, or drag any selected avatar to add the selection to an empty or existing employee group. Right-clicking an avatar opens its management menu.
+- Drag another employee, including one from the employee directory, onto a group to add it. A confirmation lists incoming members; existing members are not added twice.
 
-An empty group or a group with one member is a local draft, saved with the canvas layout. Adding a second Main Agent and confirming creates a real group conversation. Drafts do not send messages. Cancelling an avatar drop restores its original position; failed requests can be retried. These actions do not reassign child Bots, merge private chats or change running tasks and permissions. Ordinary group chats and visual window groups retain their existing behavior.
+An empty group or a group with one member is a local draft, saved with the canvas layout. Adding a second employee and confirming creates a real group conversation. Drafts do not send messages. Cancelling an avatar drop restores its original position; failed requests can be retried. These actions do not reassign employees, merge private chats or change running tasks and permissions. Ordinary group chats and visual window groups retain their existing behavior.
 
 ### Bot
 

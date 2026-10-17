@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
-import { ownerOf, checkRoomMembers } from './ownership.js'
+import { assistantIdentityProblem, ASSISTANT_RESERVED } from '../shared/assistant-identity.js'
+import { checkRoomMembers } from './ownership.js'
 
 export function install(rt) {
   const { ctx, config, home, defaults, state } = rt
@@ -59,11 +60,14 @@ export function install(rt) {
 
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
   // greeting waits until a model is chosen. So does a Bot made when no model is served.
-  async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
+  async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, teamId = null, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, quiet = false, generalAssistant = false }) {
     const cleanName = String(botName ?? '').trim().slice(0, 40)
-    const problem = nameProblem(cleanName)
+    const cleanRole = String(role).trim().slice(0, 24)
+    const problem = nameProblem(cleanName) ?? assistantIdentityProblem({ name: cleanName, role: cleanRole })
     if (problem !== undefined) throw new Error(problem)
+    if (generalAssistant) throw new Error(ASSISTANT_RESERVED)
     if (rt.findBot(cleanName)) throw new Error(`A Bot named ${cleanName} already exists`)
+    rt.checkTeamAssignment(undefined, teamId)
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
@@ -74,7 +78,7 @@ export function install(rt) {
       state.bots[id] = {
         id,
         name: cleanName,
-        role: String(role).trim().slice(0, 24),
+        role: cleanRole,
         // A color is only stored when the user picks one; otherwise the id picks it.
         ...(isColor(currentColor(color)) ? { color: currentColor(color) } : {}),
         ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : {}),
@@ -84,10 +88,11 @@ export function install(rt) {
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
-        ...(!main && ownerOf(state, createdBy) ? { ownerId: ownerOf(state, createdBy) } : {}),
+        teamId: null,
         capabilities: [],
       }
       if (main) state.mainBotIds.push(id)
+      if (teamId !== null) await rt.setTeam(id, teamId)
       const creator = rt.botOf(createdBy)
       const original = rt.botOf(copyOf)
       const language = rt.uiLanguage?.()
@@ -105,6 +110,11 @@ export function install(rt) {
       const opener = `${kickoff}\nWhere your instructions say otherwise, follow them.`
       const text = !main && language ? `${opener}\nWrite in ${language}.` : opener
       const bot = state.bots[id]
+      if (quiet) {
+        await rt.save()
+        if (modelRef) await rt.applyModel(bot)
+        return bot
+      }
       if (modelRef === undefined) {
         bot.kickoff = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
         await rt.save()
@@ -118,6 +128,7 @@ export function install(rt) {
       return bot
     } catch (error) {
       // The Bot's Session was already made: archive it instead of leaving an orphan.
+      for (const team of Object.values(state.teams)) team.members = team.members.filter(member => member !== id)
       delete state.bots[id]
       state.mainBotIds = state.mainBotIds.filter(other => other !== id)
       rt.chatOwners.delete(id)
@@ -146,6 +157,7 @@ export function install(rt) {
   async function duplicateBot(id) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (rt.isGeneralAssistant(id)) throw new Error(ASSISTANT_RESERVED)
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
     return createBot({
       name: freshName(`${bot.name} copy`),
@@ -164,7 +176,15 @@ export function install(rt) {
   async function updateBot(id, patch) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (!rt.isGeneralAssistant(id)) {
+      // Legacy names stay editable, but a new reserved identity is rejected before any mutation.
+      const name = patch.name === undefined ? undefined : String(patch.name).trim().slice(0, 40)
+      const role = patch.role === undefined ? undefined : String(patch.role).trim().slice(0, 24)
+      const problem = assistantIdentityProblem({ name: name === bot.name ? undefined : name, role: role === bot.role ? undefined : role })
+      if (problem) throw new Error(problem)
+    }
     // Checked first, so a folder that does not pass leaves the rest unchanged too.
+    if (patch.teamId !== undefined) rt.checkTeamAssignment(id, patch.teamId)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
     if (patch.name !== undefined) {
@@ -212,6 +232,7 @@ export function install(rt) {
       else bot.workDir = workDir
     }
     await rt.save()
+    if (patch.teamId !== undefined) await rt.setTeam(id, patch.teamId)
     if (modelChanged) await rt.applyModel(bot, { force: true })
     if (moved) void rt.followFolder(bot.id)
     if (bot.model && bot.kickoff !== undefined) {
@@ -271,10 +292,10 @@ export function install(rt) {
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
   }
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, mainOnly = false } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
     const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
     checkMembers(members)
-    checkRoomMembers(state, members, mainOnly, createdBy)
+    checkRoomMembers(state, members)
     const custom = cleanRoomName(roomName ?? '')
     // A Main Bot leads the groups it makes; a group the user makes is led by a Main
     // Bot member when it has one.
@@ -291,7 +312,6 @@ export function install(rt) {
         name: title,
         ...(custom ? { named: true } : {}),
         members,
-        ...(mainOnly ? { mainOnly: true } : {}),
         admin: adminId,
         mode: mode ?? 'admin',
         notice: cleanNotice(notice),
@@ -321,7 +341,7 @@ export function install(rt) {
     for (const member of patch.add ?? []) if (!members.includes(member)) members.push(member)
     members = members.filter(member => !(patch.remove ?? []).includes(member) && rt.botOf(member))
     checkMembers(members)
-    if (room.mainOnly === true) checkRoomMembers(state, members, true, actorId)
+    checkRoomMembers(state, members)
     let admin = room.admin ?? null
     if (patch.admin !== undefined) {
       admin = patch.admin || null
@@ -390,6 +410,7 @@ export function install(rt) {
     if (room === undefined) throw new Error('Unknown group chat')
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
     delete state.rooms[id]
+    for (const team of Object.values(state.teams)) if (team.roomId === id) delete team.roomId
     rt.roomInbox.delete(id)
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
@@ -427,18 +448,21 @@ export function install(rt) {
       if (rt.botOf(other)?.kickoff?.main) delete rt.botOf(other).kickoff
     }
     state.mainBotIds = next
+    rt.reconcileGeneralAssistant()
     await rt.save()
   }
 
   async function deleteBot(id) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (Object.values(state.teams).some(team => team.leaderId === id)) throw new Error('Hand over team leadership before deleting its leader')
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
     // Before the Bot and its group Sessions leave the state, which the archive reads.
     const archived = rt.archiveBotMemory(id)
     const current = rt.chatOf(id)
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
+    for (const team of Object.values(state.teams)) team.members = team.members.filter(member => member !== id)
     delete state.bots[id]
     for (const part of parts) {
       delete state.questions[part]
@@ -483,12 +507,16 @@ export function install(rt) {
   async function bootstrap() {
     await rt.load()
     void rt.syncModels()
-    if (state.mainBotIds.some(id => rt.botOf(id))) return
+    if (state.mainBotIds.some(id => rt.botOf(id))) {
+      if (rt.reconcileGeneralAssistant()) await rt.save()
+      return
+    }
     // Only the team's first Main Bot is stored as the DeepSeek whale; other Bots get a
     // look from their id, and a Bot made Main Bot later keeps its own.
     bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'deepseek', avatar: { shape: 'whale' }, pickModel: true })
       .finally(() => { bootstrapping = null })
     await bootstrapping
+    if (rt.reconcileGeneralAssistant()) await rt.save()
   }
 
   Object.assign(rt, {

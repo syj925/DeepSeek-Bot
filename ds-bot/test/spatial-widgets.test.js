@@ -28,8 +28,11 @@ const findAll = (node, predicate) => !node || typeof node !== 'object' ? [] : [.
 const find = (node, predicate) => findAll(node, predicate)[0]
 const textOf = node => typeof node === 'string' || typeof node === 'number' ? String(node) : node?.children?.map(textOf).join('') ?? ''
 
-function runtime(saved = storage()) {
+function runtime(saved = storage(), initialArea = null) {
   const slots = [], events = new Map(), intervals = new Map()
+  let area = initialArea, measure
+  const canvas = { getBoundingClientRect: () => ({ ...area, left: 0, top: 0 }), querySelector: () => null, querySelectorAll: () => [], closest: () => canvas }
+  const root = { closest: () => canvas }
   let cursor = 0, effects = [], dirty = false, mounted = true, lateUpdates = 0, component, props, tree, nextTimer = 0
   const effectHook = (effect, deps) => {
     const index = cursor++, previous = slots[index]
@@ -57,11 +60,13 @@ function runtime(saved = storage()) {
     setInterval: run => { const id = ++nextTimer; intervals.set(id, run); return id }, clearInterval: id => intervals.delete(id),
     window: { addEventListener: (type, run) => events.set(type, run), removeEventListener: type => events.delete(type), dispatchEvent: event => events.get(event.type)?.(event) },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail } },
+    ResizeObserver: class { constructor(run) { measure = run } observe() {} disconnect() {} },
   }
   runInNewContext(outputFiles[0].text, context)
   const render = () => {
     cursor = 0; effects = []; dirty = false
     tree = component(props)
+    if (area && tree.props.ref) tree.props.ref.current = root
     for (const run of effects) run()
     return tree
   }
@@ -74,6 +79,7 @@ function runtime(saved = storage()) {
   return {
     ...module.exports, saved, context, intervals, events,
     draw(next, nextProps) { component = next; props = nextProps; render(); return flush() }, flush,
+    resize(next) { area = next; measure(); return flush() },
     async settle() { await new Promise(resolve => setImmediate(resolve)); return flush() },
     unmount() { mounted = false; for (const cell of slots) cell?.cleanup?.() },
     get lateUpdates() { return lateUpdates },
@@ -81,6 +87,151 @@ function runtime(saved = storage()) {
 }
 
 const bot = id => ({ id, name: id === 'writer' ? 'Writer' : 'Designer', role: 'A real employee' })
+
+test('right and bottom widgets follow viewport edges through resize, folding and reload', () => {
+  const saved = storage({ 'ds-bot:spatial-widgets': '{"quick":{"x":908,"y":568,"folded":false}}' })
+  const small = { width: 1280, height: 780 }, large = { width: 2560, height: 1400 }
+  let page = runtime(saved, small)
+  let tree = page.draw(page.FloatingWidget, { id: 'quick', title: 'Quick' })
+  const gaps = () => ({ right: 12, bottom: 12 })
+  assert.deepEqual(plain(page.readSpatialWidget('quick').anchor), gaps())
+  for (let repeat = 0; repeat < 3; repeat++) {
+    tree = page.resize(large)
+    assert.equal(tree.props.style.left, 2188)
+    assert.equal(tree.props.style.top, 1188)
+    tree = page.resize(small)
+    assert.equal(tree.props.style.left, 908)
+    assert.equal(tree.props.style.top, 568)
+  }
+  find(tree, node => node.props.className === 'bt-spatial-fold').props.onClick()
+  tree = page.flush()
+  tree = page.resize(large)
+  assert.equal(tree.props.style.left + tree.props.style.width, 2548)
+  assert.equal(tree.props.style.top + tree.props.style.height, 1388)
+  find(tree, node => node.props.className === 'bt-spatial-fold').props.onClick()
+  tree = page.flush()
+  assert.equal(tree.props.style.left, 2188)
+  assert.equal(tree.props.style.top, 1188)
+  page.unmount()
+  page = runtime(saved, large)
+  tree = page.draw(page.FloatingWidget, { id: 'quick', title: 'Quick' })
+  assert.equal(tree.props.style.left, 2188)
+  assert.equal(tree.props.style.top, 1188)
+  page.unmount()
+})
+
+test('edge anchors survive temporary clamping, while moving to the middle releases them', () => {
+  const page = runtime(), small = { width: 1280, height: 780, minY: 80 }, large = { width: 2560, height: 1400, minY: 80 }
+  const panel = page.anchorSpatialWidget('quick', { x: 908, y: 568, folded: false }, small)
+  page.fitSpatialWidget('quick', panel, { width: 300, height: 240, minY: 80 })
+  const restored = page.fitSpatialWidget('quick', panel, large)
+  assert.equal(restored.x, 2188)
+  assert.equal(restored.y, 1188)
+  const moved = page.moveWidgetPlacement('quick', panel, restored, -500, -400, large)
+  assert.deepEqual(plain(moved.anchor), {})
+  const resized = page.fitSpatialWidget('quick', moved, { width: 3000, height: 1800, minY: 80 })
+  assert.equal(resized.x, moved.x)
+  assert.equal(resized.y, moved.y)
+  const middle = page.anchorSpatialWidget('quick', { x: 400, y: 250, folded: false }, small)
+  assert.deepEqual(plain(middle.anchor), {})
+  assert.equal(page.fitSpatialWidget('quick', middle, large).x, 400)
+})
+
+test('avoidance can move anchored widgets without overwriting their preferred edge gap', () => {
+  const page = runtime(), area = { width: 1280, height: 780, minY: 80 }
+  const panel = page.anchorSpatialWidget('quick', { x: 908, y: 568, folded: false }, area)
+  const original = JSON.stringify(panel)
+  const avoided = page.avoidSpatialWidgets('quick', panel, area, [{ x: 908, y: 568, width: 360, height: 200 }])
+  assert.notEqual(avoided.y, 568)
+  assert.equal(avoided.anchor, undefined)
+  assert.equal(JSON.stringify(panel), original)
+  const clear = page.avoidSpatialWidgets('quick', panel, { ...area, width: 2560, height: 1400 }, [])
+  assert.equal(clear.x, 2188)
+  assert.equal(clear.y, 1188)
+})
+
+test('right-side expansion keeps its right edge and repeated collapse restores the saved home', () => {
+  const page = runtime(), area = { width: 1200, height: 800, minY: 80 }
+  const home = { x: 1004, y: 300, folded: true }
+  let panel = home
+  for (let count = 0; count < 5; count++) {
+    panel = page.toggleWidgetPlacement('quick', panel, area)
+    assert.equal(panel.x, 828)
+    assert.equal(panel.x + 360, home.x + 184)
+    const avoided = page.avoidSpatialWidgets('quick', panel, area, [{ x: 828, y: 300, width: 360, height: 200 }])
+    assert.notEqual(avoided.y, panel.y, 'opening widget temporarily avoids its blocker')
+    panel = page.toggleWidgetPlacement('quick', panel, area)
+    assert.deepEqual(plain(panel), home)
+  }
+  const left = { x: 80, y: 180, folded: true }
+  assert.equal(page.toggleWidgetPlacement('quick', left, area).x, left.x)
+})
+
+test('expanded widget storage retains home across reload and ignores invalid home coordinates', () => {
+  const page = runtime(), area = { width: 1200, height: 800, minY: 80 }
+  const home = { x: 1004, y: 300, folded: true }
+  page.writeSpatialWidget('agenda', page.toggleWidgetPlacement('agenda', home, area))
+  const reloaded = runtime(page.saved)
+  assert.deepEqual(plain(reloaded.toggleWidgetPlacement('agenda', reloaded.readSpatialWidget('agenda'), area)), home)
+  page.writeSpatialWidget('agenda', { x: 900, y: 300, folded: false, home: { x: 'bad', y: 300 } })
+  assert.equal(page.readSpatialWidget('agenda').home, undefined)
+  const legacy = page.toggleWidgetPlacement('agenda', { x: 928, y: 300, folded: false }, area)
+  assert.equal(legacy.x + 184, 1188, 'old expanded saves collapse against the same right edge')
+})
+
+test('manual movement updates home by the user delta without saving automatic avoidance', () => {
+  const page = runtime(), area = { width: 1200, height: 800, minY: 80 }
+  const expanded = page.toggleWidgetPlacement('quick', { x: 1004, y: 300, folded: true }, area)
+  const visible = page.avoidSpatialWidgets('quick', expanded, area, [{ x: 828, y: 300, width: 360, height: 200 }])
+  const moved = page.moveWidgetPlacement('quick', expanded, visible, -40, 16, area)
+  assert.deepEqual(plain(page.toggleWidgetPlacement('quick', moved, area)), { x: 964, y: 316, folded: true })
+  const clamped = page.moveWidgetPlacement('quick', expanded, visible, 500, 0, area)
+  assert.equal(clamped.x, 828)
+  assert.equal(clamped.home.x, 1004, 'movement beyond the edge does not accumulate hidden displacement')
+})
+
+test('widget fold controls restore preferred placement through reload and viewport clamping', () => {
+  const saved = storage({ 'ds-bot:spatial-widgets': '{"quick":{"x":1004,"y":300,"folded":true}}' })
+  let page = runtime(saved)
+  let tree = page.draw(page.FloatingWidget, { id: 'quick', title: 'Quick' })
+  find(tree, node => node.props.className === 'bt-spatial-fold').props.onClick()
+  tree = page.flush()
+  assert.equal(tree.props.style.left, 828)
+  assert.equal(page.readSpatialWidget('quick').home.x, 1004)
+  page.unmount()
+  page = runtime(saved)
+  tree = page.draw(page.FloatingWidget, { id: 'quick', title: 'Quick' })
+  find(tree, node => node.props.className === 'bt-spatial-fold').props.onClick()
+  tree = page.flush()
+  assert.equal(tree.props.style.left, 1004)
+  assert.equal(page.readSpatialWidget('quick').home, undefined)
+  const narrow = { width: 800, height: 600, minY: 80 }
+  const expanded = page.toggleWidgetPlacement('quick', { x: 1004, y: 300, folded: true }, narrow)
+  assert.equal(page.toggleWidgetPlacement('quick', expanded, narrow).x, 1004, 'a temporary viewport clamp preserves the wider-screen preference')
+  page.unmount()
+})
+
+test('expanding a widget picks a nearby free position without moving its peers', () => {
+  const page = runtime(), area = { width: 1200, height: 800, minY: 80 }
+  const peers = [{ x: 360, y: 104, width: 360, height: 200 }]
+  const original = JSON.stringify(peers)
+  const panel = page.avoidSpatialWidgets('agenda', { x: 500, y: 104, folded: false }, area, peers)
+  assert.equal(panel.x, 500)
+  assert.equal(panel.y, 316)
+  assert.equal(JSON.stringify(peers), original)
+  const free = { x: 800, y: 104, folded: false }
+  assert.deepEqual(plain(page.avoidSpatialWidgets('agenda', free, area, peers)), plain(page.fitSpatialWidget('agenda', free, area)))
+})
+
+test('avoidance handles multiple blockers and leaves bounded overlap when no free space exists', () => {
+  const page = runtime(), area = { width: 1200, height: 800, minY: 80 }
+  const peers = [{ x: 360, y: 104, width: 360, height: 200 }, { x: 360, y: 316, width: 360, height: 220 }]
+  const panel = page.avoidSpatialWidgets('agenda', { x: 400, y: 104, folded: false }, area, peers)
+  for (const peer of peers) assert.ok(panel.x + panel.width + 12 <= peer.x || peer.x + peer.width + 12 <= panel.x || panel.y + panel.height + 12 <= peer.y || peer.y + peer.height + 12 <= panel.y)
+  const tiny = { width: 300, height: 240, minY: 80 }, request = { x: 100, y: 100, folded: false }
+  assert.deepEqual(plain(page.avoidSpatialWidgets('quick', request, tiny, [{ x: 0, y: 0, width: 300, height: 240 }])), plain(page.fitSpatialWidget('quick', request, tiny)))
+})
+
 function quick(saved) {
   const page = runtime(saved), sent = [], opened = []
   const actions = {

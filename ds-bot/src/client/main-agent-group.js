@@ -15,8 +15,8 @@ export function MainAgentGroup({ members, roster, actions, onClose, target, onCo
   const adding = target?.kind === 'room'
   const staging = target?.kind === 'draft' && members.length < 2
   const additions = adding ? members.filter(id => !room?.members.includes(id)) : members
-  const valid = bots.length === members.length && new Set(members).size === members.length && members.length >= (target ? 1 : 2) && members.every(id => isMainOf(roster, id)) &&
-    (!adding || room?.mainOnly === true && additions.length > 0)
+  const valid = bots.length === members.length && new Set(members).size === members.length && members.length >= (target ? 1 : 2) &&
+    (!adding || room && additions.length > 0)
   useEffect(() => { dialog.current.showModal(); return () => dialog.current?.close() }, [])
   const close = () => { if (!pending.current) onClose() }
   const create = async () => {
@@ -26,7 +26,7 @@ export function MainAgentGroup({ members, roster, actions, onClose, target, onCo
     setError('')
     try {
       if (adding) await actions.updateRoom(target.id, { add: additions })
-      else if (!staging) created.current ??= await actions.createRoom(members, { mainOnly: true, admin: members[0], name: name.trim() })
+      else if (!staging) created.current ??= await actions.createRoom(members, { admin: members[0], name: name.trim() })
       onComplete?.({ room: adding ? room : created.current, members, name: name.trim() })
       if (adding || created.current) actions.openCanvasEntity(adding ? room.id : created.current.id)
       onClose()
@@ -34,15 +34,15 @@ export function MainAgentGroup({ members, roster, actions, onClose, target, onCo
     finally { pending.current = false; setBusy(false) }
   }
   return h('dialog', { ref: dialog, className: 'bt-main-group', 'aria-labelledby': 'bt-main-group-title', onCancel: event => { event.preventDefault(); close() } },
-    h('div', { className: 'bt-main-group-avatars' }, bots.map(bot => h(BotAvatar, { key: bot.id, bot, main: true, size: 56 }))),
-    h('h2', { id: 'bt-main-group-title' }, t(adding ? 'Add Main Agents to group' : staging ? 'Add to empty group' : 'Create Main Agent group')),
+    h('div', { className: 'bt-main-group-avatars' }, bots.map(bot => h(BotAvatar, { key: bot.id, bot, main: isMainOf(roster, bot.id), size: 56 }))),
+    h('h2', { id: 'bt-main-group-title' }, t(adding ? 'Add employees to group' : staging ? 'Add to empty group' : 'Create collaboration group')),
     adding ? h('strong', null, room?.name ?? target.name) : null,
     h('p', null, bots.map(bot => bot.name).join(' + ')),
-    h('p', { className: 'bt-note' }, t('A new group conversation. Each Main Agent keeps its own children, chats and running tasks.')),
-    staging ? h('p', { className: 'bt-note' }, t('Add another Main Agent to start a group conversation.')) : null,
+    h('p', { className: 'bt-note' }, t('A separate collaboration chat. Team membership, conversations, running tasks and permissions stay unchanged.')),
+    staging ? h('p', { className: 'bt-note' }, t('Add another employee to start a group conversation.')) : null,
     adding ? null : h('label', { className: 'bt-field' }, h('span', { className: 'bt-field-label' }, t('Group name')),
       h('input', { className: 'bt-input', value: name, maxLength: 80, disabled: busy, placeholder: bots.map(bot => bot.name).join(' + '), onChange: event => setName(event.target.value) })),
-    !valid ? h('p', { role: 'alert' }, t(adding && !additions.length ? 'These Main Agents are already in this group.' : 'Select available Main Agents to continue.')) : null,
+    !valid ? h('p', { role: 'alert' }, t(adding && !additions.length ? 'These employees are already in this group.' : 'Select available employees to continue.')) : null,
     error ? h('p', { role: 'alert', className: 'bt-error' }, error) : null,
     h('div', { className: 'bt-actions' },
       h('button', { type: 'button', className: 'bt-soft', disabled: busy, onClick: close }, t('Cancel')),

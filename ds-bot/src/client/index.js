@@ -1,5 +1,5 @@
 import { call } from './api.js'
-import { isHex, inkText, paintCss } from './inks.js'
+import { inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { countCards, createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes } from './themes.js'
@@ -26,7 +26,7 @@ import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
 import { STORAGE, migrateStorage } from './storage.js'
 import { groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
-import { installLocale, language } from './i18n.js'
+import { installLocale, language, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
@@ -36,8 +36,12 @@ import { noticeApprovals } from './approval-notices.js'
 import { CANVAS_PANEL, CANVAS_CONVERSATION, CanvasConversation, CanvasLauncher, canvasSessionId } from './canvas-session.js'
 import { CanvasWorkspace } from './canvas-workspace.js'
 import { canvasStyles } from './canvas-styles.js'
-import { watchCompletions } from './completion-unread.js'
-import { readCanvas, writeCanvas, reconcileCanvas, openWindow, setCanvasSelection, fitViewport, setWindowCompact, compactConversations, arrangeCards } from './canvas-state.js'
+import { canvasReading, watchCompletions } from './completion-unread.js'
+import { createTaskNotices } from './task-notice-state.js'
+import { TaskNotifications, TASK_NOTICE_CSS } from './task-notices.js'
+import { completionSound, openTaskFile } from './task-notice-navigation.js'
+import { fixedDesktop, arrangeDesktop } from './canvas-desktop.js'
+import { readCanvas, writeCanvas, reconcileCanvas, openWindow, setCanvasSelection, setWindowCompact, compactConversations, arrangeCards } from './canvas-state.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -68,10 +72,29 @@ export function apply(ctx) {
   try { canvasPreferred = localStorage.getItem(STORAGE.workspaceView) !== 'classic' } catch { /* storage unavailable */ }
   const canvasVisible = () => ctx.layout.panelInfo?.getSnapshot().activePanelId === CANVAS_PANEL
   let canvasSaveTimer
-  let canvasSize, pendingCanvasFocus
+  let canvasSize
+  const nativeNotices = new Set()
+  ctx.effect(() => () => { for (const notice of nativeNotices) notice.close(); nativeNotices.clear() }, 'ds-bot: task notifications')
+  const taskNotices = createTaskNotices({
+    reading: item => {
+      if (!document.hasFocus()) return false
+      if (canvasVisible()) return canvasReading(canvas.getSnapshot(), canvasSize)?.entityId === item.targetId
+      if (ctx.layout.panelInfo.getSnapshot().activePanelId) return false
+      return (ctx.sessions.list.getSnapshot().byId?.[item.roomId ?? item.sessionId]?.retainedBy?.mainView ?? 0) > 0
+    },
+    sound: completionSound,
+    systemNotify: (item, count) => {
+      if (globalThis.Notification?.permission !== 'granted') return
+      const message = item.kind === 'message'
+      const notice = new Notification(count > 1 ? t('{count} new notifications', { count }) : `${item.name} · ${t(message ? 'New message' : 'Task completed')}`, { body: count > 1 ? t('Open notifications to view the updates.') : message ? item.summary : item.title, tag: 'ds-bot-task-completion', silent: true })
+      nativeNotices.add(notice)
+      notice.onclose = () => nativeNotices.delete(notice)
+      notice.onclick = () => { window.focus(); notice.close(); if (count > 1) { if (!taskNotices.getSnapshot().open) taskNotices.toggle() } else actions.openTaskConversation(item) }
+    },
+  })
   const saveCanvas = () => { clearTimeout(canvasSaveTimer); writeCanvas(undefined, canvas.getSnapshot()) }
   const updateCanvas = (next, persist = true) => {
-    canvas.set(next)
+    canvas.set(state => fixedDesktop(typeof next === 'function' ? next(state) : next, canvasSize))
     if (persist) { clearTimeout(canvasSaveTimer); canvasSaveTimer = setTimeout(saveCanvas, 180) }
   }
   ctx.effect(() => {
@@ -173,10 +196,11 @@ export function apply(ctx) {
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
+    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) { taskNotices.receive(value.taskNotices ?? []); return }
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
     roster.set(indexRoster(value))
+    taskNotices.receive(value.taskNotices ?? [])
     try {
       const ids = (value.agents ?? []).flatMap(agent => agent.sessions ?? [])
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
@@ -298,8 +322,7 @@ export function apply(ctx) {
     return () => { offRoster(); offRegistry(); style.remove() }
   }
 
-  // The chosen theme lives in the team state so every device shares it; the local
-  // copy only avoids a flash of the default theme before the first state pull.
+  // Appearance is fixed; only the avatar motion preference is user-configurable.
   const installTheme = () => {
     const style = installStyles('', 'theme')
     let key = ''
@@ -308,19 +331,18 @@ export function apply(ctx) {
       const snapshot = roster.getSnapshot()
       const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
       const themes = allThemes()
-      const id = themes[prefs.theme] ? prefs.theme : 'deepseek'
-      const accent = isHex(prefs.accent) ? prefs.accent : undefined
+      const id = 'deepseek'
       const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
       document.body.dataset.btMotion = motion
-      const next = `${id}|${accent ?? ''}|${motion}|${registry.getSnapshot()}`
+      const next = `${id}|${motion}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
-      style.textContent = themeCss(themes[id], accent)
+      style.textContent = themeCss(themes[id])
       const release = releaseTokens
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
-        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion })) } catch { /* storage unavailable */ }
+        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ motion: prefs.motion })) } catch { /* storage unavailable */ }
       }
     }
     render()
@@ -381,6 +403,10 @@ export function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
+      if (canvasVisible()) {
+        surface.set(state => ({ ...state, canvas: false }))
+        ctx.layout.selectPanel(null)
+      }
       ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: 'details', renaming: false, tab: null }))
       setPlain(true)
       expected = sessionId
@@ -546,6 +572,10 @@ export function apply(ctx) {
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
     closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),
+    createTeam: payload => after(call('create-team', payload)),
+    updateTeam: (id, patch) => after(call('update-team', { id, ...patch })),
+    setTeam: (id, teamId) => after(call('set-team', { id, teamId })),
+    deleteTeam: id => after(call('delete-team', { id })),
     createRoom: (members, options = {}) => after(call('create-room', { members, ...options })),
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     refreshModels: () => after(call('models')).catch(() => {}),
@@ -599,21 +629,42 @@ export function apply(ctx) {
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
   }
   actions.updateCanvas = updateCanvas
+  let openingAssistant
+  actions.openGeneralAssistant = () => {
+    if (!openingAssistant) openingAssistant = (async () => {
+      const bot = await after(call('ensure-general-assistant'))
+      actions.openCanvasEntity(bot.id)
+    })().finally(() => { openingAssistant = undefined })
+    return openingAssistant
+  }
+  actions.showDepartment = room => updateCanvas(state => {
+    let next = state
+    for (const entity of [{ id: room.admin, kind: 'bot' }, { id: room.id, kind: 'room' }]) {
+      if (next.windows.some(window => window.entityId === entity.id)) continue
+      next = openWindow(next, entity)
+      const added = next.windows.find(window => window.entityId === entity.id)
+      next = setWindowCompact(next, added.id, true)
+    }
+    return { ...next, active: state.active, selected: state.selected }
+  })
   actions.saveCanvas = saveCanvas
   actions.setCanvasSize = size => {
     canvasSize = size
-    if (size && pendingCanvasFocus) {
-      updateCanvas(state => fitViewport(state, size, size.insets, pendingCanvasFocus === 'all' ? undefined : [pendingCanvasFocus]))
-      pendingCanvasFocus = undefined
-    }
+    if (size) updateCanvas(state => state)
   }
   actions.retainCanvasSession = id => ctx.sessions.retain(id, { source: 'dsBotCanvas' })
   actions.refreshCanvasSessions = () => ctx.sessions.refresh()
   actions.compactCanvasConversations = () => updateCanvas(state => compactConversations(state))
-  actions.arrangeCanvasCards = () => updateCanvas(state => {
-    const next = arrangeCards(state)
-    return canvasSize ? fitViewport(next, canvasSize, canvasSize.insets) : next
-  })
+  actions.arrangeCanvasCards = () => {
+    const layout = actions.canvasArrangementLayout?.()
+    if (!layout) return
+    const snapshot = roster.getSnapshot()
+    const priority = [...snapshot.bots].sort((a, b) => Number(Boolean(b.generalAssistant)) - Number(Boolean(a.generalAssistant)) || (a.teamId ?? '').localeCompare(b.teamId ?? '')).map(bot => bot.id)
+    // Respect the same outer bounds used by updateCanvas, in addition to live obstacles.
+    const result = arrangeDesktop(canvas.getSnapshot(), canvasSize ?? layout.size, layout.obstacles, priority)
+    if (result.fits) updateCanvas(result.state)
+    else ui.set(state => ({ ...state, toast: { text: t('Not enough desktop space. Collapse a widget or enlarge the window, then arrange again. Your layout is unchanged.'), token: Date.now() } }))
+  }
   actions.selectCanvasWindow = (id, selected = true, additive = false) => {
     const current = canvas.getSnapshot()
     const ids = additive ? selected ? [...new Set([...current.selected, id])] : current.selected.filter(value => value !== id) : current.selected.includes(id) ? current.selected : [id]
@@ -624,24 +675,24 @@ export function apply(ctx) {
     const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id]
     if (!entity) return
     const kind = snapshot.roomsById[entity.id] ? 'room' : 'bot'
-    const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind })
+    const next = openWindow(canvas.getSnapshot(), { id: entity.id, kind }, { compact: false })
     const window = next.windows.find(value => value.entityId === entity.id)
     updateCanvas(next)
     actions.openCanvasConversation(window.id)
+    updateCanvas(state => setCanvasSelection(state, []))
   }
   actions.placeCanvasMain = (id, point) => {
     const snapshot = roster.getSnapshot()
-    if (!snapshot.byId[id] || !snapshot.mainBotIds?.includes(id)) return
+    if (!snapshot.byId[id]) return
     updateCanvas(state => {
       const next = openWindow(state, { id, kind: 'bot' })
-      return { ...next, windows: next.windows.map(window => window.entityId === id && window.kind === 'bot' ? { ...window, x: point.x, y: point.y } : window) }
+      return { ...next, windows: next.windows.map(window => window.entityId === id && window.kind === 'bot' ? { ...window, compact: true, x: point.x, y: point.y } : window) }
     })
   }
   actions.openCanvasConversation = id => {
     const current = canvas.getSnapshot()
     if (!current.windows.some(window => window.id === id && window.open)) return
-    const next = setWindowCompact(setCanvasSelection(compactConversations(current), [id], id), id, false)
-    pendingCanvasFocus = undefined
+    const next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
     updateCanvas(next)
     actions.openCanvas(false)
   }
@@ -659,7 +710,6 @@ export function apply(ctx) {
       })
       next = arrangeCards(next)
       if (next.windows.length) next = setCanvasSelection(next, [next.windows[0].id], next.windows[0].id)
-      pendingCanvasFocus = next.windows.length ? 'all' : undefined
       updateCanvas(next)
     }
     surface.set(state => ({ ...state, canvas: true }))
@@ -674,6 +724,28 @@ export function apply(ctx) {
     if (target) actions.openSession(target)
     else ctx.layout.selectPanel(null)
   }
+  Object.assign(actions, {
+    toggleTaskNotices: () => taskNotices.toggle(),
+    closeTaskNotices: () => taskNotices.close(),
+    dismissTaskNotices: ids => taskNotices.dismiss(ids),
+    readAllTaskNotices: () => taskNotices.markAllRead(),
+    configureTaskNotices: values => taskNotices.configure(values),
+    openTaskConversation: item => {
+      const snapshot = roster.getSnapshot()
+      if (!snapshot.byId[item.targetId] && !snapshot.roomsById[item.targetId]) { actions.reportError(new Error(t('This conversation is no longer available.')), 'task-notification'); return }
+      actions.openSession(item.targetId)
+      taskNotices.markRead(item.id); taskNotices.close()
+    },
+    openTaskResult: async (item, file) => {
+      try {
+        const snapshot = roster.getSnapshot()
+        if (!snapshot.byId[item.targetId] && !snapshot.roomsById[item.targetId]) throw new Error(t('This conversation is no longer available.'))
+        const sessionId = partFor(item.roomId ?? item.sessionId)
+        const opened = await openTaskFile({ sidebar: ctx.get('sidebarRight'), sessionId, sourceSessionId: item.sessionId, path: file.path, navigate: () => actions.openClassicSession(item.roomId ?? item.sessionId) })
+        if (opened) { taskNotices.markRead(item.id); taskNotices.close() }
+      } catch (error) { actions.reportError(error, 'task-result') }
+    },
+  })
   // Without the Desktop bridge these stay undefined, and no browser control renders.
   if (browsers) {
     Object.assign(actions, {
@@ -795,7 +867,7 @@ export function apply(ctx) {
   })
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update, canvas, completions } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update, canvas, completions, taskNotices } })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -866,6 +938,7 @@ export function apply(ctx) {
     installCompiledStyles(USAGE_CSS, 'usage'),
     installCompiledStyles(SCHEDULE_CSS, 'schedules'),
     installCompiledStyles(FEEDBACK_CSS, 'feedback'),
+    installCompiledStyles(TASK_NOTICE_CSS, 'task-notifications'),
     installCompiledStyles(ABOUT_CSS, 'about'),
     installCompiledStyles(MEMBER_CSS, 'members'),
     installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
@@ -884,6 +957,7 @@ export function apply(ctx) {
     shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
     shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
     shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
+    shadow('shell.overlay', { id: 'bot-task-notifications', order: 65, inject: face }, TaskNotifications),
     shadow('main', { key: CANVAS_PANEL, inject: face, children: { [CANVAS_CONVERSATION]: { kind: 'single', scope: 'session' } } }, CanvasWorkspace),
     shadow(CANVAS_CONVERSATION, { inject: face }, CanvasConversation),
     shadow('sidebar.footer.action', { id: 'bot-canvas', order: -250, inject: face }, CanvasLauncher),

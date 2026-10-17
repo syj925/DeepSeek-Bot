@@ -40,6 +40,7 @@ export function install(rt) {
       ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
     })),
     // `parts`: the members' hidden group Sessions and their earlier segments, for usage.
+    teams: Object.values(state.teams),
     rooms: Object.values(state.rooms).map(({ log, seen, botRounds, lateRounds, sessions, segments, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId)]
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
@@ -77,21 +78,14 @@ export function install(rt) {
     memoryReviews: rt.memoryReviews(),
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
+    taskNotices: state.taskNotices ?? [],
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
   const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
-    if (body.theme !== undefined) {
-      if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
-      state.prefs.theme = body.theme
-    }
-    if (body.accent !== undefined) {
-      if (body.accent === null || body.accent === '') delete state.prefs.accent
-      else if (/^#[0-9a-f]{6}$/i.test(body.accent)) state.prefs.accent = body.accent
-      else throw invalid('Accent must be a #rrggbb color')
-    }
+    if (body.theme !== undefined || body.accent !== undefined) throw invalid('Theme and accent customization is no longer supported')
     if (body.motion !== undefined) {
       if (body.motion === null || body.motion === 'normal') delete state.prefs.motion
       else if (body.motion === 'quiet' || body.motion === 'lively') state.prefs.motion = body.motion
@@ -139,9 +133,21 @@ export function install(rt) {
           return ok(await rt.usageView({ timeZone: typeof body.timeZone === 'string' ? body.timeZone.slice(0, 64) : undefined }))
         case 'room-progress':
           return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null })))
+        case 'ensure-general-assistant':
+          await rt.bootstrap()
+          return ok(await rt.ensureGeneralAssistant())
+        case 'create-team':
+          return ok(await rt.createTeam(body))
+        case 'update-team':
+          return ok(await rt.updateTeam(body.id, body))
+        case 'delete-team':
+          await rt.deleteTeam(body.id)
+          return ok(view())
+        case 'set-team':
+          return ok(await rt.setTeam(body.id, body.teamId ?? null))
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, main: body.main === true })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, teamId: body.teamId ?? null, main: body.main === true })
           return ok(bot)
         }
         case 'update-bot':

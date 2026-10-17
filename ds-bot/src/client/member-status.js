@@ -155,7 +155,7 @@ function useNow(active) {
 
 const since = (now, at) => (typeof at === 'number' && now - at >= 60000 ? ` · ${elapsedLabel(now - at)}` : '')
 
-function ApprovalCard({ approval, bot, actions }) {
+export function ApprovalCard({ approval, bot, actions }) {
   const [busy, setBusy] = useState(false)
   const answer = (choice) => {
     setBusy(true)

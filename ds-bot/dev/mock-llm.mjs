@@ -114,7 +114,7 @@ function decide(body) {
   const last = messages.at(-1)
   const blocks = Array.isArray(last?.content) ? last.content : []
   const me = /You are (.+?), a Bot on the user's team/.exec(system)?.[1] ?? 'Bot'
-  const isMain = system.includes('You are the Main Bot')
+  const isMain = system.includes('## Your employee management rights') || system.includes('You are the Main Bot')
   const isRelay = system.includes('# Group chat relay')
 
   // Summary requests: the Bot's handoff prompt, or the backend's own one when the
@@ -252,7 +252,17 @@ function decide(body) {
     }
   }
 
-  const userText = textOf(last?.content).trim()
+  // Workspace guidance appended by the harness is context, not a scripted command.
+  const userText = textOf(last?.content).split('\n<system-reminder>')[0].trim()
+  if (userText.startsWith('smoke:complete-task') && tools.has('complete_task')) {
+    const paths = userText.slice('smoke:complete-task'.length).trim()
+    return [tool('complete_task', { title: 'Mock delivery', summary: 'A verified mock task has finished.', ...(paths ? { files: JSON.parse(paths) } : {}) })]
+  }
+  if (userText.startsWith('smoke:create-department') && tools.has('create_department')) return [tool('create_department', {
+    name: 'Smoke department', purpose: 'Verify department ownership and real group conversations.',
+    leader: { name: 'Smoke leader', role: 'Coordinator', instructions: 'Coordinate this department and report its results.' },
+    members: [{ name: 'Smoke researcher', role: 'Researcher', instructions: 'Research the assigned topic and report evidence to your leader.' }],
+  })]
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
   // "长任务" keeps stepping when a Bot message splices into its turn (a relayed

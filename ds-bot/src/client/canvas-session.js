@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import { currentPart } from './text.js'
 import { ActivityIndicator } from './activity-row.js'
 import { t } from './i18n.js'
+import { ClassicAgentIcon } from './icons.js'
 
 export const CANVAS_PANEL = 'ds-bot-canvas'
 export const CANVAS_CONVERSATION = 'ds-bot.canvas.conversation'
@@ -9,6 +10,18 @@ export const CANVAS_CONVERSATION = 'ds-bot.canvas.conversation'
 export function canvasSessionId(window, roster) {
   const entity = window.kind === 'room' ? roster.roomsById[window.entityId] : roster.byId[window.entityId]
   return entity ? window.kind === 'room' ? entity.id : currentPart(entity) : undefined
+}
+
+let bridgeProvider = null
+let bridgeSlot = null
+
+export function registerSessionBridge(SessionProvider, renderSlot) {
+  if (SessionProvider) bridgeProvider = SessionProvider
+  if (renderSlot) bridgeSlot = renderSlot
+}
+
+export function getSessionBridge() {
+  return { SessionProvider: bridgeProvider, renderSlot: bridgeSlot }
 }
 
 // Retention belongs to this occurrence, while the window key stays the Bot id.
@@ -43,7 +56,9 @@ export function CanvasSession({ sessionId, actions, useSessions, SessionProvider
   if (entry?.sessionId === sessionId && entry.error) return h('div', { className: 'bt-canvas-session-error', role: 'alert' }, entry.error,
     h('button', { type: 'button', className: 'bt-canvas-button', onClick: () => actions.openClassicSession(sessionId) }, t('Open in classic view')))
   if (!known || entry?.sessionId !== sessionId || !entry.lease?.active) return h('div', { className: 'bt-canvas-status', role: 'status' }, t('Loading…'))
-  return h(SessionProvider, { session: entry.reference }, renderSlot(CANVAS_CONVERSATION, {}))
+  const Provider = SessionProvider || bridgeProvider
+  const slot = renderSlot || bridgeSlot
+  return h(Provider, { session: entry.reference }, slot ? slot(CANVAS_CONVERSATION, {}) : null)
 }
 
 function CanvasChat({ renderSlot }) { return renderSlot('conversation.session', { view: 'chat' }) }
@@ -53,7 +68,7 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useSessio
   const session = useSession(value => value)
   const roster = useRoster(value => value)
   const entity = roster.byId[sessionId] ?? roster.roomsById[sessionId]
-  const active = useCanvas(state => state.windows.find(window => window.id === state.active)?.entityId === entity?.id)
+  const active = useCanvas ? useCanvas(state => state.windows.find(window => window.id === state.active)?.entityId === entity?.id) : true
   const root = useRef(null)
   useEffect(() => {
     if (!active) return undefined
@@ -70,9 +85,11 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useSessio
   h(ActivityIndicator, { key: sessionId, sessionId, useRoster, useSessionStatus, useSession, useLive, actions, rootRef: root }))
 }
 
-export function CanvasLauncher({ useSurface, actions }) {
+export function CanvasLauncher({ useSurface, usePanelInfo, actions }) {
+  const canvasActive = usePanelInfo(value => value.activePanelId === CANVAS_PANEL)
   const enabled = useSurface(value => value.mode === 'bot')
   if (!enabled) return null
+  if (canvasActive) return h('button', { type: 'button', className: 'bt-classic-return', title: t('Switch to classic Agent mode'), 'aria-label': t('Switch to classic Agent mode'), onClick: () => actions.setSurface('agent') }, h(ClassicAgentIcon), h('span', null, t('Switch to classic Agent mode')))
   return h('button', { type: 'button', className: 'bt-canvas-launcher', title: t('Employee canvas'), 'aria-label': t('Employee canvas'), onClick: () => actions.openCanvas() },
     h('span', { 'aria-hidden': true }, '▦'))
 }

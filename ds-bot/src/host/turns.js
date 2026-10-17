@@ -283,6 +283,7 @@ export function install(rt) {
         endCall(id, entry, event.data?.callId)
         break
       case 'turn/start':
+        delete entry.completion
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
@@ -388,7 +389,7 @@ export function install(rt) {
         const info = entry.info
         const joined = entry.joined ?? []
         const texts = entry.texts
-        const { lastText, lastCalled } = entry
+        const { lastText, lastCalled, turn, opened } = entry
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
         entry.turn = undefined
@@ -404,13 +405,14 @@ export function install(rt) {
         const reason = event.data?.reason
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
         if (failure !== undefined) noteTurnFailure(id, failure)
-        if (switched) break
+        if (switched) { delete entry.completion; break }
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting
         // round or sender gets the real answer; a second time, the text goes on without
         // the call.
         const wroteCall = failure === undefined && reason?.kind === 'completed' && lastCalled !== true && writesToolCall(lastText)
         const retry = wroteCall && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
+        rt.finishTaskNotice?.(entry, { reason, retry: retry || wroteCall || stoppedRoomTurns.has(info?.exchangeId), switched, id, turn, opened, info, lastText, lastCalled })
         if (retry) void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
         const replyText = () => {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()

@@ -10,13 +10,20 @@ const { outputFiles } = await build({
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 const module = { exports: {} }
+const effects = [], listeners = new Map()
+class MenuElement { constructor(inside = false) { this.inside = inside } closest() { return this.inside } }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
+  Element: MenuElement,
+  window: {
+    addEventListener: (type, run, capture) => listeners.set(type, { run, capture }),
+    removeEventListener: type => listeners.delete(type),
+  },
   require: name => ({
     react: {
       createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
       Fragment: 'fragment', useState: initial => [initial, () => {}],
-      useRef: initial => ({ current: initial }), useEffect() {}, useLayoutEffect() {},
+      useRef: initial => ({ current: initial }), useEffect: effect => effects.push(effect), useLayoutEffect() {},
     },
     'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {},
   })[name],
@@ -67,6 +74,19 @@ test('Bot management can open details, memory, schedules, and browser without op
     ['closeMenu'], ['openSettings', 'schedules', 'writer'],
     ['closeMenu'], ['openBrowser', 'writer'],
   ])
+})
+
+test('outside pointer presses dismiss menus even when the target stops bubbling', () => {
+  effects.length = 0
+  const data = fixture(), cleanups = effects.map(effect => effect())
+  const listener = listeners.get('pointerdown')
+  assert.equal(listener.capture, true)
+  listener.run({ target: new MenuElement(true), button: 0 })
+  assert.deepEqual(data.calls, [])
+  listener.run({ target: new MenuElement(), button: 0 })
+  assert.deepEqual(data.calls, [['closeMenu']])
+  for (const cleanup of cleanups) cleanup?.()
+  assert.equal(listeners.has('pointerdown'), false)
 })
 
 test('Room management targets the Room and offers no employee memory or browser', () => {

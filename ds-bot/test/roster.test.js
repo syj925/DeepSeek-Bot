@@ -6,7 +6,8 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { format } from 'node:util'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
+import { requestProblem, ownerOf } from '../src/host/ownership.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
@@ -54,7 +55,7 @@ function start(team, { models = [], reasoning = {}, archiveError } = {}) {
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -63,10 +64,289 @@ function start(team, { models = [], reasoning = {}, archiveError } = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, sent, selected, ctx, archived, warnings }
+  return { call, stop, home, sent, selected, ctx, archived, warnings, rt }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
+
+const departmentPlan = () => ({ name: 'Design department', purpose: 'Maintain the product design', leader: { name: 'Design lead', role: 'Lead', instructions: 'Coordinate product design and review deliverables.' }, members: [{ name: 'Designer', role: 'Designer', instructions: 'Produce interface designs.' }, { name: 'Reviewer', role: 'Reviewer', instructions: 'Review usability and accessibility.' }] })
+
+test('lasting teams reuse employees; collaborative groups never change affiliation, history or permissions', async t => {
+  const bench = start()
+  t.after(bench.stop)
+  const chief = (await bench.call('ensure-general-assistant', {})).value
+  const people = []
+  for (const name of ['Lead A', 'Writer', 'Lead B', 'Analyst']) people.push((await bench.call('create-bot', { name, createdBy: chief.id })).value)
+  assert.ok(people.every(bot => bot.teamId === null), 'The creator does not determine affiliation')
+  const [a, b, c, d] = people
+  const original = people.map(bot => ({ id: bot.id, session: bench.rt.chatOf(bot.id), permission: bot.permission, workDir: bot.workDir, capabilities: [...bot.capabilities] }))
+  const first = await bench.rt.createTeam({ name: 'Editorial', purpose: 'Maintain reports', leaderId: a.id, members: [b.id] }, chief.id)
+  const second = await bench.rt.createTeam({ name: 'Research', purpose: 'Ongoing research', leaderId: c.id, members: [d.id] }, chief.id)
+  const room = (await bench.call('create-room', { name: 'Campaign', members: [b.id, d.id] })).value
+  await bench.call('update-room', { id: room.id, members: [a.id, b.id, d.id] })
+  await bench.call('delete-room', { id: room.id })
+  assert.equal(bench.rt.botOf(b.id).teamId, first.id)
+  assert.equal(bench.rt.botOf(d.id).teamId, second.id)
+  for (const before of original) {
+    const bot = bench.rt.botOf(before.id)
+    assert.deepEqual({ id: bot.id, session: bench.rt.chatOf(bot.id), permission: bot.permission, workDir: bot.workDir, capabilities: bot.capabilities }, before)
+  }
+  await assert.rejects(bench.rt.createTeam({ name: 'Secret move', purpose: 'Invalid', leaderId: c.id, members: [b.id] }), /Hand over|already belongs/)
+  await assert.rejects(bench.rt.setTeam(b.id, second.id, a.id), /Only the user or General Assistant/)
+  await bench.rt.setTeam(b.id, second.id, chief.id)
+  assert.equal(bench.rt.botOf(b.id).teamId, second.id)
+  assert.equal(first.members.includes(b.id), false)
+  assert.equal(second.members.filter(id => id === b.id).length, 1)
+})
+
+test('team leadership must be handed over before moving or deleting the leader', async t => {
+  const bench = start()
+  t.after(bench.stop)
+  const chief = (await bench.call('ensure-general-assistant', {})).value
+  const a = (await bench.call('create-bot', { name: 'Leader' })).value
+  const b = (await bench.call('create-bot', { name: 'Successor' })).value
+  const team = await bench.rt.createTeam({ name: 'Operations', purpose: 'Maintain operations', leaderId: a.id, members: [b.id] })
+  await assert.rejects(bench.rt.setTeam(a.id, null), /Hand over/)
+  assert.equal((await bench.call('delete-bot', { id: a.id })).ok, false)
+  await assert.rejects(bench.rt.updateTeam(team.id, { purpose: 'Taken' }, b.id), /Only the user/)
+  await bench.rt.updateTeam(team.id, { leaderId: b.id, members: [b.id] }, a.id)
+  assert.equal(bench.rt.botOf(a.id).teamId, null)
+  assert.equal(team.leaderId, b.id)
+  assert.equal(bench.rt.isMain(b.id), false, 'Being a leader does not silently grant management or filesystem permissions')
+  await bench.rt.setTeam(a.id, null, chief.id)
+  assert.equal((await bench.call('delete-bot', { id: a.id })).ok, true)
+  await bench.rt.deleteTeam(team.id, chief.id)
+  assert.equal(bench.rt.botOf(b.id).teamId, null)
+  assert.ok(bench.rt.botOf(b.id))
+})
+
+test('only explicit legacy departments migrate; deleting a group leaves the team intact', async t => {
+  const seed = { version: 1, mainBotIds: ['chief', 'lead'], bots: {
+    chief: { id: 'chief', name: 'Chief' }, lead: { id: 'lead', name: 'Lead' }, writer: { id: 'writer', name: 'Writer', ownerId: 'lead', createdBy: 'lead', segments: [{ sessionId: 'past' }] }, outsider: { id: 'outsider', name: 'Analyst' },
+  }, rooms: {
+    department: { id: 'department', name: 'Design', admin: 'lead', members: ['lead', 'writer'], department: { name: 'Design', purpose: 'Long-term design' } },
+    casual: { id: 'casual', name: 'Chat', admin: 'lead', members: ['lead', 'outsider'], mainOnly: true },
+  } }
+  const bench = start(seed)
+  t.after(bench.stop)
+  const view = (await bench.call('state', {})).value
+  assert.equal(view.teams.length, 1)
+  assert.equal(bench.rt.botOf('writer').teamId, 'team-department')
+  assert.deepEqual(bench.rt.botOf('writer').segments, [{ sessionId: 'past' }])
+  assert.equal(bench.rt.botOf('outsider').teamId, undefined)
+  assert.equal((await bench.call('delete-room', { id: 'department' })).ok, true)
+  assert.ok(bench.rt.teamOf('team-department'))
+  assert.equal(bench.rt.teamOf('team-department').roomId, undefined)
+  assert.equal(bench.rt.botOf('writer').teamId, 'team-department')
+})
+
+test('dissolved legacy teams stay dissolved after restart while chats survive', async t => {
+  const bench = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(bench.stop)
+  const chief = (await bench.call('ensure-general-assistant', {})).value
+  const result = await bench.rt.createDepartment(chief.id, departmentPlan())
+  await bench.rt.deleteTeam(result.team.id)
+  const saved = JSON.parse(readFileSync(join(bench.home, 'state.json'), 'utf8'))
+  const reopened = start(saved)
+  t.after(reopened.stop)
+  const view = (await reopened.call('state', {})).value
+  assert.deepEqual(view.teams, [])
+  assert.ok(reopened.rt.roomOf(result.room.id))
+  for (const bot of result.members) assert.equal(reopened.rt.botOf(bot.id).teamId, null)
+})
+
+test('concurrent organization requests cannot duplicate a name and failed saves preserve live references', async t => {
+  const bench = start()
+  t.after(bench.stop)
+  await bench.call('ensure-general-assistant', {})
+  const bot = (await bench.call('create-bot', { name: 'Editor' })).value
+  const input = { name: 'Editorial', purpose: 'Maintain documents', leaderId: bot.id, members: [] }
+  const attempts = await Promise.allSettled([bench.rt.createTeam(input), bench.rt.createTeam(input)])
+  assert.equal(attempts.filter(result => result.status === 'fulfilled').length, 1)
+  assert.equal(attempts.filter(result => result.status === 'rejected').length, 1)
+  const team = Object.values(bench.rt.state.teams)[0]
+  const held = bench.rt.botOf(bot.id)
+  const save = bench.rt.save
+  bench.rt.save = async () => { held.role = 'Edited concurrently'; throw new Error('Test disk failure') }
+  await assert.rejects(bench.rt.deleteTeam(team.id), /Test disk failure/)
+  assert.equal(bench.rt.botOf(bot.id), held)
+  assert.equal(held.role, 'Edited concurrently')
+  assert.equal(held.teamId, team.id)
+  assert.deepEqual(bench.rt.teamOf(team.id).members, [bot.id])
+  bench.rt.save = save
+  await bench.rt.deleteTeam(team.id)
+  assert.equal(held.teamId, null)
+})
+
+test('employees cannot take the General Assistant name or role through UI or tools', async t => {
+  const bench = start()
+  t.after(bench.stop)
+  const chief = (await bench.call('ensure-general-assistant', {})).value
+  let created = 0
+  const create = bench.ctx.sessionController.create
+  bench.ctx.sessionController.create = async (...args) => { created++; return create(...args) }
+  for (const payload of [
+    { name: '总助理' }, { name: '总助', main: true }, { name: '  GENERAL  ASSISTANT  ' },
+    { name: 'Helper', role: 'General Assistant' }, { name: 'Assistant', role: '总助理', main: true },
+  ]) {
+    const result = await bench.call('create-bot', payload)
+    assert.equal(result.ok, false)
+    assert.match(result.error.message, /General Assistant already exists/)
+  }
+  const tool = bench.ctx.registeredTools.get('create_bot')
+  assert.match(await tool.execute({ name: 'Helper', role: '总助理', instructions: 'Help the user' }, { agent: { id: chief.id } }), /General Assistant already exists/)
+  await assert.rejects(bench.rt.createBot({ name: 'Second coordinator', main: true, generalAssistant: true }), /General Assistant already exists/)
+  assert.equal((await bench.call('duplicate-bot', { id: chief.id })).ok, false)
+  assert.equal(created, 0, 'Rejected identities must not allocate conversations')
+  assert.equal(Object.keys(bench.rt.state.bots).length, 1)
+  assert.equal((await bench.call('create-bot', { name: '行政助理', role: '行政支持' })).ok, true)
+})
+
+test('reserved employee edits fail atomically while Chief may use its own title', async t => {
+  const bench = start()
+  t.after(bench.stop)
+  const chief = (await bench.call('ensure-general-assistant', {})).value
+  const bot = (await bench.call('create-bot', { name: 'Writer', role: 'Editor' })).value
+  assert.equal((await bench.call('update-bot', { id: bot.id, name: '总助理' })).ok, false)
+  assert.equal((await bench.call('update-bot', { id: bot.id, name: 'Changed', role: 'General_Assistant' })).ok, false)
+  assert.equal(bench.rt.botOf(bot.id).name, 'Writer')
+  assert.equal(bench.rt.botOf(bot.id).role, 'Editor')
+  assert.equal((await bench.call('update-bot', { id: chief.id, name: '总助理', role: '总助理' })).ok, true)
+  assert.equal((await bench.call('ensure-general-assistant', {})).value.id, chief.id)
+})
+
+test('legacy assistant-named employees keep their conversations and remain editable', async t => {
+  const legacy = { id: 'legacy', name: '总助理', role: '总助理', instructions: 'Existing employee', segments: [{ sessionId: 'past' }] }
+  const bench = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', name: 'Chief' }, legacy } })
+  t.after(bench.stop)
+  await bench.call('ensure-general-assistant', {})
+  const edit = await bench.call('update-bot', { id: legacy.id, name: legacy.name, role: legacy.role, color: 'blue' })
+  assert.equal(edit.ok, true)
+  assert.deepEqual(edit.value.segments, legacy.segments)
+  assert.equal(edit.value.generalAssistant, undefined)
+  assert.equal(bench.archived.length, 0)
+  assert.equal((await bench.call('update-bot', { id: legacy.id, name: 'Office helper', role: 'Office support' })).ok, true)
+})
+
+test('department rejects reserved identities anywhere in the plan before creating Sessions', async t => {
+  const bench = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(bench.stop)
+  const chief = (await bench.call('ensure-general-assistant', {})).value
+  let created = 0
+  const create = bench.ctx.sessionController.create
+  bench.ctx.sessionController.create = async (...args) => { created++; return create(...args) }
+  for (const field of ['name', 'role']) {
+    for (const target of ['leader', 'member']) {
+      const plan = departmentPlan()
+      const person = target === 'leader' ? plan.leader : plan.members[1]
+      person[field] = '总助理'
+      await assert.rejects(bench.rt.createDepartment(chief.id, plan), /General Assistant already exists/)
+    }
+  }
+  assert.equal(created, 0)
+  assert.equal(Object.keys(bench.rt.state.rooms).length, 0)
+  assert.equal(Object.keys(bench.rt.state.bots).length, 1)
+})
+
+test('General Assistant is unique, persistent, quiet, and leaves existing Main Bots intact', async t => {
+  const bench = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(bench.stop)
+  const before = (await bench.call('state', { locale: 'zh-CN' })).value
+  const answers = await Promise.all(Array.from({ length: 4 }, () => bench.call('ensure-general-assistant', {})))
+  assert.ok(answers.every(answer => answer.ok))
+  assert.equal(new Set(answers.map(answer => answer.value.id)).size, 1)
+  const bot = answers[0].value
+  assert.equal(bot.name, 'Chief')
+  assert.equal(bot.id, before.mainBotId)
+  assert.equal(Object.keys(bench.rt.state.bots).length, 1)
+  assert.equal(bot.generalAssistant, true)
+  assert.equal(bench.rt.state.mainBotIds[0], before.mainBotId)
+  assert.equal(bench.rt.botOf(before.mainBotId).name, before.bots[0].name)
+  assert.equal(bench.sent.length, 0)
+  assert.equal((await bench.call('set-main', { id: bot.id, main: false })).ok, false)
+  const saved = JSON.parse(readFileSync(join(bench.home, 'state.json'), 'utf8'))
+  const reopened = start(saved)
+  t.after(reopened.stop)
+  assert.equal((await reopened.call('ensure-general-assistant', {})).value.id, bot.id)
+  assert.equal(Object.values(reopened.rt.state.bots).filter(item => item.generalAssistant).length, 1)
+})
+
+test('Chief adopts the assistant role while both old conversations and department ownership survive migration', async t => {
+  const chief = { id: 'chief', name: 'Chief', role: 'Custom leader', instructions: 'Keep my instructions', avatar: { shape: 'whale' }, segments: [{ sessionId: 'past-chief' }] }
+  const old = { id: 'assistant', name: 'General Assistant', generalAssistant: true, instructions: 'Previous chat', segments: [{ sessionId: 'past-assistant' }] }
+  const child = { id: 'child', name: 'Designer', ownerId: old.id, createdBy: old.id }
+  const room = { id: 'room', name: 'Design', named: true, members: [old.id, child.id], admin: old.id, mode: 'admin', department: { coordinator: old.id } }
+  const bench = start({ version: 1, mainBotIds: [chief.id, old.id], bots: { chief, assistant: old, child }, rooms: { room } })
+  t.after(bench.stop)
+  const chosen = (await bench.call('ensure-general-assistant', {})).value
+  assert.equal(chosen.id, chief.id)
+  for (const key of ['name', 'role', 'instructions', 'avatar', 'segments']) assert.deepEqual(chosen[key], chief[key])
+  assert.equal(bench.rt.botOf(old.id).generalAssistant, undefined)
+  assert.equal(bench.rt.botOf(old.id).hidden, true)
+  assert.deepEqual(bench.rt.botOf(old.id).segments, old.segments)
+  assert.equal(ownerOf(bench.rt.state, child.id), old.id)
+  assert.equal(bench.rt.state.rooms.room.department.coordinator, old.id)
+  assert.equal(Object.keys(bench.rt.state.bots).length, 3)
+  assert.equal(bench.archived.length, 0)
+  await bench.call('update-bot', { id: chief.id, name: 'My Chief' })
+  assert.equal((await bench.call('ensure-general-assistant', {})).value.id, chief.id)
+})
+
+test('department creation is assistant-only, idempotent and preserves cross-department boundaries', async t => {
+  const bench = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(bench.stop)
+  await bench.call('state', {})
+  const main = (await bench.call('create-bot', { name: 'Other leader', main: true })).value.id
+  await bench.rt.dropKickoff(bench.rt.botOf(main))
+  await assert.rejects(bench.rt.createDepartment(main, departmentPlan()), /Only the General Assistant/)
+  const assistant = (await bench.call('ensure-general-assistant', {})).value
+  const [result, retry] = await Promise.all([bench.rt.createDepartment(assistant.id, departmentPlan()), bench.rt.createDepartment(assistant.id, departmentPlan())])
+  assert.equal(result.room.id, retry.room.id)
+  assert.equal(retry.reused, true)
+  assert.equal(result.room.members.length, 3)
+  assert.equal(result.room.admin, result.leader.id)
+  assert.ok(bench.rt.isMain(result.leader.id))
+  const child = result.members[1]
+  assert.equal(ownerOf(bench.rt.state, child.id), result.leader.id)
+  assert.equal(requestProblem(bench.rt.state, result.leader.id, child.id), undefined)
+  assert.equal(requestProblem(bench.rt.state, assistant.id, child.id), undefined)
+  assert.equal(requestProblem(bench.rt.state, main, child.id), undefined)
+  assert.equal(requestProblem(bench.rt.state, assistant.id, result.leader.id), undefined)
+  const persisted = JSON.parse(readFileSync(join(bench.home, 'state.json'), 'utf8'))
+  assert.equal(persisted.rooms[result.room.id].department.name, departmentPlan().name)
+  const tool = bench.ctx.registeredTools.get('create_department')
+  const reply = await tool.execute(departmentPlan(), { agent: { id: assistant.id } })
+  assert.equal(JSON.parse(reply).status, 'existing')
+})
+
+test('department validates the entire plan before creating any conversations', async t => {
+  const bench = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(bench.stop)
+  const assistant = (await bench.call('ensure-general-assistant', {})).value
+  const before = Object.keys(bench.rt.state.bots)
+  const invalid = departmentPlan()
+  invalid.members[1].name = invalid.members[0].name
+  await assert.rejects(bench.rt.createDepartment(assistant.id, invalid), /distinct/)
+  assert.deepEqual(Object.keys(bench.rt.state.bots), before)
+})
+
+test('department rolls back its new people if a later Session fails', async t => {
+  const bench = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(bench.stop)
+  const assistant = (await bench.call('ensure-general-assistant', {})).value
+  const before = Object.keys(bench.rt.state.bots)
+  const create = bench.ctx.sessionController.create
+  let count = 0
+  bench.ctx.sessionController.create = async (...args) => {
+    if (++count === 3) throw new Error('Test session failure')
+    return create(...args)
+  }
+  await assert.rejects(bench.rt.createDepartment(assistant.id, departmentPlan()), /Test session failure/)
+  assert.deepEqual(Object.keys(bench.rt.state.bots), before)
+  assert.equal(Object.keys(bench.rt.state.rooms).length, 0)
+  assert.equal(bench.archived.length, 2)
+  assert.equal(bench.sent.length, 0)
+})
 // A greeting goes out after the team is saved, which can take longer than one settle() on a
 // busy machine.
 const until = async (check) => {
@@ -457,7 +737,7 @@ test('a delete whose save fails still stops the Sessions, and the next save writ
     ['w2', { stopActivity: true }],
   ])
   rmSync(blocker, { recursive: true })
-  await call('set-prefs', { theme: 'dark' })
+  await call('set-prefs', { motion: 'quiet' })
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(saved.bots.w1, undefined)
 })

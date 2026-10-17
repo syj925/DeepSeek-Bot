@@ -1,6 +1,6 @@
 import { currentPart } from './text.js'
 
-function canvasReading(state, size) {
+export function canvasReading(state, size) {
   const window = state.windows.find(value => value.id === state.active && value.open && !value.compact)
   if (!window) return undefined
   if (size && size.width > 0 && size.height > 0) {

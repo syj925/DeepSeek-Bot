@@ -115,6 +115,18 @@ function pointer(values = {}) {
 
 const pixels = (page, name) => Number.parseFloat(page.column.properties.get(`--bt-team-${name}`))
 
+test('designer team panel expands to 860px and fits without mutating its home position', () => {
+  const page = runtime()
+  for (const width of [2560, 1000, 640]) {
+    const home = { x: width - 320, y: 104, folded: false }
+    const expanded = page.fitTeamPanel({ ...home, chatOpen: true }, { width, height: 900 })
+    assert.ok(expanded.x >= 12)
+    assert.ok(expanded.x + Math.min(860, width - 24) <= width - 12)
+    const collapsed = page.fitTeamPanel(home, { width, height: 900 })
+    assert.equal(collapsed.x, home.x)
+  }
+})
+
 test('missing, corrupted and denied team-panel storage recover independently without accepting invalid fields', () => {
   const page = runtime(), fallback = { x: 20, y: 104, folded: false }
   for (const value of [null, '{broken', 'null', '[]', '42', '"layout"', '{"x":"88","y":null,"folded":"true"}', '{"x":1e999,"y":-1e999}']) {
@@ -129,10 +141,10 @@ test('missing, corrupted and denied team-panel storage recover independently wit
 test('out-of-bounds positions fit the available area without mutating the saved layout', () => {
   const page = runtime(), area = { width: 1000, height: 800 }
   const far = { x: 1e8, y: 1e8, folded: false }
-  assert.deepEqual(plain(page.fitTeamPanel(far, area)), { x: 700, y: 164, folded: false })
+  assert.deepEqual(plain(page.fitTeamPanel(far, area)), { x: 688, y: 164, folded: false })
   assert.deepEqual(far, { x: 1e8, y: 1e8, folded: false })
   assert.deepEqual(plain(page.fitTeamPanel({ x: -1e8, y: -1e8, folded: false }, area)), { x: 12, y: 12, folded: false })
-  assert.deepEqual(plain(page.fitTeamPanel({ x: 900, y: 700, folded: true }, area)), { x: 824, y: 700, folded: true })
+  assert.deepEqual(plain(page.fitTeamPanel({ x: 900, y: 700, folded: true }, area)), { x: 900, y: 164, folded: true })
 })
 
 test('viewport shrink keeps the header and complete expanded panel reachable below the app title bar', () => {
@@ -165,17 +177,17 @@ test('pointer movement clamps the panel, persists only the settled position and 
   assert.equal(pixels(page, 'y'), 196)
   panel.handle.onPointerMove({ ...event, clientX: 1e6, clientY: -1e6 })
   panel = page.flush()
-  assert.equal(pixels(page, 'x'), 900)
+  assert.equal(pixels(page, 'x'), 888)
   assert.equal(pixels(page, 'y'), 44)
   page.advance(179)
   assert.equal(page.saved.writes.length, 0)
   page.advance(1)
-  assert.deepEqual(plain(page.saved.writes), [{ key: 'ds-bot:team-panel', value: { x: 900, y: 12, folded: false } }])
+  assert.deepEqual(plain(page.saved.writes), [{ key: 'ds-bot:team-panel', value: { x: 888, y: 12, folded: false } }])
   panel.handle.onPointerCancel(event)
   assert.equal(event.currentTarget.hasPointerCapture(1), false)
   panel.handle.onPointerMove({ ...event, clientX: 30, clientY: 30 })
   page.flush()
-  assert.equal(pixels(page, 'x'), 900)
+  assert.equal(pixels(page, 'x'), 888)
   page.unmount()
 })
 

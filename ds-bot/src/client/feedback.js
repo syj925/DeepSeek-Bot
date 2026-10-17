@@ -37,7 +37,7 @@ function entrySummary(entry) {
   return entry.text
 }
 
-const SOURCES = { turn: 'Model call', host: 'DS Bot', api: 'DS Bot', browser: 'This window' }
+const SOURCES = { turn: 'Model call', host: 'QibitAI', api: 'QibitAI', browser: 'This window' }
 
 export function FeedbackPage({ actions, run, Section, Row }) {
   const [what, setWhat] = useState('')
@@ -62,7 +62,7 @@ export function FeedbackPage({ actions, run, Section, Row }) {
     if (win !== null) win.opener = null
     run(fetchReport().then(async (next) => {
       const copied = await copy(next.markdown)
-      const { url, inline } = issueUrl(next.issuesUrl, { what, diagnostics: next.markdown })
+      const { url, inline } = issueUrl('https://github.com/syj925/DeepSeek-Bot/issues', { what, diagnostics: next.markdown })
       if (win !== null) {
         win.location.href = url
         setIssueLink(null)
@@ -79,7 +79,7 @@ export function FeedbackPage({ actions, run, Section, Row }) {
     }))
   }
   const downloadLog = () => run(actions.diagnosticsLog().then((text) => {
-    download('ds-bot-diagnostics.log', text || 'No entries.\n')
+    download('QibitAI-diagnostics.log', text || 'No entries.\n')
     setNote(t('Downloaded the log. Keys, tokens, and your home folder are hidden in it.'))
   }))
   const clearLog = () => run(actions.diagnosticsClear().then(clearClientErrors).then(load).then(() => setNote(t('Cleared the error log.'))))
@@ -99,19 +99,19 @@ export function FeedbackPage({ actions, run, Section, Row }) {
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setPreview(!preview), 'aria-expanded': preview }, preview ? t('Hide') : t('Show')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: copyReport }, t('Copy'))),
       preview ? h('div', { className: 'bt-set-row bt-fb-preview' }, h('pre', { tabIndex: 0, 'aria-label': t('Diagnostics') }, report?.markdown || t('Loading…'))) : null,
-      h(Row, { label: t('GitHub issue'), hint: t('Opens a new issue in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.') },
+      h(Row, { label: t('GitHub issue'), hint: t('Opens the QibitAI feedback page. Review the information before submitting it.') },
         h('button', { type: 'button', className: 'bt-fb-primary', onClick: openIssue }, t('Report on GitHub')))),
     note ? h('div', { key: 'note', className: 'bt-note bt-fb-note', role: 'status' },
       note,
       issueLink ? [' ', h('a', { key: 'link', href: issueLink, target: '_blank', rel: 'noopener noreferrer' }, t('Open the issue'))] : null) : null,
     h(Section, { key: 'errors', title: report ? t('Recent errors · {count}', { count: total }) : t('Recent errors') },
       shown.length === 0
-        ? h(Row, { label: t('No errors recorded.'), hint: t('Failed model calls and DS Bot problems show here, newest first.') })
+        ? h(Row, { label: t('No errors recorded.'), hint: t('Recent model and application errors appear here.') })
         : shown.map((entry, index) => h('div', { key: `${entry.time}-${index}`, className: 'bt-set-row bt-fb-entry', title: entry.text },
             h('span', { className: 'bt-fb-dot', 'data-level': entry.level, 'aria-hidden': true }),
             h('div', { className: 'bt-set-copy' },
               h('span', { className: 'bt-fb-text' }, entrySummary(entry)),
-              h('span', { className: 'bt-set-hint' }, [whenText(entry.time), entry.bot, entry.where, t(SOURCES[entry.source] ?? 'DS Bot')].filter(Boolean).join(' · '))),
+              h('span', { className: 'bt-set-hint' }, [whenText(entry.time), entry.bot, entry.where, t(SOURCES[entry.source] ?? 'QibitAI')].filter(Boolean).join(' · '))),
             entry.code ? h('span', { className: 'bt-tag bt-fb-code' }, entry.status ? `${entry.code} ${entry.status}` : entry.code) : null)),
       h(Row, { label: t('Error log'), hint: t('Kept on this computer across restarts, up to about 1 MB.') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: downloadLog }, t('Download')),

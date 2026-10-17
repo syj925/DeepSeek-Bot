@@ -135,9 +135,10 @@ export function CapabilitiesPage({ roster, actions, run }) {
   }
   return h('section', { className: 'bt-set-section' },
     h('h3', null, t('Shared capabilities')),
-    h('div', { className: 'bt-actions' },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: startNew }, t('Add capability'))),
-    draft ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
+    h('p', { className: 'bt-set-hint' }, t('Enable saved tools in an employee profile. Connection details can be configured by your administrator.')),
+    h('details', { className: 'bt-settings-advanced-card', open: draft ? true : undefined }, h('summary', null, t('Configure a new tool')),
+      h('div', { className: 'bt-actions' }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: startNew }, t('Add capability'))),
+      draft ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null),
     h('div', { className: 'bt-set-card bt-connectors-card' },
       items.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No capabilities saved')))
         : items.map(item => h(CapabilityRow, {

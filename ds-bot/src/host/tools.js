@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { COLORS, EXTRA_COLORS, MAX_HOPS, MAX_UNREAD_REQUESTS, ROOM_BOT_ROUNDS, ROOM_MODES, SOURCE_KIND } from './constants.js'
 import { unquote } from './text.js'
-import { ownerOf, requestProblem, manageProblem } from './ownership.js'
+import { ownerOf, manageProblem } from './ownership.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -49,16 +49,20 @@ export function install(rt) {
       const self = rt.selfOf(exec.agent?.id)
       const lines = Object.values(state.bots).map(bot => {
         const model = bot.appliedModel ?? bot.model
-        const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+        const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', bot.generalAssistant ? 'General Assistant' : rt.isMain(bot.id) ? 'management rights' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
         const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
         const owner = ownerOf(state, bot.id)
-        return `- ${bot.name}${tags ? ` (${tags})` : ''}${owner && owner !== bot.id ? `; owner: ${state.bots[owner].name}` : ''}${job}`
+        return `- ${bot.name}${tags ? ` (${tags})` : ''}${owner && owner !== bot.id ? `; leader: ${state.bots[owner]?.name ?? owner}` : ''}${job}`
       })
       if (lines.length === 0) return 'No Bots yet.'
       const rooms = visibleRooms(self)
       return [
         'Bots:',
         ...lines,
+        '',
+        'Lasting teams (separate from group chats):',
+        ...Object.values(state.teams).map(team => `- ${team.id} ${team.name}: ${team.purpose}; leader ${rt.botOf(team.leaderId)?.name}; employees ${team.members.map(id => rt.botOf(id)?.name).filter(Boolean).join(', ')}`),
+        'Employees without a team are independent. Groups never change affiliation or permissions.',
         '',
         rooms.length === 0 ? 'Group chats: none you can see.' : 'Group chats:',
         ...rooms.map(room => roomLine(room, self)),
@@ -86,7 +90,7 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'message_bot',
-    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead.',
+    description: 'Send a message to another Bot on the team. If that Bot is working, messages queue by default; use when "now" for corrections or urgent information at its next step; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead.',
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       message: { type: 'string', required: true, description: 'Self-contained message; the other Bot cannot see this conversation' },
@@ -98,7 +102,7 @@ export function install(rt) {
       when: {
         type: 'string',
         enum: ['now', 'queue'],
-        description: '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.',
+        description: '"now": a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue" (default): it reads your message only after its current work is done, as a separate task; use it for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.',
       },
     },
     output,
@@ -109,8 +113,6 @@ export function install(rt) {
       const target = rt.findBot(args.to)
       if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
       if (target.id === sender.id) return 'You cannot message yourself.'
-      const boundary = requestProblem(state, sender.id, target.id)
-      if (boundary) refuse(boundary)
       const turn = rt.live.get(exec.agent?.id)
       const hop = Math.max(turn?.info?.hop ?? 0, ...(turn?.joined ?? []).map(joined => joined.info?.hop ?? 0))
       if (hop >= MAX_HOPS) return 'This chain of Bot messages is already long. Stop here and report to the user instead.'
@@ -121,7 +123,7 @@ export function install(rt) {
       }
       const toUser = args.reply_to === 'user'
       const working = rt.live.get(chat)?.turn !== undefined
-      const steer = args.when !== 'queue' && !toUser
+      const steer = args.when === 'now' && !toUser
       await rt.deliver({ fromId: sender.id, toId: target.id, text: args.message, role: 'request', hop, steer, ...(toUser ? { audience: 'user' } : callerRoom(exec)) })
       const sent = toUser
         ? `Delivered to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
@@ -182,6 +184,7 @@ export function install(rt) {
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
       model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the DSH default model.' },
+      team: { type: 'string', description: 'Existing lasting team name or id. Omit to create an independent employee; creation does not imply ownership.' },
       work_dir: WORK_DIR_PARAM,
     },
     output,
@@ -192,7 +195,11 @@ export function install(rt) {
         const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
         const name = String(args.name ?? '').trim()
         await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
-        const bot = await rt.createBot({ ...args, workDir, createdBy: rt.selfOf(exec.agent.id) })
+        const self = rt.selfOf(exec.agent.id)
+        const team = args.team ? rt.findTeam(args.team) : null
+        if (args.team && !team) throw new Error('Unknown team')
+        if (team && !rt.isGeneralAssistant(self) && team.leaderId !== self) throw new Error('Ask that team leader or the General Assistant to add employees')
+        const bot = await rt.createBot({ ...args, workDir, teamId: team?.id ?? null, createdBy: self })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
         return `Could not create the Bot: ${error.message}`
@@ -276,7 +283,7 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'create_group',
-    description: 'Main Bot only. Create a group chat with the user and some Bots. You join it as its admin unless you name another member.',
+    description: 'Create a cross-team collaboration group chat with the user and some Bots. You join it as its admin unless you name another member.',
     parameters: {
       members: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact names of the other Bots to add; you are added automatically' },
       name: { type: 'string', description: 'Group name; defaults to the member names' },
@@ -288,7 +295,7 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
-      if (!rt.isMain(self)) return 'Only a Main Bot can create group chats. Ask a Main Bot instead.'
+      if (!rt.botOf(self)) return 'Only employees can create group chats.'
       const { bots, unknown } = resolveBots(args.members)
       if (unknown.length > 0) return `No Bot named ${unknown.join(', ')}. Team: ${teamNames()}`
       const admin = args.admin ? rt.findBot(args.admin) : rt.botOf(self)
@@ -383,7 +390,7 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'post_to_group',
-    description: 'Post a message into a group chat as yourself. It starts a round: members reply in the group, where the user reads them. Main Bots may post into any group; an admin into its own group.',
+    description: 'Post a message into a group chat as yourself. It starts a round: members reply in the group, where the user reads them. Main Bots may post into any group; any member into its own group.',
     parameters: {
       group: GROUP_REF,
       message: { type: 'string', required: true, description: 'What to say; write "@Name" to choose who answers, and a name without "@" to only mention a member' },
@@ -397,7 +404,7 @@ export function install(rt) {
       if (sender === undefined) return 'Only Bots on the team can use post_to_group.'
       const { room, error } = pickRoom(args.group, self)
       if (error) return error
-      if (!rt.isMain(self) && !rt.isAdminOf(room, self)) return `Only a Main Bot or the admin of "${room.name}" can post there. Use message_bot to reach its members.`
+      if (!rt.isMain(self) && !room.members.includes(self)) return `Only group members can post to "${room.name}".`
       const info = rt.live.get(exec.agent?.id)?.info
       if (info?.role === 'room' && info.roomId === room.id) return `You are speaking in "${room.name}" right now. Write your message as your reply instead.`
       if ((info?.hop ?? 0) >= MAX_HOPS) return 'This chain of Bot messages is already long. Stop here and report to the user instead.'

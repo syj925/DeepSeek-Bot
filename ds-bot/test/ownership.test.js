@@ -17,24 +17,24 @@ test('owner lookup follows explicit owners and legacy creator chains without cha
   assert.deepEqual(value, before)
 })
 
-test('main-to-main and owner-to-child requests work; a foreign child requires its owner', () => {
+test('cross-team requests work while management remains scoped', () => {
   const value = state()
   assert.equal(requestProblem(value, 'a', 'b'), undefined)
   assert.equal(requestProblem(value, 'b', 'bc'), undefined)
-  assert.match(requestProblem(value, 'a', 'bc'), /belongs to Beta/)
-  assert.match(requestProblem(value, 'ac', 'bc'), /belongs to Beta/)
+  assert.equal(requestProblem(value, 'a', 'bc'), undefined)
+  assert.equal(requestProblem(value, 'ac', 'bc'), undefined)
   assert.match(manageProblem(value, 'a', 'b'), /independent/)
   assert.match(manageProblem(value, 'a', 'bc'), /Beta/)
 })
 
-test('collaboration rooms only accept mains and never reassign children', () => {
+test('collaboration rooms accept all employees without changing affiliation', () => {
   const value = state(), before = structuredClone(value)
   checkRoomMembers(value, ['a', 'b'], true)
   // A regular group keeps the legacy Main Agent + its own child flow.
   assert.doesNotThrow(() => checkRoomMembers(value, ['a', 'ac']))
   checkRoomMembers(value, ['b', 'bc'])
-  assert.throws(() => checkRoomMembers(value, ['a', 'bc'], true), /only Main/)
-  assert.throws(() => checkRoomMembers(value, ['a', 'bc']), /belongs to Beta/)
-  assert.throws(() => checkRoomMembers(value, ['b', 'bc'], false, 'a'), /belongs to Beta/)
+  assert.doesNotThrow(() => checkRoomMembers(value, ['a', 'bc'], true))
+  assert.doesNotThrow(() => checkRoomMembers(value, ['a', 'bc']))
+  assert.doesNotThrow(() => checkRoomMembers(value, ['b', 'bc'], false, 'a'))
   assert.deepEqual(value, before)
 })

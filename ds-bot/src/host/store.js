@@ -11,8 +11,8 @@ import { currentColor, normalize, unquote } from './text.js'
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0 }
+  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, rooms:Record<string,any>, teams:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, teams: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -100,6 +100,7 @@ export function install(rt) {
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
+    state.taskNotices = (Array.isArray(state.taskNotices) ? state.taskNotices : []).filter(item => item && typeof item.id === 'string' && Number.isFinite(item.at)).slice(-100)
     state.prefs ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
@@ -136,6 +137,8 @@ export function install(rt) {
       migrated = true
     }
     state.mainBotIds = state.mainBotIds.filter(id => state.bots[id])
+    if (rt.reconcileGeneralAssistant?.()) migrated = true
+    if (rt.migrateTeams?.()) migrated = true
     // Teams from before the whale was stored at setup: their first Bot, while still a
     // Main Bot, gets it once wherever it has no look of its own. After that the whale is
     // an ordinary look the user can change, and it never passes to another Bot.

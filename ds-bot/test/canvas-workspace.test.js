@@ -30,6 +30,7 @@ function renderer() {
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
     module, exports: module.exports,
+    getComputedStyle: node => node.computedStyle ?? { paddingLeft: '0px', paddingRight: '0px' },
     require: name => ({ react, 'react-dom': { createPortal: node => node }, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],
   })
   return {
@@ -111,7 +112,7 @@ function fixture() {
       const ids = additive ? selected ? [...new Set([...state.selected, id])] : state.selected.filter(value => value !== id) : [id]
       state = setCanvasSelection(state, ids, id)
     },
-    openCanvasConversation: id => { calls.opened.push(id); state = setWindowCompact(state, id, false) },
+    openCanvasConversation: id => { calls.opened.push(id); state = setWindowCompact(setCanvasSelection(state, [id], id), id, false) },
     arrangeCanvasCards: () => { calls.arranged++ },
     compactCanvasConversations: () => { calls.compacted++ },
     showDetails: id => calls.details.push(id),
@@ -165,7 +166,7 @@ function fixture() {
   return { draw, cards, card, chat, desktopCards, group, addBot, modal, roster, room, work, calls, captures, actions, get state() { return state }, set state(value) { state = value } }
 }
 
-test('right-drag selects only Main Agents and a short right-click offers group actions', async () => {
+test('right-drag selects all employees and a short right-click offers group actions', async () => {
   const app = fixture()
   app.addBot({ id: 'partner', name: 'Partner' }, false)
   app.roster.mainBotIds.push('partner')
@@ -174,19 +175,19 @@ test('right-drag selects only Main Agents and a short right-click offers group a
   stage.props.onPointerDown(pointer({ button: 2, clientX: 0, clientY: 0 }))
   tree.props.onPointerMove(pointer({ button: 2, clientX: 990, clientY: 500 }))
   tree.props.onPointerUp(pointer({ button: 2, clientX: 990, clientY: 500, type: 'pointerup' }))
-  assert.deepEqual(Array.from(app.state.selected), Array.from(app.state.windows.filter(window => ['writer', 'partner'].includes(window.entityId)), window => window.id))
+  assert.deepEqual(Array.from(app.state.selected), Array.from(app.state.windows.filter(window => ['writer', 'partner', 'child'].includes(window.entityId)), window => window.id))
   tree = app.draw()
   assert.equal(find(tree, value => value.props.role === 'menu'), undefined)
-  const card = app.card(tree)
-  card.props.onContextMenu(pointer({ button: 2 }))
+  find(tree, value => value.type === 'main').props.onPointerDown(pointer({ button: 2, clientX: 600, clientY: 300 }))
+  tree.props.onPointerUp(pointer({ button: 2, type: 'pointerup' }))
   tree = app.draw()
-  const menu = find(tree, value => value.props.role === 'menu')
-  assert.ok(button(menu, 'New empty group'))
-  button(menu, 'Create Main Agent group').props.onClick()
+  const menu = app.calls.menus.at(-1)
+  assert.equal(typeof menu.createEmptyGroup, 'function')
+  menu.createSelectedGroup()
   assert.ok(app.modal())
   assert.deepEqual(app.calls.created, [])
   await button(app.modal(), 'Create group chat').props.onClick()
-  assert.deepEqual(app.calls.created[0][0], ['writer', 'partner'])
+  assert.deepEqual(app.calls.created[0][0], ['writer', 'partner', 'child'])
 })
 
 test('a short background right-click creates an empty, movable group without a backend Room', () => {
@@ -194,8 +195,7 @@ test('a short background right-click creates an empty, movable group without a b
   let tree = app.draw()
   find(tree, value => value.type === 'main').props.onPointerDown(pointer({ button: 2, clientX: 600, clientY: 300 }))
   tree.props.onPointerUp(pointer({ button: 2, type: 'pointerup' }))
-  let menu = find(app.draw(), value => value.props.role === 'menu')
-  button(menu, 'New empty group').props.onClick()
+  app.calls.menus.at(-1).createEmptyGroup()
   assert.equal(app.state.groups[0].draft, true)
   assert.equal(app.state.groups[0].x, 600)
   assert.equal(app.state.groups[0].y, 300)
@@ -214,7 +214,8 @@ test('a draft stages one Main Agent, then creates a real group with a second eve
   const app = fixture()
   app.addBot({ id: 'partner', name: 'Partner' }, false)
   app.roster.mainBotIds.push('partner')
-  button(app.draw(), 'New empty group').props.onClick()
+  app.draw().props.onContextMenu(pointer({ clientX: 500, clientY: 350 }))
+  app.calls.menus.at(-1).createEmptyGroup()
   const drop = id => {
     const tree = app.draw()
     button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
@@ -231,7 +232,7 @@ test('a draft stages one Main Agent, then creates a real group with a second eve
   drop('partner')
   await button(app.modal(), 'Create group chat').props.onClick()
   assert.deepEqual(app.calls.created[0][0], ['writer', 'partner'])
-  assert.equal(app.calls.created[0][1].mainOnly, true)
+  assert.equal(app.calls.created[0][1].mainOnly, undefined)
   assert.equal(app.state.groups.length, 0)
   assert.deepEqual(Array.from(app.state.windows, ({ x, y }) => [x, y]), positions)
   assert.deepEqual(app.calls.entities, ['created-room'])
@@ -302,105 +303,51 @@ test('employee avatars and Room cards keep management reachable without mounting
     assert.equal(button(card, 'Scheduled tasks'), undefined)
     assert.equal(find(card, value => value.props.className === 'bt-canvas-resize'), undefined)
   }
-  assert.ok(button(data.card(tree), 'Details'))
-  assert.ok(button(data.card(tree), 'Writer actions'))
+  assert.equal(button(data.card(tree), 'Details'), undefined)
+  data.card(tree).props.onContextMenu(pointer({ type: 'contextmenu', currentTarget: { getBoundingClientRect: () => ({ right: 100, bottom: 100 }) } }))
+  assert.equal(data.calls.menus.at(-1).id, 'writer')
   assert.ok(button(data.card(tree, 'planning'), 'Group settings'))
   assert.ok(button(data.card(tree, 'planning'), 'Planning actions'))
   assert.match(textOf(data.card(tree)), /Main Bot/)
 })
 
-test('Open conversation passes the stable window id and mounts only its current Session', () => {
-  const data = fixture(), before = data.draw()
-  const window = data.state.windows.find(value => value.entityId === 'writer')
-  button(data.card(before), 'Open conversation').props.onClick({ detail: 0 })
-  assert.deepEqual(data.calls.opened, [window.id])
-  const after = data.draw(), card = data.card(after)
-  assert.equal(card.props['data-mode'], 'conversation')
-  const session = find(card, value => value.type?.name === 'CanvasSession')
-  assert.equal(session.props.sessionId, 'writer-current')
-  assert.equal(session.props.actions, data.actions)
-  assert.equal(hasSession(data.card(after, 'planning')), 0)
-  assert.equal(card.props.style.width, '100%')
-  assert.equal(card.props.style.height, '100%')
-  assert.equal(data.desktopCards(after).every(card => card.props['data-mode'] === 'card' && hasSession(card) === 0), true)
-  assert.ok(button(card, 'Details'))
-})
-
-test('Room conversation opening routes its own window and Session instead of the selected Bot', () => {
-  const data = fixture(), before = data.draw()
-  const window = data.state.windows.find(value => value.entityId === 'planning')
-  button(data.card(before, 'planning'), 'Open conversation').props.onClick()
-  assert.deepEqual(data.calls.opened, [window.id])
-  const after = data.draw()
-  assert.equal(find(data.card(after, 'planning'), value => value.type?.name === 'CanvasSession').props.sessionId, 'planning')
-  assert.equal(hasSession(data.card(after)), 0)
-})
-
-test('chat floats outside the transformed world while desktop icons keep their geometry at every zoom', () => {
-  for (const zoom of [.2, 1, 2]) {
-    const data = fixture(), window = data.state.windows[0]
-    data.state = { ...data.state, viewport: { x: -800, y: 350, zoom } }
-    const before = JSON.stringify(data.state)
-    data.actions.openCanvasConversation(window.id)
-    const tree = data.draw(), world = find(tree, value => value.props.className === 'bt-canvas-world')
-    assert.equal(find(world, value => value.type?.name === 'CanvasChatWindow'), undefined)
-    assert.equal(findAll(tree, value => value.type?.name === 'CanvasChatWindow').length, 1)
-    const avatar = data.desktopCards(tree).find(value => value.props['data-entity-id'] === 'writer')
-    assert.equal(avatar.props.style.left, window.x)
-    assert.equal(avatar.props.style.top, window.y)
-    assert.equal(avatar.props.style.width, 120)
-    assert.equal(hasSession(avatar), 0)
-    assert.equal(find(data.chat(tree), value => value.props.role === 'dialog').props['aria-label'], 'Writer')
-    assert.equal(JSON.stringify({ ...data.state, windows: data.state.windows.map(value => ({ ...value, compact: true })) }), before)
+test('opening either employee or group mounts one floating Session and keeps its desktop card in place', () => {
+  for (const id of ['writer', 'planning']) {
+    const data = fixture(), original = data.state.windows.find(w => w.entityId === id)
+    const before = data.state.windows.map(w => [w.x, w.y])
+    data.actions.openCanvasConversation(original.id)
+    const tree = data.draw(), chat = data.chat(tree)
+    assert.equal(find(chat, node => node.type?.name === 'CanvasSession').props.sessionId, id === 'writer' ? 'writer-current' : id)
+    assert.equal(hasSession(data.card(tree, id)), 0)
+    assert.equal(data.card(tree, id).props['data-mode'], 'card')
+    assert.deepEqual(data.state.windows.map(w => [w.x, w.y]), before)
+    assert.equal(findAll(chat, node => node.props.className === 'bt-chat-resize').length, 8)
   }
 })
 
-test('closing a floating chat waits for its own animation and keeps the employee on the desktop', () => {
-  const data = fixture(), window = data.state.windows[0]
-  data.actions.openCanvasConversation(window.id)
-  button(data.card(data.draw()), 'Close window').props.onClick()
-  const dialog = find(data.chat(data.draw()), value => value.props.role === 'dialog')
-  assert.equal(dialog.props['data-closing'], true)
-  dialog.props.onAnimationEnd({ target: {}, currentTarget: dialog })
-  assert.equal(data.state.windows[0].compact, false)
-  dialog.props.onAnimationEnd({ target: dialog, currentTarget: dialog })
+test('closing the floating chat preserves the employee, card location and session', () => {
+  const data = fixture(), original = data.state.windows[0]
+  data.actions.openCanvasConversation(original.id)
+  button(data.chat(data.draw()), 'Close window').props.onClick()
+  const chat = data.chat(data.draw())
+  const float = find(chat, node => node.props.className === 'bt-canvas-chat-float')
+  assert.equal(float.props['data-closing'], true)
+  float.props.onAnimationEnd({target: null, currentTarget: null})
   assert.equal(data.state.windows[0].open, true)
   assert.equal(data.state.windows[0].compact, true)
+  assert.equal(data.state.windows[0].x, original.x)
+  assert.equal(data.roster.byId.writer.sessionId, 'writer-current')
   assert.equal(data.chat(data.draw()), null)
-  assert.equal(data.desktopCards(data.draw()).length, 2)
 })
 
-test('dragging a floating chat uses screen pixels, stays within the canvas and never moves its avatar', () => {
-  const data = fixture(), window = data.state.windows[0]
-  data.actions.openCanvasConversation(window.id)
-  const snapshot = JSON.stringify(data.state)
-  const tree = data.draw(), chat = data.chat(tree), dialog = find(chat, value => value.props.role === 'dialog')
-  const captured = new Set()
-  dialog.props.ref.current = {
-    getBoundingClientRect: () => ({ left: 100, top: 100, right: 900, bottom: 600 }),
-    parentElement: { getBoundingClientRect: () => ({ left: 0, top: 0, right: 1000, bottom: 700 }) },
-    setPointerCapture: id => captured.add(id), hasPointerCapture: id => captured.has(id), releasePointerCapture: id => captured.delete(id),
-  }
-  button(chat, 'Move Writer').props.onPointerDown(pointer())
-  dialog.props.onPointerMove(pointer({ clientX: 150, clientY: 125 }))
-  assert.equal(find(data.chat(data.draw()), value => value.props.role === 'dialog').props.style.translate, '50px 25px')
-  dialog.props.onPointerMove(pointer({ clientX: 10000, clientY: -10000 }))
-  assert.equal(find(data.chat(data.draw()), value => value.props.role === 'dialog').props.style.translate, '88px -88px')
-  dialog.props.onPointerCancel(pointer())
-  assert.equal(captured.size, 0)
-  assert.equal(JSON.stringify(data.state), snapshot)
-})
-
-test('checkbox, card selection, and keyboard movement never expand a lightweight card', () => {
+test('designer selection controls and keyboard movement never expand a lightweight card', () => {
   const data = fixture(), card = data.card(data.draw())
   const window = data.state.windows.find(value => value.entityId === 'writer')
-  const checkbox = find(card, value => value.type === 'input' && value.props.type === 'checkbox')
+  assert.equal(find(card, value => value.type === 'input' && value.props.type === 'checkbox'), undefined)
+  assert.equal(find(card, value => value.props.className === 'bt-canvas-avatar-tools'), undefined)
   const event = pointer({ target: { closest: () => ({}) } })
   card.props.onPointerDownCapture(event)
-  checkbox.props.onPointerDown(event)
-  checkbox.props.onChange({ target: { checked: true } })
-  assert.equal(event.stopped, true)
-  assert.deepEqual(data.calls.selected, [[window.id, true, true]])
+  assert.deepEqual(data.calls.selected, [])
   card.props.onPointerDownCapture(pointer())
   const title = button(card, 'Move Writer')
   const key = pointer({ key: 'ArrowRight', shiftKey: true })
@@ -451,7 +398,7 @@ test('an avatar pointer click opens exactly once on release while tiny pointer j
   assert.deepEqual(data.calls.opened, [before.id])
   assert.equal(data.captures.size, 0)
   assert.equal(data.calls.saved, 1)
-  assert.equal(hasSession(data.card(data.draw())), 1)
+  assert.equal(hasSession(data.chat(data.draw())), 1)
   assert.equal(hasSession(data.card(data.draw(), 'planning')), 0)
 })
 
@@ -525,7 +472,7 @@ test('avatar keyboard arrows adjust position before native keyboard activation o
   assert.equal(enter.prevented, false)
   avatar.props.onClick({ detail: 0 })
   assert.deepEqual(data.calls.opened, [writer.id])
-  assert.equal(find(data.card(data.draw()), value => value.type?.name === 'CanvasSession').props.sessionId, 'writer-current')
+  assert.equal(find(data.chat(data.draw()), value => value.type?.name === 'CanvasSession').props.sessionId, 'writer-current')
 })
 
 test('grouping and moving compact cards keeps every conversation unmounted', () => {
@@ -549,25 +496,14 @@ test('grouping and moving compact cards keeps every conversation unmounted', () 
   assert.equal(data.cards(data.draw()).reduce((count, card) => count + hasSession(card), 0), 0)
 })
 
-test('collapsing an expanded conversation removes its Session and preserves the card identity and geometry', () => {
-  const data = fixture(), window = data.state.windows.find(value => value.entityId === 'writer')
-  data.state = setWindowCompact(data.state, window.id, false)
-  const card = data.card(data.draw())
-  assert.equal(hasSession(card), 1)
-  button(card, 'Compact window').props.onClick()
-  const floating = find(data.chat(data.draw()), value => value.props.role === 'dialog')
-  assert.equal(floating.props['data-closing'], true)
-  assert.equal(data.state.windows.find(value => value.id === window.id).compact, false)
-  floating.props.onAnimationEnd({ target: floating, currentTarget: floating })
-  const after = data.state.windows.find(value => value.id === window.id)
-  assert.equal(after.open, true)
-  assert.equal(after.compact, true)
-  assert.equal(after.width, window.width)
-  assert.equal(after.height, window.height)
-  assert.equal(after.x, window.x)
-  assert.equal(after.y, window.y)
-  assert.equal(hasSession(data.card(data.draw())), 0)
-  assert.deepEqual(data.calls.opened, [])
+test('collapsing all conversations removes floating Session without moving desktop cards', () => {
+  const data = fixture(), window = data.state.windows[0]
+  data.actions.openCanvasConversation(window.id)
+  assert.equal(hasSession(data.chat(data.draw())), 1)
+  data.state = setWindowCompact(data.state, window.id, true)
+  assert.equal(data.chat(data.draw()), null)
+  assert.equal(data.state.windows[0].x, window.x)
+  assert.equal(data.state.windows[0].y, window.y)
 })
 
 test('Arrange cards is an explicit toolbar action before grouping, and collapse stays separate', () => {
@@ -597,53 +533,58 @@ test('empty workspace disables arranging and an all-card workspace disables coll
 test('compact menus use stable employee and room identities while transcript context menus stay native', () => {
   const data = fixture(), tree = data.draw()
   const box = { right: 300, bottom: 120 }
-  const click = pointer({ type: 'click', currentTarget: { getBoundingClientRect: () => box } })
-  button(data.card(tree), 'Writer actions').props.onClick(click)
-  assert.deepEqual(data.calls.menus, [{ id: 'writer', x: 300, y: 120 }])
+  const click = pointer({ type: 'contextmenu', button: 2, clientX: 170, clientY: 180, currentTarget: { getBoundingClientRect: () => box } })
+  data.card(tree).props.onContextMenu(click)
+  assert.deepEqual(data.calls.menus, [{ id: 'writer', x: 170, y: 180 }])
   assert.equal(click.prevented, true)
+  assert.equal(click.stopped, true)
+  data.actions.selectCanvasWindow(data.state.windows.find(value => value.entityId === 'writer').id)
+  data.card(data.draw()).props.onContextMenu(click)
+  assert.deepEqual(data.calls.menus[1], { id: 'writer', x: 170, y: 180 }, 'selected Main Agents also open their own management menu')
   const context = pointer({ type: 'contextmenu', clientX: 150, clientY: 200, currentTarget: { getBoundingClientRect: () => box } })
   data.card(tree, 'planning').props.onContextMenu(context)
-  assert.deepEqual(data.calls.menus[1], { id: 'planning', x: 150, y: 200 })
+  assert.deepEqual(data.calls.menus[2], { id: 'planning', x: 150, y: 200 })
   const transcript = pointer({ type: 'contextmenu', target: { closest: () => ({}) } })
   data.card(tree).props.onContextMenu(transcript)
   assert.equal(transcript.prevented, false)
-  assert.equal(data.calls.menus.length, 2)
+  assert.equal(data.calls.menus.length, 3)
   assert.deepEqual(data.calls.opened, [])
   assert.equal(data.cards(tree).reduce((count, card) => count + hasSession(card), 0), 0)
 })
 
-test('avatar details, room member shortcuts, and room settings route to original management actions', () => {
+test('room member shortcuts and room settings route to original management actions', () => {
   const data = fixture(), tree = data.draw()
-  button(data.card(tree), 'Details').props.onClick()
   button(data.card(tree, 'planning'), 'Writer').props.onClick()
   button(data.card(tree, 'planning'), 'Group settings').props.onClick()
   const mode = find(data.card(tree, 'planning'), value => value.props.className === 'bt-canvas-room-mode')
   mode.props.onClick()
-  assert.deepEqual(data.calls.details, ['writer-current'])
+  assert.deepEqual(data.calls.details, [])
   assert.deepEqual(data.calls.entities, ['writer'])
   assert.deepEqual(data.calls.settings, [['groups', 'planning'], ['groups', 'planning']])
   assert.deepEqual(data.calls.opened, [])
 })
 
-test('avatar status reflects employee work, questions and approval using Details without mounting history', () => {
+test('designer avatar status action reflects work, questions and approval without mounting history', () => {
   const data = fixture()
-  let status = button(data.card(data.draw()), 'Details')
+  const indicator = () => find(data.card(data.draw()), value => value.props.className === 'bt-canvas-avatar-status')
+  let status = indicator()
   assert.equal(status.props['data-state'], 'available')
   assert.equal(status.props.title, 'Available')
   data.work.bots.writer = { tool: 'read' }
-  status = button(data.card(data.draw()), 'Details')
+  status = indicator()
   assert.equal(status.props['data-state'], 'working')
   assert.equal(status.props.title, 'Working')
   data.roster.questions['writer-current'] = { text: 'Which file?' }
-  status = button(data.card(data.draw()), 'Details')
+  status = indicator()
   assert.equal(status.props['data-state'], 'waiting')
   assert.equal(status.props.title, 'Waiting for your answer')
   data.work.approvals.push({ id: 'approval', botId: 'writer', tool: 'write' })
-  status = button(data.card(data.draw()), 'Details')
+  status = indicator()
   assert.equal(status.props['data-state'], 'waiting')
   assert.equal(status.props.title, 'Waiting for your approval')
-  status.props.onClick()
-  assert.deepEqual(data.calls.details, ['writer-current'])
+  assert.equal(status.type, 'span')
+  assert.equal(status.props.onClick, undefined)
+  assert.deepEqual(data.calls.details, [])
   assert.deepEqual(data.calls.opened, [])
   assert.equal(hasSession(data.card(data.draw())), 0)
 })
@@ -751,4 +692,75 @@ test('window group title rename saves only that visual label and Escape cancels 
   assert.equal(find(data.group(data.draw()), value => value.type === 'input'), undefined)
   assert.deepEqual(data.calls.newChats, [])
   assert.deepEqual(data.calls.opened, [])
+})
+
+
+test('background drag selects instead of moving the fixed desktop viewport', () => {
+  const data = fixture(), tree = data.draw(), before = {...data.state.viewport}
+  find(tree, node => node.type === 'main').props.onPointerDown(pointer({clientX: 20, clientY: 20}))
+  tree.props.onPointerMove(pointer({clientX: 700, clientY: 400}))
+  tree.props.onPointerUp(pointer({type: 'pointerup'}))
+  assert.deepEqual({...data.state.viewport}, before)
+  assert.ok(data.state.selected.length > 0)
+})
+
+test('floating window Escape uses the exit animation and leaves its desktop icon alive', () => {
+  const data = fixture(), original = data.state.windows[0]
+  data.actions.openCanvasConversation(original.id)
+  const chat = data.chat(data.draw())
+  const float = find(chat, node => node.props.className === 'bt-canvas-chat-float')
+  const escape = pointer({key: 'Escape', nativeEvent: {isComposing: false}})
+  float.props.onKeyDown(escape)
+  assert.equal(escape.prevented, true)
+  const closing = find(data.chat(data.draw()), node => node.props.className === 'bt-canvas-chat-float')
+  assert.equal(closing.props['data-closing'], true)
+  closing.props.onAnimationEnd({target: null, currentTarget: null})
+  assert.equal(data.state.windows[0].open, true)
+  assert.equal(data.state.windows[0].compact, true)
+  assert.equal(data.state.windows[0].x, original.x)
+})
+
+test('left click on blank desktop clears selection without moving icons; right click keeps it', () => {
+  for (const mouseButton of [0, 2]) {
+    const data = fixture()
+    const id = data.state.windows[0].id
+    data.actions.selectCanvasWindow(id)
+    const before = data.state.windows.map(window => [window.id, window.x, window.y])
+    const tree = data.draw()
+    find(tree, node => node.type === 'main').props.onPointerDown(pointer({ button: mouseButton, clientX: 900, clientY: 650 }))
+    tree.props.onPointerUp(pointer({ button: mouseButton, type: 'pointerup', clientX: 900, clientY: 650 }))
+    assert.equal(data.state.selected.length, mouseButton === 0 ? 0 : 1)
+    assert.equal(JSON.stringify(data.state.windows.map(window => [window.id, window.x, window.y])), JSON.stringify(before))
+    if (mouseButton === 0) assert.equal(data.card(data.draw()).props['data-active'], undefined)
+  }
+})
+
+
+test('multiple employee and group chats stay mounted; selecting one only changes their stacking order', () => {
+  const data = fixture()
+  const ids = data.state.windows.map(window => window.id)
+  for (const id of ids) data.actions.openCanvasConversation(id)
+  let windows = findAll(data.draw(), node => node.type?.name === 'CanvasChatWindow')
+  assert.equal(windows.length, 2)
+  assert.equal(windows.at(-1).props.window.id, ids.at(-1))
+  data.actions.selectCanvasWindow(ids[0])
+  windows = findAll(data.draw(), node => node.type?.name === 'CanvasChatWindow')
+  assert.equal(windows.length, 2)
+  assert.equal(windows.at(-1).props.window.id, ids[0])
+  data.actions.updateCanvas(state => setWindowCompact(state, ids[0], true))
+  windows = findAll(data.draw(), node => node.type?.name === 'CanvasChatWindow')
+  assert.equal(windows.length, 1)
+  assert.equal(windows[0].props.window.id, ids[1])
+})
+
+test('focusing a conversation raises it without selecting its desktop avatar', () => {
+  const data = fixture()
+  const ids = data.state.windows.map(window => window.id)
+  for (const id of ids) data.actions.openCanvasConversation(id)
+  const chat = data.chat(data.draw())
+  const float = find(chat, node => node.props.className === 'bt-canvas-chat-float')
+  float.props.onPointerDown(pointer())
+  assert.equal(data.state.active, ids[0])
+  assert.equal(data.state.selected.length, 0)
+  assert.equal(data.state.windows.filter(window => !window.compact).length, 2)
 })
