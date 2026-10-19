@@ -46,7 +46,7 @@ function team({ group = false } = {}) {
 
 // Services for a full apply(): resolveAgent returns a per-Session agent that
 // records followup/steer/inject/cancel calls.
-async function start(seed) {
+async function start(seed, { providers = { mock: [{ id: 'default', inputModalities: ['text', 'image'] }] } } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-messages-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
   const ctx = fakeContext()
@@ -71,7 +71,7 @@ async function start(seed) {
     return agents.get(sessionId)
   }
   Object.assign(ctx, {
-    llm: { listProviders: () => [{ id: 'mock' }], listModels: async () => [{ id: 'default', inputModalities: ['text', 'image'] }], resolveModelInfo: async () => ({}) },
+    llm: { listProviders: () => Object.keys(providers).map(id => ({ id })), listModels: async id => providers[id], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
       get: () => undefined,
       resolveByPath: async () => undefined,
@@ -121,16 +121,103 @@ const textOf = content => content.map(block => block.text ?? '').join('\n')
 test('supervisor routing is durable before delivery and invalid explicit choices send nothing', async t => {
   const app = await start(team())
   t.after(app.stop)
-  const result = await app.tool('message_bot', { to: 'Writer', message: 'Draft a report', model: 'mock/default', task_kind: 'writing' }, 'a')
+  const result = await app.tool('message_bot', { to: 'Writer', message: 'Draft a report', model: 'mock/default', model_user_requested: true, task_kind: 'writing' }, 'a')
   assert.match(result, /Task model: mock\/default/)
   const delivered = app.agentOf('b').calls[0][1]
   assert.equal(delivered.source.taskModel.ref, 'mock/default')
   assert.equal(delivered.source.taskModel.explicit, true)
   assert.equal((await app.exchanges())[0].taskModel.ref, 'mock/default')
-  await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Other task', model: 'missing' }, 'a'), /not available/)
+  await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Other task', model: 'missing', model_user_requested: true }, 'a'), /not available/)
   await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Correction', model: 'mock/default', when: 'now' }, 'a'), /cannot switch/)
   assert.equal(app.agentOf('b').calls.length, 1)
   assert.equal((await app.call('state')).value.bots.find(bot => bot.id === 'b').model, undefined)
+})
+
+test('explicit task model requests require declared user intent and invalid choices dispatch nothing', async t => {
+  const seed = team()
+  seed.bots.b.model = 'mock/default'
+  seed.bots.b.appliedModel = 'mock/default'
+  const app = await start(seed, { providers: { mock: [{ id: 'default' }, { id: 'pro' }], other: [{ id: 'pro' }] } })
+  t.after(app.stop)
+  const before = (await app.call('state')).value.bots
+  for (const flag of [undefined, false]) {
+    await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Draft a report', model: 'mock/pro', ...(flag === undefined ? {} : { model_user_requested: flag }) }, 'a'), /user explicitly requests/)
+  }
+  for (const model of ['', ' ', 'missing', 'pro']) {
+    await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Draft a report', model, model_user_requested: true }, 'a'), /requested model|not available|more than one provider|specify.*model|empty|non-empty/i)
+  }
+  for (const model of [null, false]) {
+    await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Draft a report', model, model_user_requested: true }, 'a'), /model.*must be a string/)
+  }
+  assert.deepEqual(app.agentOf('b').calls, [])
+  assert.deepEqual(await app.exchanges(), [])
+  assert.deepEqual((await app.call('state')).value.bots, before)
+})
+
+test('employees cannot choose another task model and a supervisor group identity can request a one-off override', async t => {
+  const seed = team({ group: true })
+  seed.bots.a.model = 'mock/default'
+  seed.bots.b.model = 'mock/default'
+  seed.rooms.r1.sessions.a = 'ga'
+  const app = await start(seed, { providers: { mock: [{ id: 'default' }, { id: 'pro' }] } })
+  t.after(app.stop)
+  await assert.rejects(app.tool('message_bot', { to: 'Chief', message: 'Draft a report', model: 'mock/pro', model_user_requested: true }, 'gb'), /Another Main Bot is independent/)
+  assert.deepEqual(app.agentOf('a').calls, [])
+  const result = await app.tool('message_bot', { to: 'Writer', message: 'Draft a report with the model the user chose', model: 'mock/pro', model_user_requested: true }, 'ga')
+  assert.match(result, /Task model: mock\/pro/)
+  assert.match(result, /Employee defaults are unchanged/)
+  const sent = app.agentOf('gb').calls[0][1]
+  assert.equal(sent.source.senderSessionId, 'a')
+  assert.equal(sent.source.taskModel.ref, 'mock/pro')
+  assert.equal(sent.source.taskModel.explicit, true)
+  assert.equal((await app.call('state')).value.bots.find(bot => bot.id === 'b').model, 'mock/default')
+})
+
+test('a non-Main owning supervisor may explicitly override its employee model for one task', async t => {
+  const seed = team({ group: true })
+  seed.organizationVersion = 1
+  seed.bots.b.model = 'mock/default'
+  seed.bots.b.teamId = 'writing'
+  seed.bots.lead = { id: 'lead', sessionId: 'lead', name: 'Writing lead', teamId: 'writing' }
+  seed.teams = { writing: { id: 'writing', name: 'Writing', leaderId: 'lead', members: ['lead', 'b'] } }
+  seed.rooms.r1.members.push('lead')
+  seed.rooms.r1.sessions.lead = 'glead'
+  const app = await start(seed, { providers: { mock: [{ id: 'default' }, { id: 'pro' }] } })
+  t.after(app.stop)
+  const result = await app.tool('message_bot', { to: 'Writer', message: 'Use the user-requested model for this report only', model: 'mock/pro', model_user_requested: true }, 'glead')
+  assert.match(result, /Task model: mock\/pro/)
+  const sent = app.agentOf('gb').calls[0][1]
+  assert.equal(sent.source.senderSessionId, 'lead')
+  assert.equal(sent.source.taskModel.ref, 'mock/pro')
+  assert.equal(sent.source.taskModel.explicit, true)
+  assert.equal((await app.call('state')).value.bots.find(bot => bot.id === 'b').model, 'mock/default')
+  assert.equal(seed.mainBotIds.includes('lead'), false)
+})
+
+test('Main Bots may request work across teams without changing another leader or employee task model', async t => {
+  const seed = team()
+  seed.organizationVersion = 1
+  seed.mainBotIds.push('partner')
+  seed.bots.partner = { id: 'partner', sessionId: 'partner', name: 'Partner', teamId: 'research', model: 'mock/default', appliedModel: 'mock/default' }
+  seed.bots.researcher = { id: 'researcher', sessionId: 'researcher', name: 'Researcher', teamId: 'research', model: 'mock/default', appliedModel: 'mock/default' }
+  seed.teams = { research: { id: 'research', name: 'Research', leaderId: 'partner', members: ['partner', 'researcher'] } }
+  const app = await start(seed, { providers: { mock: [{ id: 'default' }, { id: 'pro' }] } })
+  t.after(app.stop)
+  const before = (await app.call('state')).value.bots
+  for (const [to, refusal] of [['Partner', /Another Main Bot is independent/], ['Researcher', /Researcher is managed by Partner/]]) {
+    await assert.rejects(app.tool('message_bot', { to, message: 'Work with a different model', model: 'mock/pro', model_user_requested: true }, 'a'), refusal)
+    await assert.rejects(app.tool('message_bot', { to, message: 'Work with a different thinking level', effort: 'high' }, 'a'), refusal)
+  }
+  assert.deepEqual(app.agentOf('partner').calls, [])
+  assert.deepEqual(app.agentOf('researcher').calls, [])
+  assert.deepEqual((await app.call('state')).value.bots, before)
+  assert.match(await app.tool('message_bot', { to: 'Partner', message: 'Please coordinate this research' }, 'a'), /Delivered to Partner/)
+  assert.match(await app.tool('message_bot', { to: 'Researcher', message: 'Please research this topic' }, 'a'), /Delivered to Researcher/)
+  assert.equal(app.agentOf('partner').calls[0][1].source.taskModel.ref, 'mock/default')
+  assert.equal(app.agentOf('researcher').calls[0][1].source.taskModel.ref, 'mock/default')
+  assert.equal(app.agentOf('partner').calls[0][1].source.taskModel.explicit, false)
+  assert.equal(app.agentOf('researcher').calls[0][1].source.taskModel.explicit, false)
+  assert.deepEqual((await app.call('state')).value.bots, before)
 })
 
 test('completion tool connects turn success to persistent notification state', async t => {

@@ -19,6 +19,8 @@
 //   建群 名: A, B · 群发[回报] 名: 消息 · 改群 名 公告|管理员|模式|加|踢: 值 · 删群 名
 //   看群 名 (read_group_chat) · 转告 名: 消息 (message_bot) · 搜索：查询1 | 查询2 (web_search)
 //   插话 名: 消息 (message_bot when "now") · 排队 名: 消息 (message_bot when "queue") · 叫停 名: 原因 (stop_bot)
+//   smoke:set-model Bot provider/model (user-requested saved change through update_bot)
+//   smoke:set-model-unrequested Bot provider/model (missing user intent; must be refused)
 //   长文 N / long N (N×1000 characters) · 长任务 N [K] (N steps of K×1000, default 4)
 //   查记录 词 [词…] · 查锚点 part N #序号 · 查第 N 段 (read_own_chat)
 //   上下文里有 词 (searches the context except the last message) · 撑爆 (fake overflow, 400)
@@ -214,6 +216,7 @@ function decide(body) {
         return [text(`${name} 已就位。`), tool('message_bot', { to: name, message: `用户刚让我建了你。请用三条要点回我：你打算先做什么、需要用户提供什么、第一周节奏。没有的写“尚未聊过”。` })]
       }
       case 'message_bot': return [text(used.input.reply_to === 'user' ? `去 ${used.input.to} 的对话框看它说吧。` : '我已经把需求转过去了，有结果我马上告诉你。')]
+      case 'update_bot': return [text(resultText)]
       // The user's answer can ride in the same message as the card's tool result.
       case 'ask_user': if (textOf(last.content).trim() === '') return [text('')]
         break
@@ -255,6 +258,10 @@ function decide(body) {
 
   // Workspace guidance appended by the harness is context, not a scripted command.
   const userText = textOf(last?.content).split('\n<system-reminder>')[0].trim()
+  const modelChange = /^smoke:set-model(-unrequested)?\s+(\S+)\s+(\S+)\s*$/.exec(userText)
+  if (modelChange) return [tool('update_bot', {
+    bot: modelChange[2], model: modelChange[3], ...(!modelChange[1] ? { model_user_requested: true } : {}),
+  })]
   if (userText.startsWith('smoke:set-effort ')) return [tool('update_bot', { effort: userText.slice('smoke:set-effort '.length).trim() })]
   if (userText.startsWith('smoke:task-group ')) {
     const args = JSON.parse(userText.slice('smoke:task-group '.length))
@@ -399,7 +406,9 @@ function decide(body) {
     return [tool('update_group', { group: order[1], ...field })]
   }
   if ((order = /^删群\s*(\S+)$/.exec(userText))) return [tool('delete_group', { group: order[1] })]
-  if ((order = /^任务模型\s+(\S+)\s+(auto|\S+)\s+(general|writing|coding|analysis|vision)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], ...(order[2] === 'auto' ? {} : { model: order[2] }), task_kind: order[3], message: order[4] })]
+  if ((order = /^任务模型(未授权)?\s+(\S+)\s+(auto|\S+)\s+(general|writing|coding|analysis|vision)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', {
+    to: order[2], ...(order[3] === 'auto' ? {} : { model: order[3], ...(!order[1] ? { model_user_requested: true } : {}) }), task_kind: order[4], message: order[5],
+  })]
   if ((order = /^转告\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2] })]
   if ((order = /^插话\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'now' })]
   if ((order = /^排队\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'queue' })]

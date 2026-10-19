@@ -1,8 +1,7 @@
-QibitAI canvas plugin 0.1.52
+QibitAI canvas plugin 0.1.53
 
-- Integrate the latest team source, including Chief task routing, task groups, model selection, streamed collaboration and recoverable task contexts.
-- Update the glass desktop, floating chats, team rail, Dock, role animations, task delivery notices and execution status.
-- Bundle the QiBit portrait design kit and Noto Sans SC font. Portrait generation requires a separately configured service.
-- Retain hosted update checks, immutable version-tag publishing and the secret reload fix for multi-instance takeover.
-- Merge the feature branch into main while preserving both histories and existing employee, conversation and permission data.
-- Use portable portrait asset filenames and reject unsupported archive records before publishing.
+- Change an employee model through its responsible supervisor chat when the user explicitly requests it. Report the previous and saved model after a successful update.
+- Keep the employee model for ordinary delegated work; task type, priority and optimization suggestions no longer select another model automatically.
+- Support an explicitly requested one-off task model without changing employee settings. Running turns and tasks already queued with a captured model retain that route.
+- Preserve department ownership, independent Main Bots, profile defaults and access permissions. Team leaders can change only their own employees model or thinking level.
+- Validate model availability and reject missing or ambiguous choices without substituting another model.

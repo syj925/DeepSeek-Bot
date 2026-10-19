@@ -11,40 +11,27 @@ export function taskKind(text = '') {
   return 'general'
 }
 
-// These are transparent name-based preferences, not measured prices or benchmarks.
-export function rankTaskModels(entries, { kind, priority = 'balanced', fallback }) {
-  return entries.filter(entry => kind !== 'vision' || entry.input?.includes('image')).map(entry => {
-    const name = `${entry.id} ${entry.name}`.toLowerCase()
-    const light = /mini|nano|flash|haiku|lite|small/.test(name)
-    const deep = /reasoner|thinking|opus|pro\b|\bo[134]\b|\br1\b/.test(name)
-    let score = entry.ref === fallback ? 2 : 0
-    if (priority === 'speed' || priority === 'economy') score += light ? 8 : 0
-    else if (priority === 'quality' || kind === 'analysis') score += deep ? 6 : 0
-    else if (kind === 'general') score += light ? 5 : 0
-    if (kind === 'coding' && /coder|codex|code/.test(name)) score += 9
-    if (kind === 'writing' && /sonnet/.test(name)) score += 4
-    return { entry, score }
-  }).sort((a, b) => b.score - a.score || a.entry.ref.localeCompare(b.entry.ref)).map(item => item.entry)
-}
-
 export function install(rt) {
   const active = new Map()
   async function planTaskModel(bot, { text = '', kind = taskKind(text), priority = 'balanced', model, reason, effort } = {}) {
     if (!KINDS.includes(kind)) throw new Error(`Unknown task kind: ${kind}`)
     if (!['balanced', 'speed', 'economy', 'quality'].includes(priority)) throw new Error(`Unknown task priority: ${priority}`)
     const entries = await rt.catalog({ fresh: true })
-    const fallback = bot.model ?? await rt.defaultModel()
     const explicit = model ? await rt.resolveModel(model) : undefined
-    const selected = explicit ? entries.find(entry => entry.ref === explicit)
-      : rankTaskModels(entries, { kind, priority, fallback })[0]
-    if (!selected) throw new Error('No configured model supports this task. Configure an available model before dispatching it.')
+    // Task content and priority never authorize changing an employee's model.
+    // Only a task's explicit model overrides the saved choice, for this task alone.
+    const ref = explicit ?? bot.model ?? await rt.defaultModel()
+    const selected = entries.find(entry => entry.ref === ref)
+    if (!selected) throw new Error(ref
+      ? `Model ${ref} is not available. Ask the user to choose an available model before dispatching this task.`
+      : 'No configured model supports this task. Configure an available model before dispatching it.')
     if (kind === 'vision' && !selected.input?.includes('image')) throw new Error(`Model ${selected.ref} has no declared image input support. Choose an image-capable model.`)
     const level = effort !== undefined ? await rt.resolveEffort(selected.ref, effort) : await rt.desiredEffort(bot, selected.ref)
     return {
       ref: selected.ref, kind, priority, explicit: Boolean(explicit),
       ...(level !== undefined ? { effort: level } : {}),
       reason: explicit ? String(reason || 'Model specified for this task').slice(0, 240)
-        : `Rule-based match for ${kind}, ${priority} priority; not a measured price or speed ranking`,
+        : bot.model ? 'Kept the employee\'s configured model' : 'Used the profile default because the employee has no configured model',
     }
   }
 

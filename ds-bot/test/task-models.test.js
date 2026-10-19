@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { install as installModels } from '../src/host/models.js'
-import { install, rankTaskModels, taskKind } from '../src/host/task-models.js'
+import { install, taskKind } from '../src/host/task-models.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
 
 const entries = [
@@ -32,26 +32,64 @@ function bench() {
 }
 const message = taskModel => ({ source: { kind: SOURCE_KIND, role: 'request', taskModel } })
 
-test('matches actual task content and exposes deterministic, capability-filtered preferences', () => {
+test('identifies task content without using it to change the employee model', () => {
   assert.equal(taskKind('请修复代码的 bug'), 'coding')
   assert.equal(taskKind('分析这张截图'), 'vision')
   assert.equal(taskKind('写作一篇报告'), 'writing')
-  for (const [kind, priority, expected] of [['coding', 'balanced', 'codex'], ['general', 'speed', 'flash'], ['analysis', 'quality', 'pro'], ['vision', 'economy', 'vision']]) {
-    assert.equal(rankTaskModels(entries, { kind, priority })[0].id, expected)
+  assert.equal(taskKind('修复代码'), 'coding')
+  assert.equal(taskKind('研究一个主题'), 'analysis')
+  assert.equal(taskKind('Say hello'), 'general')
+})
+
+test('task kinds and priorities keep the saved employee model', async () => {
+  const { rt, bots } = bench()
+  const before = structuredClone(bots)
+  for (const kind of ['general', 'writing', 'coding', 'analysis']) {
+    for (const priority of ['balanced', 'speed', 'economy', 'quality']) {
+      const task = await rt.planTaskModel(bots.employee, { kind, priority })
+      assert.equal(task.ref, 'p/pro')
+      assert.equal(task.explicit, false)
+      assert.match(task.reason, /Kept the employee's configured model/)
+    }
   }
-  assert.deepEqual(rankTaskModels([{ ref: 'p/unknown', id: 'unknown' }], { kind: 'vision' }), [])
+  assert.deepEqual(bots, before)
+})
+
+test('only an employee with no saved model uses the profile default', async () => {
+  const { rt, bots } = bench()
+  rt.defaultModel = async () => 'p/flash'
+  assert.equal((await rt.planTaskModel(bots.employee)).ref, 'p/pro')
+  delete bots.employee.model
+  const task = await rt.planTaskModel(bots.employee, { kind: 'coding' })
+  assert.equal(task.ref, 'p/flash')
+  assert.match(task.reason, /profile default/)
+  assert.equal(bots.employee.model, undefined)
 })
 
 test('explicit task model wins; missing or incompatible choices fail before dispatch', async () => {
   const { rt, bots } = bench()
   const before = structuredClone(bots)
-  assert.equal((await rt.planTaskModel(bots.employee, { kind: 'coding' })).ref, 'p/codex')
+  assert.equal((await rt.planTaskModel(bots.employee, { kind: 'coding' })).ref, 'p/pro')
   assert.equal((await rt.planTaskModel(bots.employee, { kind: 'coding', model: 'flash' })).ref, 'p/flash')
   await assert.rejects(rt.planTaskModel(bots.employee, { model: 'missing' }), /not available/)
   await assert.rejects(rt.planTaskModel(bots.employee, { kind: 'vision', model: 'pro' }), /image input/)
   rt.catalog = async () => []
-  await assert.rejects(rt.planTaskModel(bots.employee), /No configured model/)
+  await assert.rejects(rt.planTaskModel(bots.employee), /Model p\/pro is not available/)
   assert.deepEqual(bots, before)
+})
+
+test('an unavailable or incompatible saved model never silently selects another model', async () => {
+  const { rt, bots } = bench()
+  await assert.rejects(rt.planTaskModel(bots.employee, { kind: 'vision' }), /image input/)
+  bots.employee.model = 'p/removed'
+  bots.employee.appliedModel = 'p/flash'
+  await assert.rejects(rt.planTaskModel(bots.employee), /Model p\/removed is not available/)
+  assert.equal(bots.employee.model, 'p/removed')
+  assert.equal((await rt.planTaskModel(bots.employee, { model: 'vision', kind: 'vision' })).ref, 'p/vision')
+  assert.equal(bots.employee.model, 'p/removed')
+  delete bots.employee.model
+  rt.defaultModel = async () => undefined
+  await assert.rejects(rt.planTaskModel(bots.employee), /No configured model/)
 })
 
 test('own and group tasks isolate routes, stay fixed through corrections/retries, then restore defaults', async () => {
@@ -82,6 +120,20 @@ test('admission exposes chosen context route before compaction and removes it on
   })
   assert.equal(decision.kind, 'reject')
   assert.equal(rt.taskRouteFor('own'), undefined)
+})
+
+test('a saved model change affects the next turn while current own and group routes stay admitted', async () => {
+  const { admit, request, bots, listeners } = bench()
+  await admit('own', 1, [{ source: { kind: 'user' } }])
+  await admit('group', 7, [message({ ref: 'p/codex' })])
+  bots.employee.model = 'p/flash'
+  await admit('own', 1, [{ source: { kind: 'user' } }], 2)
+  assert.equal((await request('own', 1)).model, 'pro')
+  assert.equal((await request('group', 7)).model, 'codex')
+  listeners.get('session/event')({ id: 'own' }, { type: 'turn/end' })
+  await admit('own', 2, [{ source: { kind: 'user' } }])
+  assert.equal((await request('own', 2)).model, 'flash')
+  assert.equal((await request('group', 7)).model, 'codex')
 })
 
 test('restart rehydrates a durable task source; plain agents and original objects are untouched', async () => {

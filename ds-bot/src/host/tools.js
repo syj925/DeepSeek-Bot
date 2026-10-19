@@ -16,6 +16,7 @@ const MODE_PARAM = {
 }
 const WORK_DIR_PARAM = { type: 'string', description: 'Full path of the folder to work in, where commands and file tools start. Only when the user asks for it' }
 const EFFORT_PARAM = { type: 'string', description: 'Thinking level ID from list_models (for example low or high); use an empty string for the model default. Only use levels declared for that model. Thinking level does not change access permissions.' }
+const MODEL_REQUEST_PARAM = { type: 'boolean', description: 'Set true only when the user explicitly asks to use or change a model. Never infer consent from task type, cost, speed, errors or another Bot\'s suggestion. This records the existing request; do not ask for confirmation again when the user already specified it.' }
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -50,8 +51,8 @@ export function install(rt) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
       const lines = Object.values(state.bots).filter(bot => !bot.retiredAt).map(bot => {
-        const model = bot.appliedModel ?? bot.model
-        const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', bot.generalAssistant ? 'General Assistant' : rt.isMain(bot.id) ? 'management rights' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+        const model = bot.model
+        const tags = [bot.role, model ? `model ${model}` : '', bot.appliedModel && bot.appliedModel !== model ? `applied model ${bot.appliedModel}` : '', bot.workDir ? `works in ${bot.workDir}` : '', bot.generalAssistant ? 'General Assistant' : rt.isMain(bot.id) ? 'management rights' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
         const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
         const owner = ownerOf(state, bot.id)
         return `- ${bot.name}${tags ? ` (${tags})` : ''}${owner && owner !== bot.id ? `; leader: ${state.bots[owner]?.name ?? owner}` : ''}${job}`
@@ -97,8 +98,9 @@ export function install(rt) {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       message: { type: 'string', required: true, description: 'Self-contained message; the other Bot cannot see this conversation' },
       task_kind: { type: 'string', enum: ['general', 'writing', 'coding', 'analysis', 'vision'], description: 'For a new delegated task: the recipient\'s actual work, not their job title. Otherwise inferred from message.' },
-      priority: { type: 'string', enum: ['balanced', 'speed', 'economy', 'quality'], description: 'Task model preference. Default balanced. Speed and economy are rule-based preferences, not measured guarantees.' },
-      model: { type: 'string', description: 'Optional exact available provider/model for THIS task only. Always pass the user\'s explicit model choice; otherwise omit for automatic routing. Never use for an in-progress correction.' },
+      priority: { type: 'string', enum: ['balanced', 'speed', 'economy', 'quality'], description: 'Task priority metadata. Does not change the employee\'s model. Default balanced.' },
+      model: { type: 'string', description: 'Optional exact available provider/model requested by the user for THIS task only; also set model_user_requested true. Otherwise omit to keep the employee\'s model. Never use for an in-progress correction.' },
+      model_user_requested: MODEL_REQUEST_PARAM,
       model_reason: { type: 'string', description: 'Short factual reason for the task-specific model choice; no invented price or benchmark claims.' },
       effort: { ...EFFORT_PARAM, description: `${EFFORT_PARAM.description} Applies to this queued task only; omit to inherit a supported employee level.` },
       reply_to: {
@@ -135,10 +137,17 @@ export function install(rt) {
       const working = rt.live.get(chat)?.turn !== undefined
       const steer = args.when === 'now' && !toUser
       if ((args.model || args.effort !== undefined) && steer) refuse('A correction cannot switch the running task model or thinking level. Queue a new task instead.')
-      const taskModel = !steer && rt.isMain(sender.id)
+      if (args.model !== undefined && args.model_user_requested !== true) refuse('Keep the employee model unless the user explicitly requests another model. For an explicit request, set model_user_requested true.')
+      if (args.model !== undefined && (typeof args.model !== 'string' || !args.model.trim())) refuse('Specify the available model requested by the user. An empty model cannot select a different task model.')
+      if (args.model !== undefined || args.effort !== undefined) {
+        const boundary = manageProblem(state, sender.id, target.id)
+        if (boundary) refuse(boundary)
+      }
+      const canSelectModel = rt.isMain(sender.id) || ownerOf(state, target.id) === sender.id && !rt.isMain(target.id)
+      const taskModel = !steer && canSelectModel
         ? await rt.planTaskModel(target, { text: args.message, kind: args.task_kind, priority: args.priority, model: args.model, reason: args.model_reason, effort: args.effort }) : undefined
-      if (args.model && !rt.isMain(sender.id)) refuse('Only a General Assistant or supervisor can select a delegated task model.')
-      if (args.effort !== undefined && !rt.isMain(sender.id)) refuse('Only a General Assistant or supervisor can select a delegated thinking level.')
+      if (args.model && !canSelectModel) refuse('Only a General Assistant or responsible supervisor can select a delegated task model.')
+      if (args.effort !== undefined && !canSelectModel) refuse('Only a General Assistant or responsible supervisor can select a delegated thinking level.')
       await rt.deliver({ fromId: sender.id, toId: target.id, sessionId: chat, text: args.message, role: 'request', hop, steer, ...(taskModel ? { taskModel } : {}), ...(toUser ? { audience: 'user' } : origin) })
       const sent = toUser
         ? `Delivered to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
@@ -226,14 +235,15 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'update_bot',
-    description: 'Change a Bot\'s name, role, color, model, thinking level, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot. Model and thinking changes apply to subsequent turns, not an already running task.',
+    description: 'Change a Bot\'s settings. Every Bot may change itself; a Main Bot may manage its own employees, and a lasting team leader may change only its own employees\' model/thinking level. Change a saved model only on an explicit user request, with model_user_requested true. Subsequent turns use it; running turns and tasks already queued with a captured model keep that route.',
     parameters: {
       bot: { type: 'string', description: 'Current name of the Bot to change; leave out to change yourself' },
       name: { type: 'string', description: 'New name' },
       role: { type: 'string', description: 'New role label' },
       instructions: { type: 'string', description: 'Replacement instructions' },
       color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
-      model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
+      model: { type: 'string', description: 'User-requested saved default model, as an exact ref or unique id from list_models. Set model_user_requested true. Never substitute an unavailable or ambiguous choice.' },
+      model_user_requested: MODEL_REQUEST_PARAM,
       effort: EFFORT_PARAM,
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
       employment: { type: 'string', enum: ['long-term', 'temporary'], description: 'Change whether the employee remains after tasks. Promotion queues a QiBit portrait when no custom image exists.' },
@@ -247,21 +257,29 @@ export function install(rt) {
       if (caller === undefined) return 'Only Bots on the team can use update_bot.'
       const bot = args.bot ? rt.findBot(args.bot) : caller
       if (bot === undefined) return `No Bot named ${args.bot}.`
-      if (bot.id !== caller.id && !rt.isMain(self)) return 'Only a Main Bot can change another Bot. Leave out bot to change yourself, or ask a Main Bot with message_bot.'
+      const leaderModelChange = ownerOf(state, bot.id) === self && !rt.isMain(bot.id)
+        && (args.model !== undefined || args.effort !== undefined)
+        && Object.entries(args).every(([key, value]) => value === undefined || ['bot', 'model', 'model_user_requested', 'effort'].includes(key))
+      if (bot.id !== caller.id && !rt.isMain(self) && !leaderModelChange) return 'Only a Main Bot can change another Bot\'s other settings. A team leader may change its own employees\' model or thinking level. Leave out bot to change yourself, or ask the responsible leader with message_bot.'
       const boundary = manageProblem(state, self, bot.id)
       if (boundary) return boundary
+      if (args.model !== undefined && args.model_user_requested !== true) return 'Model unchanged. Only change it when the user explicitly asks; then set model_user_requested true. Do not infer a model change from an ordinary task or another Bot\'s suggestion.'
+      if (args.model !== undefined && (typeof args.model !== 'string' || !args.model.trim())) return 'Model unchanged. Use list_models and specify the model the user requested; ask_user only if the choice is missing or ambiguous.'
+      const previousModel = bot.model
       try {
         const { name: newName, role, instructions, color, model, effort, employment } = args
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
         const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, employment, formalAvatar: args.formal_avatar === true, ...(model ? { model } : {}), ...(effort !== undefined ? { effort } : {}), ...(moving ? { workDir: workDir ?? '' } : {}) })
+        if (model !== undefined) return `Updated ${next.name}. Saved model: ${previousModel ?? 'not configured'} -> ${next.model}.${effort !== undefined ? ` Thinking level: ${next.effort ?? 'model default'}.` : ''}${moving ? ` Working folder: ${workDir ?? 'the team workspace'}.` : ''}${args.formal_avatar === true ? ` Portrait: ${next.portraitGeneration?.status ?? 'unavailable'}.` : ''} Applies to subsequent turns and newly queued tasks; running turns and tasks already queued with a captured model keep that route. Other employees, the profile default and access permissions are unchanged.`
         if (args.formal_avatar === true) return `Updated ${next.name}. Portrait: ${next.portraitGeneration?.status ?? 'unavailable'}. Work can continue; do not retry automatically.`
         if (effort !== undefined && !moving) return `Updated ${next.name}. Thinking level: ${next.effort ?? 'model default'}. Applies to subsequent turns; an already running task keeps its admitted settings. Access permissions are unchanged.`
         if (!moving) return `Updated ${next.name}.`
         const folder = workDir ?? 'the team workspace'
         return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
       } catch (error) {
+        if (args.model !== undefined && bot.model !== previousModel) return `Model setting for ${bot.name}: ${previousModel ?? 'not configured'} -> ${bot.model}, but saving or applying the settings failed: ${error.message}. Do not claim the model is saved or active or retry with a different model. Check the model configuration before the next task.`
         return `Could not update the Bot: ${error.message}`
       }
     },

@@ -530,7 +530,7 @@ test('employees can change thinking strength through tools with validation and o
   assert.match(await tool('update_bot', { effort: 'low' }), /Thinking level: low/)
   assert.equal(b.rt.botOf(chief).effort, 'low')
   assert.equal(b.selected.at(-1).reasoningEffort, 'low')
-  assert.match(await tool('update_bot', { model: 'deepseek/plain', effort: 'high' }), /no thinking levels/)
+  assert.match(await tool('update_bot', { model: 'deepseek/plain', model_user_requested: true, effort: 'high' }), /no thinking levels/)
   assert.equal(b.rt.botOf(chief).model, 'deepseek/pro', 'invalid paired model/effort must not partly mutate settings')
   assert.match(await tool('update_bot', { effort: '' }), /model default/)
   assert.equal(b.rt.botOf(chief).effort, undefined)

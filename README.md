@@ -1,4 +1,4 @@
-The QibitAI 0.1.52 source integrates Chief routing, task collaboration and desktop UI updates. Source integration is separate from publication; the stable install address serves the latest published release.
+The QibitAI 0.1.53 source integrates Chief routing, task collaboration and desktop UI updates. Source integration is separate from publication; the stable install address serves the latest published release.
 
 QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
 
@@ -6,7 +6,7 @@ QibitAI canvas plugin 0.1.46: includes task-scoped collaboration, recovery and c
 
 Earlier snapshot 0.1.31: [source handoff, build steps and known limits](docs/qibitai-0.1.31-handoff.md).
 
-QibitAI 0.1.32 adds task-scoped model routing before supervisor delegation, with explicit model priority and unchanged employee defaults. [Routing and integration notes](docs/qibitai-task-model-routing.zh.md).
+Employees keep their saved models for ordinary tasks. Ask their supervisor to change an employee's default model, or explicitly choose a model for one task only; a running turn keeps its admitted model. Team leaders may change their direct employees' model settings without gaining other management rights. [Model assignment and integration notes](docs/qibitai-task-model-routing.zh.md).
 
 <p align="center">
   <picture>
@@ -73,7 +73,7 @@ I strongly recommend that you set up your other bots and group chats by just tal
 
 **Chief is the unique General Assistant**, shown as an ordinary pinned employee with its existing avatar and conversation. Describe a lasting department in one sentence: Chief creates its leader, specialists and a separate group using `create_department`. Use `organize_team` to organize existing employees, and `assign_employee` for explicit transfers. A team has a name, ongoing purpose, leader and fixed membership; an employee may be independent or belong to one team, while joining many groups. Employees communicate and request tasks directly across teams. Leaders coordinate work, progress and results without forwarding every message. Opening a chat keeps the team list visible beside it. Older dedicated assistant conversations are retained in the directory; opening Chief makes no model call or permission change.
 
-Group membership and canvas arrangement never change team affiliation, private conversations, running work or filesystem permissions. Groups retain their reply modes: admin-first by default, with `@Name` for a particular member. New requests queue by default when an employee is busy; explicit `when: now` is for corrections or urgent updates. Organizational leadership does not automatically grant employee-management rights. A leader must hand over leadership before leaving or being deleted. Only explicit legacy departments migrate to teams; ordinary groups never become teams automatically.
+Group membership and canvas arrangement never change team affiliation, private conversations, running work or filesystem permissions. Groups retain their reply modes: admin-first by default, with `@Name` for a particular member. New requests queue by default when an employee is busy; explicit `when: now` is for corrections or urgent updates. Team leadership permits user-requested model and thinking-level changes for direct employees; it grants no other employee-management or filesystem rights. A leader must hand over leadership before leaving or being deleted. Only explicit legacy departments migrate to teams; ordinary groups never become teams automatically.
 
 Floating components leave desktop Agent positions unchanged. Team-list drags follow a compact avatar and name; selected Agents show only a soft highlight and expose their management menu on right-click. Widgets expand toward the canvas interior and temporarily avoid overlap, returning to their saved position when collapsed. Manual placement remains free; click a widget to bring it forward. Conversations open in a consistent area beside the left team rail and can still be moved manually.
 
