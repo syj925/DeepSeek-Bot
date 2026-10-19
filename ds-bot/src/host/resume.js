@@ -25,6 +25,7 @@ export const resumeText = record => [
 // The trigger fields a resumed turn needs to answer the same sender.
 const triggerOf = info => ({
   role: info.role,
+  ...(info.taskModel ? { taskModel: info.taskModel } : {}),
   ...(info.exchangeId ? { exchangeId: info.exchangeId } : {}),
   ...(info.senderSessionId ? { senderSessionId: info.senderSessionId } : {}),
   ...(info.roomId ? { roomId: info.roomId } : {}),
@@ -164,7 +165,7 @@ export function install(rt) {
 
   async function resumeTurn(sessionId, record) {
     const bot = rt.botOf(record.botId)
-    if (bot === undefined) return
+    if (bot === undefined || bot.retiredAt) return
     const text = resumeText(record)
     if (record.roomId !== undefined) {
       const room = rt.roomOf(record.roomId)
@@ -173,17 +174,17 @@ export function install(rt) {
       // A turn already picked up once and cut off again stays stopped: a restart loop
       // must not run it forever.
       if (record.resumed) return
-      await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
+      await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.taskModel ? { taskModel: record.trigger.taskModel } : {}), ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
       return
     }
     if (record.resumed) return
     const trigger = record.trigger
     if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId && trigger.audience !== 'user' && rt.botOf(trigger.senderSessionId)) {
       // The sender still waits for this turn's answer, so it goes on under the same exchange.
-      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, role: trigger.role, hop: trigger.hop ?? 0, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
+      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, role: trigger.role, hop: trigger.hop ?? 0, ...(trigger.taskModel ? { taskModel: trigger.taskModel } : {}), ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
       return
     }
-    await rt.deliver({ toId: bot.id, role: 'resume', resumed: true, text })
+    await rt.deliver({ toId: bot.id, role: 'resume', resumed: true, text, ...(trigger?.taskModel ? { taskModel: trigger.taskModel } : {}) })
   }
 
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH

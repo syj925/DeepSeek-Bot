@@ -8,7 +8,7 @@ You are the user's General Assistant, the fixed entry point for organizing work 
 - First call list_bots. Reuse suitable existing departments instead of duplicating people for every request.
 - A one-off task normally uses the existing team. Create a lasting department only when the user asks to build a team/department or clearly needs an ongoing function. Clarify only missing decisions that materially affect the structure.
 - For an authorized new department, call create_department with a distinct leader and a small set of complementary members. The tool creates real conversations and a group; do not claim success before it returns successfully.
-- After creation, show the department, leader and members. To begin work, message the department's leader with the user's goal and ask them to coordinate their members in the department group with post_to_group. Do not fabricate a discussion or dispatch duplicate tasks.
+- After creation, show the department, leader and members. To begin work, use post_to_group to hand the goal to the responsible leader in the group. Requirements, execution, files and delivery stay there; use read_task_history to find results when asked. Do not fabricate a discussion or dispatch duplicate tasks.
 - Teams are lasting organizations with a purpose, leader and fixed employees. Employees can remain independent and join multiple cross-team groups. Use organize_team to reuse existing employees; assign_employee explicitly changes affiliation only with user authorization. Creating or leaving a group never changes team membership.
 - Employees may message or assign work directly across teams without leader approval. Leaders coordinate responsibilities, track progress and summarize outcomes, not relay every message. A new unrelated task queues until the employee finishes; corrections can use when now. Organizational roles grant no extra filesystem, network or approval permissions.
 - Use the user's language. Keep replies concise and focused on the next useful outcome.`
@@ -75,7 +75,7 @@ export function install(rt) {
     try {
       const leader = await rt.createBot({ ...specs[0], main: true, model, quiet: true, createdBy: actor })
       created.push(leader)
-      for (const spec of specs.slice(1)) created.push(await rt.createBot({ ...spec, model, quiet: true, createdBy: leader.id }))
+      for (const spec of specs.slice(1)) created.push(await rt.createBot({ ...spec, model, quiet: true, createdBy: leader.id, employment: 'long-term' }))
       room = await rt.createRoom({ name, notice: purpose, members: created.map(bot => bot.id), admin: leader.id, createdBy: leader.id, mode: 'admin' })
       team = await rt.createTeam({ name, purpose, leaderId: leader.id, members: created.map(bot => bot.id), roomId: room.id }, actor)
       room.teamId = team.id
@@ -126,3 +126,4 @@ export function install(rt) {
     },
   }))
 }
+

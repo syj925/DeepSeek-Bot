@@ -23,6 +23,7 @@ function useOptionKeys(count, onPick, ownRef, rootRef) {
     const onKey = (event) => {
       const root = rootRef.current
       if (!root) return
+      if (root.closest('.bt-room-questions') && root.closest('.bt-room-questions').querySelector('form') !== root) return
       const canvasWindow = root.closest('.bt-canvas-window')
       if (canvasWindow && canvasWindow.dataset.active !== 'true') return
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.length !== 1) return
@@ -182,9 +183,16 @@ export function PendingQuestion({ sessionId, question, actions, inline }) {
 // Questions asked by a tool call render inline at that call (see ToolCell); the dock
 // carries the ones whose call the transcript does not draw.
 export function QuestionDock({ sessionId, useRoster, useCards, useSession, actions }) {
+  const roster = useRoster(value => value)
   const question = useRoster(value => value.questions?.[sessionId])
   const drawn = useCards?.(state => state[sessionId]?.[question?.callId] > 0) === true
   const loading = useSession?.(historyLoading) === true
+  if (roster.roomsById?.[sessionId]) {
+    const questions = Object.entries(roster.questions ?? {}).filter(([, q]) => q.roomId === sessionId && roster.roomsById[sessionId].members.includes(q.botId))
+    return questions.length ? h('div', { className: 'bt-room-questions' }, questions.map(([id, q]) => h('section', { key: q.id },
+      h('div', { className: 'bt-question-owner' }, t('{name} asks you', { name: roster.byId[q.botId]?.name ?? t('Bot') })),
+      h(PendingQuestion, { sessionId: id, question: q, actions, inline: false })))) : null
+  }
   if (question === undefined || (question.callId && (drawn || loading))) return null
   return h(PendingQuestion, { sessionId, question, actions, inline: false })
 }

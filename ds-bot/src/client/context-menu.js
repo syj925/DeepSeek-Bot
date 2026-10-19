@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
-import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, InfoIcon, MemoryIcon, ClockIcon, PlusIcon, ChatsIcon, PeopleIcon, CalendarIcon, ChevronRightIcon, SwitchIcon, SlidersIcon } from './icons.js'
+import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, MemoryIcon, ClockIcon, PlusIcon, ChatsIcon, PeopleIcon, CalendarIcon, ChevronRightIcon, SwitchIcon, SlidersIcon } from './icons.js'
 import { toggleSpatialWidget } from './spatial-widgets.js'
 import { GlobeIcon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
@@ -274,7 +274,7 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
   const mainCount = (roster.mainBotIds ?? []).length
   const groups = [
     [
-      [t('Details'), InfoIcon, () => actions.showDetails(entry.id)],
+      [t(bot ? 'Employee settings' : 'Group settings'), GearIcon, () => actions.openSettings(bot ? 'bots' : 'groups', entry.id)],
       bot && roster.memory !== false ? [t('Memory'), MemoryIcon, () => actions.openMemory(bot.id)] : null,
       [t('Scheduled tasks'), ClockIcon, () => actions.openSettings('schedules', entry.id)],
       bot && roster.browser === true && actions.openBrowser ? [t('Open browser'), GlobeIcon, () => actions.openBrowser(bot.id)] : null,
@@ -285,8 +285,6 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
     ],
     [
       bot ? [t('Rename Bot'), PencilIcon, () => actions.renameBot(bot.id)] : null,
-      bot ? [t('Edit Bot'), GearIcon, () => actions.openSettings('bots', bot.id)] : null,
-      room ? [t('Group settings'), GearIcon, () => actions.openSettings('groups', room.id)] : null,
       room ? [t('Rename group'), PencilIcon, () => actions.renameBot(room.id)] : null,
       bot && !bot.generalAssistant ? [t('Duplicate'), DuplicateIcon, async () => { const copy = await actions.duplicateBot(bot.id); actions.openSession(copy.id) }] : null,
       bot && !isMainBot ? [t('Make Main Bot'), StarLineIcon, () => actions.setMain(bot.id, true)] : null,

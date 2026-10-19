@@ -10,6 +10,7 @@ import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
 import { MemoryDialog } from './memory-panel.js'
 import { useLinger } from './motion.js'
 import { CANVAS_PANEL, canvasSessionId } from './canvas-session.js'
+import { ExecutionDialog, EXECUTION_CSS } from './execution.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
 const DIALOG_EXIT_MS = 160
@@ -31,7 +32,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     previous.current = current
     if (current) actions.followPanel?.(current)
   }, [current])
-  const open = ui.details ? { id: ui.details, view: ui.view ?? 'details', renaming: ui.renaming, tab: ui.tab } : null
+  const open = ui.details && ui.view === 'browser' && roster.browser === true && roster.byId[ui.details] && actions.browserShow ? { id: ui.details, view: 'browser' } : null
   const [kept, setKept] = useState(open)
   useEffect(() => {
     if (open) { setKept(open); return undefined }
@@ -43,12 +44,14 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const [memory, memoryLeaving] = useLinger(ui.memory && roster.byId[ui.memory] ? ui.memory : null, DIALOG_EXIT_MS)
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
   return h(Fragment, null,
+    h('style', null, EXECUTION_CSS),
+    ui.execution ? createPortal(h(ExecutionDialog, { key: `${ui.execution.sessionId}:${ui.execution.botId}`, target: ui.execution, roster, actions }), document.body) : null,
     pane ? createPortal(h(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: `${ui.newChat}:${(ui.newChatMembers ?? []).join(',')}`, mode: ui.newChat, initialMembers: ui.newChatMembers, roster, actions }), document.body) : null,
     ui.palette ? createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
     ui.exchange ? createPortal(h(ExchangeDialog, { pair: ui.exchange, roster, actions }), document.body) : null,
     ui.voice ? createPortal(h(VoiceMode, { key: ui.voice, sessionId: ui.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? createPortal(h(ContextMenu, { key: `${menu.kind ?? ''}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
-    settings ? createPortal(h(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
+    settings ? createPortal(h(SettingsDialog, { page: settings.page, id: settings.id, focusName: settings.focusName, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     memory && roster.byId[memory] ? createPortal(h(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null)
 }

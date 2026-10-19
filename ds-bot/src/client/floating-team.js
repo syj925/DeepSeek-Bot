@@ -9,14 +9,24 @@ export function readTeamPanel(storage = globalThis.localStorage) {
 }
 
 const panelTop = area => Math.max(12, Math.min(area.minY ?? 12, area.height - 68))
+export function readChatWidth(storage = globalThis.localStorage) {
+  try {
+    const width = JSON.parse(storage.getItem(`${STORAGE.teamPanel}:chat`))?.width
+    return Number.isFinite(width) ? Math.max(680, Math.min(2400, width)) : 860
+  } catch { return 860 }
+}
+export function teamPanelWidth(panel, area) {
+  return Math.max(0, Math.min(panel.maximized ? area.width - 24 : panel.folded ? 68 : panel.chatOpen ? Math.max(680, panel.chatWidth ?? 860) : 300, area.width - 24))
+}
 function panelHeight(panel, area) {
+  if (panel.maximized) return Math.max(0, area.height - panelTop(area) - 12)
   return Math.max(0, Math.min(area.height - panelTop(area) - 12, panel.chatOpen ? Math.min(700, Math.max(480, area.height - 120)) : Math.min(640, Math.max(180, area.height - 176))))
 }
 
 export function fitTeamPanel(panel, area) {
-  const baseWidth = panel.folded ? 68 : (panel.chatOpen ? 860 : 300)
-  const width = Math.min(baseWidth, Math.max(0, area.width - 24))
+  const width = teamPanelWidth(panel, area)
   const height = panelHeight(panel, area)
+  if (panel.maximized) return { ...panel, x: 12, y: panelTop(area) }
   return { ...panel, x: Math.max(12, Math.min(panel.x, area.width - width - 12)), y: Math.max(panelTop(area), Math.min(panel.y, area.height - height - 12)) }
 }
 
@@ -26,13 +36,16 @@ export function useFloatingTeam(enabled, root, chatOpen = false, chatClosing = f
   const activeChat = Boolean(chatOpen && !chatClosing)
   const [panel, setPanel] = useState(() => ({ ...readTeamPanel(), chatOpen: activeChat }))
   const [area, setArea] = useState({ width: 1200, height: 800, top: 0 })
+  const [chatWidth, setChatWidth] = useState(readChatWidth)
+  const [maximized, setMaximized] = useState(false)
+  const [moving, setMoving] = useState(false)
   const drag = useRef(null)
+  const resize = useRef(null)
+  const widthChanged = useRef(false)
 
-  useEffect(() => {
-    setPanel(prev => prev.chatOpen !== activeChat ? { ...prev, chatOpen: activeChat } : prev)
-  }, [activeChat])
-
-  const current = fitTeamPanel({ ...panel, chatOpen: activeChat }, area)
+  const geometry = { ...panel, chatOpen: activeChat, chatWidth, maximized: activeChat && maximized }
+  const current = fitTeamPanel(geometry, area)
+  const panelWidth = teamPanelWidth(geometry, area)
   useLayoutEffect(() => {
     if (!enabled) return undefined
     const column = root.current?.closest('[class*="_sidebarCol"]')
@@ -48,7 +61,8 @@ export function useFloatingTeam(enabled, root, chatOpen = false, chatClosing = f
       const top = Math.max(0, (content?.top ?? box.top) - box.top)
       const width = content?.width ?? box.width
       const minY = width < 720 && toolbar ? toolbar.getBoundingClientRect().bottom - box.top - top + 68 : 12
-      setArea({ width, height: content?.height ?? box.height - top, top, minY })
+      const next = { width, height: content?.height ?? box.height - top, top, minY }
+      setArea(previous => Object.keys(next).every(key => Math.abs((previous[key] ?? 0) - next[key]) < .5) ? previous : next)
     }
     const observer = new ResizeObserver(measure)
     observer.observe(frame)
@@ -62,7 +76,9 @@ export function useFloatingTeam(enabled, root, chatOpen = false, chatClosing = f
       column.removeAttribute('data-folded')
       column.removeAttribute('data-chat-open')
       column.removeAttribute('data-chat-closing')
-      for (const name of ['--bt-team-x', '--bt-team-y', '--bt-team-height', '--bt-team-width']) column.style.removeProperty(name)
+      column.removeAttribute('data-moving')
+      column.removeAttribute('data-maximized')
+      for (const name of ['--bt-team-x', '--bt-team-y', '--bt-team-height', '--bt-team-width', '--bt-team-chat-width']) column.style.removeProperty(name)
     }
   }, [enabled])
   useLayoutEffect(() => {
@@ -72,11 +88,23 @@ export function useFloatingTeam(enabled, root, chatOpen = false, chatClosing = f
     column.dataset.folded = String(panel.folded)
     column.dataset.chatOpen = String(Boolean(activeChat))
     column.dataset.chatClosing = String(Boolean(chatClosing))
+    column.dataset.moving = String(moving)
+    column.dataset.maximized = String(geometry.maximized)
     column.style.setProperty('--bt-team-x', `${current.x}px`)
     column.style.setProperty('--bt-team-y', `${current.y + area.top}px`)
-    column.style.setProperty('--bt-team-height', `${panelHeight({ ...panel, chatOpen: activeChat }, area)}px`)
-    column.style.setProperty('--bt-team-width', `${panel.folded ? 68 : (activeChat ? Math.min(860, area.width - 24) : Math.min(300, Math.max(0, area.width - 24)))}px`)
-  }, [enabled, current.x, current.y, area.top, area.height, area.minY, panel.folded, activeChat, chatClosing])
+    column.style.setProperty('--bt-team-height', `${panelHeight(geometry, area)}px`)
+    column.style.setProperty('--bt-team-width', `${panelWidth}px`)
+    // Lay out the transcript once at its final width while the outer shell reveals it.
+    // Keep this width during close, so every frame does not reflow long messages.
+    if (activeChat) column.style.setProperty('--bt-team-chat-width', `${panelWidth}px`)
+  }, [enabled, current.x, current.y, area.top, area.height, area.minY, panel.folded, panelWidth, activeChat, chatClosing, maximized, moving])
+  useEffect(() => {
+    if (!enabled || !widthChanged.current) return undefined
+    const timer = setTimeout(() => {
+      try { localStorage.setItem(`${STORAGE.teamPanel}:chat`, JSON.stringify({ width: chatWidth })) } catch { /* storage unavailable */ }
+    }, 180)
+    return () => clearTimeout(timer)
+  }, [enabled, chatWidth])
   useEffect(() => {
     if (!enabled) return undefined
     const timer = setTimeout(() => {
@@ -86,27 +114,62 @@ export function useFloatingTeam(enabled, root, chatOpen = false, chatClosing = f
   }, [enabled, panel.x, panel.y, panel.folded])
   const finish = event => {
     drag.current = null
+    resize.current = null
+    setMoving(false)
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
   return {
     folded: panel.folded,
-    toggle: () => setPanel({ ...panel, folded: !panel.folded }),
+    chatWidth: panelWidth,
+    maximized: geometry.maximized,
+    maximize: () => setMaximized(value => !value),
+    expand: () => setPanel(value => value.folded ? { ...value, folded: false } : value),
+    toggle: () => setPanel(value => ({ ...value, folded: !value.folded })),
+    resizeChat: {
+      onPointerDown: event => {
+        if (event.button !== 0 || !activeChat || maximized) return
+        event.preventDefault(); event.stopPropagation()
+        resize.current = { x: event.clientX, width: panelWidth }
+        setMoving(true)
+        event.currentTarget.setPointerCapture(event.pointerId)
+      },
+      onPointerMove: event => {
+        if (!resize.current) return
+        const next = Math.max(Math.min(680, area.width - current.x - 12), Math.min(area.width - current.x - 12, resize.current.width + event.clientX - resize.current.x))
+        setChatWidth(next)
+        widthChanged.current = true
+        event.stopPropagation()
+      },
+      onPointerUp: finish,
+      onPointerCancel: finish,
+      onLostPointerCapture: () => { resize.current = null; setMoving(false) },
+      onKeyDown: event => {
+        if (maximized || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return
+        event.preventDefault(); event.stopPropagation()
+        widthChanged.current = true
+        setChatWidth(Math.max(680, Math.min(area.width - current.x - 12, panelWidth + (event.key === 'ArrowRight' ? 32 : -32))))
+      },
+    },
     handle: {
       onPointerDown: event => {
-        if (event.button !== 0) return
+        if (event.button !== 0 || geometry.maximized) return
         event.preventDefault()
         event.stopPropagation()
         drag.current = { x: event.clientX, y: event.clientY, panel: current }
+        setMoving(true)
         event.currentTarget.setPointerCapture(event.pointerId)
       },
       onPointerMove: event => {
         if (!drag.current) return
         const start = drag.current
-        setPanel(fitTeamPanel({ ...start.panel, x: start.panel.x + event.clientX - start.x, y: start.panel.y + event.clientY - start.y }, area))
+        const fitted = fitTeamPanel({ ...start.panel, x: start.panel.x + event.clientX - start.x, y: start.panel.y + event.clientY - start.y }, area)
+        setPanel(value => ({ ...value, x: fitted.x, y: fitted.y }))
       },
       onPointerUp: finish,
       onPointerCancel: finish,
+      onLostPointerCapture: () => { drag.current = null; setMoving(false) },
       onKeyDown: event => {
+        if (geometry.maximized) return
         const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key]
         if (!delta && event.key !== 'Home') return
         event.preventDefault()
@@ -141,9 +204,13 @@ export const FLOATING_TEAM_CSS = `
   border:1px solid var(--glass-border,rgba(255,255,255,.85))!important;border-radius:24px!important;
   background:#f8f8f8!important;
   box-shadow:var(--glass-shadow,0 8px 28px rgba(0,0,0,.05),inset 0 1px 0 rgba(255,255,255,.8))!important;
-  color:var(--text-primary,#262626);overflow:hidden;
-  transition:width 280ms cubic-bezier(0.2,0,0,1),left 180ms ease,top 180ms ease;
+  color:var(--text-primary,#262626);overflow:hidden;contain:layout style;
+  width:var(--bt-team-width,300px);
+  transition:width 240ms cubic-bezier(0.2,0,0,1),height 240ms cubic-bezier(0.2,0,0,1),left 240ms cubic-bezier(0.2,0,0,1),top 240ms cubic-bezier(0.2,0,0,1);
 }
+.bt-floating-team[data-moving=true]{transition:none!important;user-select:none}
+.bt-floating-team[data-chat-open=true]{will-change:width,height;}
+.bt-floating-team[data-maximized=true] .bt-team-chat-resize{display:none}
 @supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
   .bt-canvas-frame>.bt-floating-team,
   .team-panel{
@@ -206,7 +273,7 @@ export const FLOATING_TEAM_CSS = `
 .bt-floating-team[data-folded=true] [class*="_footArea"]>[class*="_settingsArea"] button{width:36px!important;height:36px!important;padding:0!important;display:flex!important;align-items:center!important;justify-content:center!important;border-radius:12px!important}
 .bt-floating-team[data-folded=true] [class*="_footArea"]>[class*="_settingsArea"] button[class*="_trigger"] [class*="_label"]{display:none!important}
 .bt-floating-team[data-chat-open=true]{
-  width:min(860px,calc(100% - 24px))!important;
+  width:var(--bt-team-width,860px)!important;
   border-radius:24px!important;
   border:1px solid var(--glass-border,rgba(255,255,255,.85))!important;
   background:#f8f8f8!important;
@@ -265,10 +332,12 @@ export const FLOATING_TEAM_CSS = `
   color:#475569!important;
   box-shadow:0 1px 3px rgba(0,0,0,0.03)!important;
 }
+.bt-team-chat-resize{position:absolute;right:0;top:24px;bottom:24px;width:8px;cursor:ew-resize;z-index:30;touch-action:none}
+.bt-team-chat-resize:hover{background:rgba(16,163,127,.18);border-radius:999px}
 .bt-team-split{
+  width:var(--bt-team-chat-width,860px)!important;min-width:var(--bt-team-chat-width,860px)!important;flex-shrink:0!important;
   display:flex!important;
   flex-direction:row!important;
-  width:100%!important;
   height:100%!important;
   overflow:hidden!important;
   border-radius:24px!important;
@@ -360,7 +429,7 @@ export const FLOATING_TEAM_CSS = `
   background:transparent!important;
   overflow:hidden!important;
   position:relative!important;
-  animation:bt-chat-slide-in .24s cubic-bezier(0.16,1,0.3,1) forwards!important;
+  animation:bt-chat-slide-in .24s cubic-bezier(0.16,1,0.3,1)!important;
   transition:transform .24s cubic-bezier(0.16,1,0.3,1),opacity .2s ease!important;
 }
 .bt-team-split-chat.bt-chat-closing{
@@ -472,7 +541,7 @@ export const FLOATING_TEAM_CSS = `
   font-weight:500!important;
   cursor:pointer!important;
   box-shadow:0 1px 3px rgba(0,0,0,.03)!important;
-  transition:all .12s ease!important;
+  transition:background-color .12s ease,color .12s ease!important;
 }
 .bt-team-chat-btn:hover{
   background:#ffffff!important;
@@ -513,7 +582,17 @@ export const FLOATING_TEAM_CSS = `
   height:100%!important;
   min-height:0!important;
 }
+@media(max-width:700px){
+  .bt-team-split-nav{width:68px!important;flex-basis:68px!important}
+  .bt-floating-team:is([data-chat-open=true],[data-chat-closing=true]) [class*="_footArea"]{width:68px!important}
+  .bt-team-split-nav :is(.bt-row-body,.bt-team-grip,.bt-update),.bt-team-split-nav .bt-side-top .bt-round:not(.bt-team-fold){display:none!important}
+  .bt-team-chat-bar{padding:0 12px!important;gap:6px}
+  .bt-team-chat-btn span{display:none}
+  .bt-team-chat-title-row{flex-wrap:wrap!important}
+  .bt-team-chat-name{font-size:15px!important}
+}
 @media (prefers-reduced-motion:reduce){.bt-canvas-frame>.bt-floating-team{transition:none}}
+@media (prefers-reduced-motion:reduce){.bt-team-split-chat{animation:none!important;transition:none!important}}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-floating-team::before{display:none}}
 @media (prefers-reduced-transparency:reduce){.bt-floating-team::before{display:none}}
 @media(pointer:coarse){.bt-floating-team .bt-side-top .bt-round{width:44px;height:44px}.bt-team-grip{min-height:44px}.bt-floating-team[data-folded=true]>[class*="_root"],.bt-floating-team[data-folded=true]>[data-slot=sidebar]>[class*="_root"]{padding:4px!important}}

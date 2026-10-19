@@ -104,7 +104,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), bot.generalAssistant ? h('span', { className: 'bt-assistant-badge' }, t('General Assistant')) : null, pinned ? h(PinMark) : null),
     awayLine ? h('span', { className: 'bt-row-preview' }, awayLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
-  (wide || canvasActive) && (completed || unread && !reading) ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
+  (wide || canvasActive) && unread && !reading ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
 
 function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, useCompletions, useWork, canvasActive, canvasEntity, wide, marked, teamChatId, onSelectTeamChat }) {
@@ -147,7 +147,7 @@ function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, use
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), pinned ? h(PinMark) : null),
     workingLine ? h('span', { className: 'bt-row-preview' }, workingLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   (wide || canvasActive) && approval && !reading ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
-    : (wide || canvasActive) && (completed || unread && !reading) ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
+    : (wide || canvasActive) && unread && !reading ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
 
 // One expanded DSH Agent Session row: title, relative stamp, rename field, and a
@@ -255,21 +255,28 @@ const GLIDE = springEasing(1000, 63)
 
 function useListGlide(listRef, layout, key) {
   const tops = useRef({ layout, map: new Map() })
+  const animations = useRef(new Map())
+  useEffect(() => () => { for (const animation of animations.current.values()) animation.cancel() }, [])
   useLayoutEffect(() => {
     const list = listRef.current
     if (!list) return
     const next = new Map()
     const still = reducedMotion() || tops.current.layout !== layout
-    for (const row of list.querySelectorAll('[data-bot-id],[data-room-id],[data-agent-id]')) {
+    const rows = [...list.querySelectorAll('[data-bot-id],[data-room-id],[data-agent-id]')].map(row => ({ row, top: row.offsetTop }))
+    for (const { row, top } of rows) {
       const id = row.dataset.botId ?? row.dataset.roomId ?? row.dataset.agentId
       // offsetTop ignores transforms, so a glide in flight does not skew the next one.
-      const top = row.offsetTop
       next.set(id, top)
       const before = tops.current.map.get(id)
+      animations.current.get(id)?.cancel()
+      animations.current.delete(id)
       if (!still && before !== undefined && Math.abs(before - top) > 0.5) {
-        row.animate([{ transform: `translateY(${before - top}px)` }, { transform: 'none' }], GLIDE)
+        const animation = row.animate([{ transform: `translateY(${before - top}px)` }, { transform: 'none' }], GLIDE)
+        animations.current.set(id, animation)
+        animation.onfinish = () => { if (animations.current.get(id) === animation) animations.current.delete(id) }
       }
     }
+    for (const [id, animation] of animations.current) if (!next.has(id)) { animation.cancel(); animations.current.delete(id) }
     tops.current = { layout, map: next }
   }, [layout, key])
 }
@@ -299,7 +306,7 @@ export function TeamSidebar(props) {
     const stamps = JSON.parse(updated)
     const entries = [
       ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
+      ...roster.rooms.filter(room => room.task?.status !== 'completed').map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
     ]
@@ -319,6 +326,7 @@ export function TeamSidebar(props) {
   }
   const onSelectTeamChat = (id) => {
     clearTimeout(chatCloseTimer.current)
+    floating.expand()
     setChatClosing(false)
     setTeamChatId(id)
     actions.clearUnread(id)
@@ -469,6 +477,9 @@ export function TeamSidebar(props) {
                 h('span', { className: 'bt-team-chat-status-dot' }),
                 h('span', { className: 'bt-team-chat-status-text' }, t(chatStatus))))),
           h('div', { className: 'bt-team-chat-tools' },
+            h('button', { type: 'button', className: 'bt-team-chat-btn bt-team-chat-btn--icon', title: t(floating.maximized ? 'Restore window' : 'Maximize window'), 'aria-label': t(floating.maximized ? 'Restore window' : 'Maximize window'), onClick: floating.maximize },
+              h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, 'aria-hidden': true },
+                h('path', { d: floating.maximized ? 'M6 6V3h11v11h-3M3 6h11v11H3Z' : 'M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5' }))),
             h('button', {
               type: 'button',
               className: 'bt-team-chat-btn',
@@ -493,12 +504,13 @@ export function TeamSidebar(props) {
             actions,
             useSessions,
             useWork: props.useWork,
+            onOpenConversation: onSelectTeamChat,
             onPopToCanvas: () => {
               actions.openCanvasEntity(activeEntity.id)
               collapseChat()
             },
             onClose: collapseChat,
-          }))) : null)
+          })), h('div', { className: 'bt-team-chat-resize', role: 'separator', tabIndex: 0, 'aria-orientation': 'vertical', 'aria-valuenow': Math.round(floating.chatWidth), 'aria-label': t('Resize conversation'), title: t('Drag to resize conversation'), ...floating.resizeChat })) : null)
   }
 
   return h('div', { ref: root, className: wide ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch }, navContent)

@@ -134,6 +134,7 @@ function decide(body) {
   if (system.includes('You write the memory summary')) return [text(memorySummary(textOf(last?.content)))]
   if (system.includes('You keep the memory of one Bot')) return [text(JSON.stringify(memoryAsk(textOf(last?.content))))]
   if (system.includes('You keep the long-term memory of one Bot')) return [text(JSON.stringify(memoryReview(textOf(last?.content))))]
+  if (system.includes('Extract at most 3 reusable lessons')) return [text('["Verify the final deliverable before reporting task completion."]')]
 
   const kind = isSummary(body)
   if (kind === 'checkpoint') {
@@ -254,6 +255,11 @@ function decide(body) {
 
   // Workspace guidance appended by the harness is context, not a scripted command.
   const userText = textOf(last?.content).split('\n<system-reminder>')[0].trim()
+  if (userText.startsWith('smoke:set-effort ')) return [tool('update_bot', { effort: userText.slice('smoke:set-effort '.length).trim() })]
+  if (userText.startsWith('smoke:task-group ')) {
+    const args = JSON.parse(userText.slice('smoke:task-group '.length))
+    return [tool('create_group', { ...args, task_objective: args.name })]
+  }
   if (userText.startsWith('smoke:complete-task') && tools.has('complete_task')) {
     const paths = userText.slice('smoke:complete-task'.length).trim()
     return [tool('complete_task', { title: 'Mock delivery', summary: 'A verified mock task has finished.', ...(paths ? { files: JSON.parse(paths) } : {}) })]
@@ -327,7 +333,12 @@ function decide(body) {
     const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/m.exec(userText)?.[1]?.replace(/ \(admin\)$/, '')
     const room = /^\[Group chat "([^"]+)"/.exec(userText)?.[1] ?? ''
     const leads = /^Members: .* and you \(admin\)\./m.test(userText)
+    if (/smoke:member-question/.test(userLine)) return [tool('ask_user', { question: `${me}：本次交付选择哪个范围？`, options: [{ label: '范围 A' }, { label: '范围 B' }], allowCustom: true })]
+    if (/\[Answer to question card\]/.test(userLine)) return [{ ...text(`${me} 已直接收到群内回答，继续处理自己的交付。`), slow: true }]
+    if (leads && /smoke:finish-group/.test(userLine)) return [tool('complete_task', { title: room, summary: 'Mock group deliverable verified.' })]
     let ask
+    if (userText.includes('Summarize the completed employee contributions')) return [{ ...text('主管汇总：员工已依次完成分析，结果已经交叉核对。下一步可按报告执行。'), slow: true }]
+    if (/流式协作测试/.test(userLine)) return [{ ...text(`${me}：正在展示本次分析结果。第一部分是任务范围，第二部分是发现的问题，第三部分是具体建议。此回复逐步生成，完成后再轮到下一位员工。`), slow: true }]
     if ((ask = /把\s*(\S+?)\s*拉进群/.exec(userLine))) return [tool('update_group', { group: room, add_members: [ask[1]] })]
     if ((ask = /把\s*(\S+?)\s*踢出群/.exec(userLine))) return [tool('update_group', { group: room, remove_members: [ask[1]] })]
     if ((ask = /群名改成\s*(\S+)/.exec(userLine))) return [tool('update_group', { group: room, name: ask[1] })]
@@ -388,6 +399,7 @@ function decide(body) {
     return [tool('update_group', { group: order[1], ...field })]
   }
   if ((order = /^删群\s*(\S+)$/.exec(userText))) return [tool('delete_group', { group: order[1] })]
+  if ((order = /^任务模型\s+(\S+)\s+(auto|\S+)\s+(general|writing|coding|analysis|vision)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], ...(order[2] === 'auto' ? {} : { model: order[2] }), task_kind: order[3], message: order[4] })]
   if ((order = /^转告\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2] })]
   if ((order = /^插话\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'now' })]
   if ((order = /^排队\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'queue' })]
@@ -445,6 +457,9 @@ function decide(body) {
   }
   // Streams slowly, then checks the team: exercises the activity row stepping aside
   // for a streaming reply and coming back for the tool.
+  if (/^\s*弹窗流式测试/.test(userText)) {
+    return [think('检查弹窗中的实时正文显示。'), { ...text('弹窗流式回复：先确认任务目标，再检查已有资料，然后逐项完成工作，最后整理结果。这里的文字会随接口返回逐步显示。'), slow: true }]
+  }
   if (/^\s*慢慢说/.test(userText) && tools.has('list_bots')) {
     return [{ ...text('好，我一点一点说：先看目标，再看约束，然后定下一步，最后去问问团队现在各自在忙什么。'), slow: true }, tool('list_bots', {})]
   }
@@ -608,7 +623,7 @@ const server = createServer((req, res) => {
     // Hashes of the system prompt and tools show whether two Sessions share a cacheable prefix.
     const digest = value => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex').slice(0, 12)
     const watch = WATCH ? { watchHit: JSON.stringify([body.system, body.tools, body.messages]).includes(WATCH) } : {}
-    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, tokens, images, session: req.headers['x-deepseek-harness-session-id'] ?? null, ...watch, ...LOG_TOOLS ? { toolNames: (body.tools ?? []).map(entry => entry.name ?? entry.type) } : {}, ...search ? { nativeSearch: { model: body.model, tools: body.tools, auth: [req.headers['x-api-key'] ? 'x-api-key' : '', req.headers.authorization ? 'bearer' : ''].filter(Boolean) } } : {}, system: digest(body.system), tools: digest(body.tools), messages: body.messages?.length ?? 0, first: textOf(body.messages?.[0]?.content).slice(0, 60), last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS), out: out.map(block => (block.type === 'text' && block.text.length > 200 ? { ...block, text: `${block.text.slice(0, 200)}…(${block.text.length})` } : block)) }) + '\n')
+    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, model: body.model, thinking: body.thinking, reasoningEffort: body.reasoning_effort, outputConfig: body.output_config, tokens, images, session: req.headers['x-deepseek-harness-session-id'] ?? null, ...watch, ...LOG_TOOLS ? { toolNames: (body.tools ?? []).map(entry => entry.name ?? entry.type) } : {}, ...search ? { nativeSearch: { model: body.model, tools: body.tools, auth: [req.headers['x-api-key'] ? 'x-api-key' : '', req.headers.authorization ? 'bearer' : ''].filter(Boolean) } } : {}, system: digest(body.system), tools: digest(body.tools), messages: body.messages?.length ?? 0, first: textOf(body.messages?.[0]?.content).slice(0, 60), last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS), out: out.map(block => (block.type === 'text' && block.text.length > 200 ? { ...block, text: `${block.text.slice(0, 200)}…(${block.text.length})` } : block)) }) + '\n')
     if (search) {
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'application/json' })

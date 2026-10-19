@@ -17,7 +17,7 @@ function renderer() {
   const scopes = new Map(), timers = new Map()
   let slots, cursor, effects, timerId = 0
   const react = {
-    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
     useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial } },
     useState(initial) {

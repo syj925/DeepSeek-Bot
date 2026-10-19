@@ -519,6 +519,27 @@ test('a Bot takes a thinking level its model serves, applied with the model', as
   assert.equal(selected.at(-1).reasoningEffort, 'high')
 })
 
+test('employees can change thinking strength through tools with validation and ownership checks', async t => {
+  const reasoning = { 'deepseek/pro': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } } }
+  const b = start(undefined, { models: ['pro', 'plain'], reasoning })
+  t.after(b.stop)
+  const chief = (await b.call('state', {})).value.mainBotId
+  await b.call('update-bot', { id: chief, model: 'deepseek/pro' })
+  const tool = (name, args, id = chief) => b.rt.ctx.registeredTools.get(name).execute(args, { agent: { id } })
+  assert.match(await tool('list_models', {}), /thinking levels: low \(Low\), high \(High\)/)
+  assert.match(await tool('update_bot', { effort: 'low' }), /Thinking level: low/)
+  assert.equal(b.rt.botOf(chief).effort, 'low')
+  assert.equal(b.selected.at(-1).reasoningEffort, 'low')
+  assert.match(await tool('update_bot', { model: 'deepseek/plain', effort: 'high' }), /no thinking levels/)
+  assert.equal(b.rt.botOf(chief).model, 'deepseek/pro', 'invalid paired model/effort must not partly mutate settings')
+  assert.match(await tool('update_bot', { effort: '' }), /model default/)
+  assert.equal(b.rt.botOf(chief).effort, undefined)
+  const worker = (await b.call('create-bot', { name: 'EffortWorker', model: 'deepseek/pro' })).value
+  assert.match(await tool('update_bot', { bot: b.rt.botOf(chief).name, effort: 'high' }, worker.id), /Only a Main Bot/)
+  assert.match(await tool('update_bot', { effort: 'high' }, worker.id), /Thinking level: high/)
+  assert.equal(b.rt.botOf(worker.id).effort, 'high')
+})
+
 test('the state reports a changed model list without a new revision', async (t) => {
   const { call, stop } = start(undefined, { models: ['deepseek-v4-flash'] })
   t.after(stop)
@@ -805,4 +826,53 @@ test('a write that fails at save time archives the Session it made', async (t) =
   assert.equal(team.bots.some(bot => bot.name === 'Phantom'), false)
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(Object.values(saved.bots).some(bot => bot.name === 'Phantom'), false)
+})
+
+test('temporary employees cannot become supervisors or team members without promotion', async t => {
+  const h = start()
+  t.after(h.stop)
+  await h.call('ensure-general-assistant', {})
+  const temp = (await h.call('create-bot', { name: 'Temp Worker', employment: 'temporary' })).value
+  assert.equal(temp.employment, 'temporary')
+  await assert.rejects(h.rt.setMain(temp.id, true), /Promote/)
+  const before = h.rt.botOf(temp.id).name
+  await assert.rejects(h.rt.updateBot(temp.id, { name: 'Changed', employment: 'invalid' }), /employment/)
+  assert.equal(h.rt.botOf(temp.id).name, before)
+  await h.rt.updateBot(temp.id, { employment: 'long-term' })
+  await h.rt.setMain(temp.id, true)
+  assert.equal(h.rt.isMain(temp.id), true)
+})
+
+test('temporary retirement keeps historical identity, blocks new dispatch and never force-stops sessions', async t => {
+  const h = start()
+  t.after(h.stop)
+  await h.call('ensure-general-assistant', {})
+  const temp = (await h.call('create-bot', { name: 'Temporary Worker', employment: 'temporary' })).value
+  h.rt.temporaryBotBusy = async () => false
+  assert.equal(await h.rt.retireTemporaryBot(temp.id), true)
+  assert.ok(h.rt.botOf(temp.id).retiredAt)
+  assert.equal(h.rt.findBot(temp.id), undefined)
+  assert.equal(h.rt.findBot(temp.name), undefined)
+  assert.equal(h.rt.isBotSession(temp.id), false)
+  assert.ok(h.archived.every(([, options]) => options?.stopActivity !== true))
+  await assert.rejects(h.rt.deliver({ toId: temp.id, text: 'New task', role: 'request' }), /retired/)
+  assert.equal((await h.call('send', { sessionId: temp.id, text: 'New task' })).ok, false)
+})
+
+
+test('promotion requests a portrait without blocking work or replacing a custom image', async t => {
+  const h = start()
+  t.after(h.stop)
+  await h.call('ensure-general-assistant', {})
+  const temp = (await h.call('create-bot', { name: 'Temporary designer', role: 'Design', employment: 'temporary' })).value
+  assert.equal(temp.avatar.icon, 'design')
+  const promoted = await h.rt.updateBot(temp.id, { employment: 'long-term' })
+  assert.equal(promoted.employment, 'long-term')
+  assert.equal(promoted.avatar.icon, 'design')
+  assert.equal(promoted.portraitGeneration.status, 'unavailable')
+  const photo = 'data:image/png;base64,AA=='
+  const custom = (await h.call('create-bot', { name: 'Custom worker', employment: 'temporary', avatar: { image: photo } })).value
+  await h.rt.updateBot(custom.id, { employment: 'long-term' })
+  assert.equal(h.rt.botOf(custom.id).avatar.image, photo)
+  assert.equal(h.rt.botOf(custom.id).portraitGeneration, undefined)
 })

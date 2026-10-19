@@ -38,15 +38,22 @@ export function install(rt) {
         files.push({ path, name: basename(path) })
       }
       if (rt.live.get(id) !== entry || entry.turn !== turn) throw new Error('The task is no longer running.')
+      if (room?.task && rt.taskGroupBlocked?.(room, id)) return 'The group still has unfinished work or an approval. Wait for the actual results before completing the task.'
       entry.completion = { botId: bot.id, name: bot.name, sessionId: id, targetId: roomId ?? bot.id, ...(roomId ? { roomId } : {}), title: args.title.trim().slice(0, 100), summary: args.summary.trim().slice(0, 240), files }
       return 'Completion recorded. Deliver your final answer now; the notification is sent only after this turn finishes successfully.'
     },
   }))
   rt.finishTaskNotice = (entry, { reason, retry, switched, id, turn, info, opened, lastText, lastCalled }) => {
     let completion = entry.completion
+    const handoff = entry.taskHandoff
+    const epoch = entry.taskEpoch
+    delete entry.taskHandoff
     delete entry.completion
     if (reason?.kind !== 'completed' || retry || switched || state.questions[id] || (rt.approvalsView?.() ?? []).some(value => value.sessionId === id)) return
     if (turn !== undefined && entry.notifiedTurn === turn) return
+    if (handoff && !completion) {
+      void rt.archiveCompletedTaskSession?.(id, { ...handoff, kind: 'handoff', epoch }).catch(error => rt.warn('ds-bot: task handoff cleanup deferred: %s', error))
+    }
     if (!completion) {
       const bot = rt.botOf(rt.selfOf(id)), roomId = rt.groupOwners.get(id)?.roomId
       const outward = info
@@ -59,10 +66,18 @@ export function install(rt) {
       completion = { kind: 'message', botId: bot.id, name: bot.name, sessionId: id, targetId: roomId ?? bot.id, ...(roomId ? { roomId } : {}), title: 'New message', summary: lastText.replace(/\s+/g, ' ').trim().slice(0, 240), files: [] }
     }
     if (!rt.botOf(completion.botId) || completion.kind !== 'message' && completion.roomId && rt.roomOf(completion.roomId)?.admin !== completion.botId) return
+    if (completion.kind !== 'message' && completion.roomId && rt.roomOf(completion.roomId)?.task) {
+      rt.recordTaskGroupCompletion?.(completion)
+      return
+    }
     if (turn !== undefined) entry.notifiedTurn = turn
     const notice = { ...completion, id: randomUUID(), at: Date.now() }
     state.taskNotices = [...(state.taskNotices ?? []), notice].slice(-NOTICE_LIMIT)
-    void rt.save().catch(error => {
+    void rt.save().then(() => {
+      if (entry.taskEpoch === epoch && completion.kind !== 'message' && !completion.roomId) {
+        void rt.archiveCompletedTaskSession?.(id, { ...notice, evidence: lastText, epoch }).catch(error => rt.warn('ds-bot: task context cleanup deferred: %s', error))
+      }
+    }, error => {
       state.taskNotices = (state.taskNotices ?? []).filter(value => value.id !== notice.id)
       rt.warn('ds-bot: saving task completion failed: %s', error)
     })

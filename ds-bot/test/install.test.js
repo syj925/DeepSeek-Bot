@@ -36,6 +36,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
   assert.deepEqual(ctx.calls, [
     'effect ds-bot: state lock',
     'on llm/adapters-updated',
+    'on agent/assistant-stream',
     'on session/event',
     'tool organize_team',
     'tool assign_employee',
@@ -65,6 +66,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool detach_capability',
     'tool complete_task',
     'effect ds-bot: chat index',
+    'on agent/assistant-stream',
     'tool group_relay',
     'tool read_own_chat',
     'tool read_group_chat',
@@ -87,6 +89,9 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on agent/request-error (prepend)',
     'on agent/status',
     'on llm/stream',
+    'on agent/pre-step (prepend)',
+    'on agent/request',
+    'on session/event',
     'on llm/stream',
     'on agent/status',
     'tool request_secret',
@@ -104,6 +109,9 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: api route',
     'route GET,POST /api/bot',
     'effect ds-bot: load state',
+    'tool read_task_history',
+    'effect ds-bot: task context cleanup',
+    'effect ds-bot: portrait jobs',
   ])
 })
 
@@ -161,11 +169,11 @@ const TEAM = {
   questions: {},
 }
 
-test('in the Desktop profile read_browser is the last tool and reads through the window', async (t) => {
+test('in the Desktop profile read_browser is available and reads through the window', async (t) => {
   const { ctx, call, stop } = start(TEAM, { services: { profileContext: { name: 'desktop' } } })
   t.after(stop)
   const tools = ctx.calls.filter(entry => entry.startsWith('tool '))
-  assert.equal(tools.at(-1), 'tool read_browser')
+  assert.ok(tools.includes('tool read_browser'))
   assert.ok(ctx.calls.indexOf('effect ds-bot: browser channel') < ctx.calls.indexOf('effect ds-bot: api route'))
   const read = args => ctx.registeredTools.get('read_browser').execute(args, { agent: { id: 'b2' } })
 
@@ -212,3 +220,4 @@ test('browser reads use a cancellable GET after a short page report without expo
   assert.deepEqual((await idle).status, 200)
   assert.equal((await call('state')).value.bots.length, 2)
 })
+

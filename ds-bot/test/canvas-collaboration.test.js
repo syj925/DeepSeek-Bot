@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { overlapMain, canvasDropPoint, groupDropTarget, selectedMains, marqueeWindows } from '../src/client/canvas-collaboration.js'
+import { overlapMain, canvasDropPoint, groupDropTarget, selectedMains, marqueeWindows, mergeHintPosition } from '../src/client/canvas-collaboration.js'
+
+test('merge hint stays in viewport at edges and accounts for zoom and pan', () => {
+  for (const viewport of [{ x: 0, y: 0, zoom: 1 }, { x: -200, y: 40, zoom: .5 }]) {
+    for (const point of [{ x: 10, y: 10 }, { x: 750, y: 550 }, { x: 0, y: 600 }]) {
+      const pos = mergeHintPosition(point, point, viewport, { width: 800, height: 600 }, { width: 340, height: 50 })
+      assert.ok(pos.left >= 8 && pos.left + 340 <= 792)
+      assert.ok(pos.top >= 8 && pos.top + 50 <= 592)
+    }
+  }
+  assert.ok(mergeHintPosition({ x: 50, y: 38 }, { x: 80, y: 38 }, { x: 0, y: 0, zoom: 1 }, { width: 800, height: 600 }, { width: 340, height: 50 }).top > 38)
+})
 
 test('only compact, visible main avatars can form a collision pair', () => {
   const a = { id: 'wa', entityId: 'a', kind: 'bot', compact: true, open: true, x: 100, y: 100, z: 1 }

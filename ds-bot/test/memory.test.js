@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import {
   MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey,
   looksSecret, matchEntries, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
@@ -159,7 +159,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
     route = options
     return register(options)
   }
-  apply(ctx, { home, ...config })
+  const rt = createRuntime(ctx, { home, ...config })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -172,7 +172,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
     await ctx.dispose()
     if (!keep) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, home, call, tool, section, read, journal, requests, stop }
+  return { rt, ctx, home, call, tool, section, read, journal, requests, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -1075,4 +1075,30 @@ test('a memory call names the current part of the Bot chat', async (t) => {
   const answer = await call('memory-ask', { botId: 'b2', text: 'Which part?' })
   assert.equal(answer.ok, true)
   assert.equal(requests[0].sessionId, 'b2-part2')
+})
+
+test('task lessons use validated topic memory; task outputs never enter the default prompt', async t => {
+  const h = start({ replies: ['["Validate the output structure before delivery."]', '["Validate the output structure before delivery."]'] })
+  t.after(() => h.stop())
+  await h.rt.load()
+  const bot = h.rt.botOf('b2')
+  const record = { key: 'task-1', title: 'Report', evidence: 'A delivered report was validated before saving.', sessionId: 'b2' }
+  await h.rt.learnCompletedTask(bot, record)
+  await h.rt.learnCompletedTask(bot, record)
+  const topic = h.read('bots', 'b2', 'task-lessons.md')
+  assert.equal((topic.match(/Validate the output structure before delivery/g) ?? []).length, 1)
+  assert.match(h.section('b2'), /task-lessons/)
+  assert.doesNotMatch(h.section('b2'), /A delivered report|task-1/)
+  bot.employment = 'temporary'
+  await h.rt.learnCompletedTask(bot, record)
+  assert.equal(h.requests.length, 2)
+  assert.match(await h.tool('remember', { text: 'Temporary task fact' }, 'b2'), /Temporary employees/)
+})
+
+test('malformed lesson extraction fails without writing invented memory', async t => {
+  const h = start({ replies: ['not JSON'] })
+  t.after(() => h.stop())
+  await h.rt.load()
+  await assert.rejects(h.rt.learnCompletedTask(h.rt.botOf('b2'), { key: 'x', evidence: 'Output' }))
+  assert.equal(existsSync(join(h.home, 'memory', 'bots', 'b2', 'task-lessons.md')), false)
 })

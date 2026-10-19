@@ -24,7 +24,7 @@ const sets = []
 const Fragment = Symbol('Fragment')
 const h = (type, props, ...children) => ({ type, props: { ...props, children } })
 const react = {
-  createElement: h, Fragment,
+  createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: h, Fragment,
   useEffect: (effect) => { effects.push(effect) },
   useLayoutEffect: (effect) => { effects.push(effect) },
   useState: initial => [typeof initial === 'function' ? initial() : initial, value => sets.push(value)],
@@ -330,6 +330,36 @@ test('a PTC group relay shows its replies from the sub-call, live and after relo
   timers.clear()
   assert.deepEqual(asked, ['room'])
   assert.deepEqual(JSON.parse(JSON.stringify(sets)), [{ replies: replies.slice(0, 1), speaking: 'chief' }])
+})
+
+test('a live group bubble grows in place and the committed reply replaces it', async () => {
+  const streaming = { botId: 'writer', text: 'Partial' }
+  const progress = [{ callId: 'stream', replies: [], speaking: 'writer', streaming }]
+  const actions = { roomProgress: async () => progress }
+  const running = call('group_relay', 'stream', { running: true })
+  const relay = find(ToolCell(props(running, { sessionId: 'room', actions })), node => node.type?.name === 'GroupReplies')
+  effects = []
+  sets.length = 0
+  relay.type(relay.props)
+  const stop = mount()
+  await new Promise(resolve => setImmediate(resolve))
+  stop()
+  timers.clear()
+  const original = react.useState
+  try {
+    react.useState = () => [sets.at(-1), () => {}]
+    const partial = text(expand(relay.type(relay.props)))
+    assert.equal(count(partial, 'Partial'), 1)
+    streaming.text = 'Partial becomes complete.'
+    const growing = text(expand(relay.type(relay.props)))
+    assert.equal(count(growing, streaming.text), 1)
+    const final = text(expand(relay.type({ ...relay.props, done: true, content: text$({ replies: [{ botId: 'writer', text: streaming.text }] }) })))
+    assert.equal(count(final, streaming.text), 1)
+    assert.doesNotMatch(final, /is typing/)
+  } finally {
+    react.useState = original
+    effects = []
+  }
 })
 
 // #105: the secret and question cards of a PTC program showed nowhere.

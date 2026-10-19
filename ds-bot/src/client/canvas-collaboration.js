@@ -2,6 +2,14 @@ import { windowWidth, windowHeight } from './canvas-state.js'
 
 export const MAIN_AGENT_DRAG = 'application/x-qibitai-main-agent'
 
+export function mergeHintPosition(source, target, viewport, bounds, badge) {
+  const centerX = (source.x + target.x) / 2 * viewport.zoom + viewport.x
+  const above = Math.min(source.y, target.y) * viewport.zoom + viewport.y - 44 - badge.height
+  const below = Math.max(source.y, target.y) * viewport.zoom + viewport.y + 48
+  const clamp = (value, limit, extent) => Math.max(8, Math.min(value, limit - extent - 8))
+  return { left: clamp(centerX - badge.width / 2, bounds.width, badge.width), top: clamp(above >= 8 ? above : below, bounds.height, badge.height) }
+}
+
 export function overlapMain(state, roster, sourceId, excluded = []) {
   const source = state.windows.find(window => window.id === sourceId)
   const eligible = window => window?.open && window.compact && window.kind === 'bot' && roster.byId[window.entityId]

@@ -6,6 +6,7 @@ import { botState, BotAvatar, RoomAvatar } from './mark.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, openingTurn, unseenSince } from './cells.js'
 import { t } from './i18n.js'
+import { TaskGroupJourney } from './task-groups.js'
 
 // -------------------------------------------------------------------------
 // Conversation header
@@ -67,7 +68,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const doing = useActivity(map => map[owner])
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
-  const detailsOpen = useUi(state => state.details === sessionId)
+  const detailsOpen = useUi(state => state.settings?.id === (roster.byId[sessionId]?.id ?? sessionId))
   const name = bot?.name ?? room?.name ?? ''
   const useNews = useMemoryNews ?? noNews
   const memoryIds = bot ? [bot.id] : room?.members ?? []
@@ -89,10 +90,10 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     return () => { delete document.body.dataset.btRoom }
   }, [Boolean(room)])
   const memoryNotice = notice && changed !== null && roster.memory !== false
-  return h('div', { className: 'bt-head' },
+  return h(Fragment, null, h(TaskGroupJourney, { sessionId, roster, actions }), h('div', { className: 'bt-head' },
     h('button', {
-      type: 'button', className: 'bt-pill', 'aria-expanded': detailsOpen, 'data-memory': memoryNotice ? 'updated' : undefined,
-      'aria-label': memoryNotice ? t('Memory updated. Open {name}\'s memory', { name: roster.byId[changed]?.name ?? name }) : t('View conversation details'),
+      type: 'button', className: 'bt-pill', 'aria-expanded': detailsOpen, 'aria-haspopup': 'dialog', 'data-memory': memoryNotice ? 'updated' : undefined,
+      'aria-label': memoryNotice ? t('Memory updated. Open {name}\'s memory', { name: roster.byId[changed]?.name ?? name }) : t(room ? 'Group settings' : 'Employee settings'),
       onClick: () => (memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)),
     },
     bot ? h(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== undefined), badge: false })
@@ -102,7 +103,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow))),
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
-    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, actions }))
+    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, actions })))
 }
 
 // New-message pills. "N new messages ↓" takes Back to bottom's place when

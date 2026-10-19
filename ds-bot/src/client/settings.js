@@ -112,7 +112,7 @@ function GroupsPage({ roster, actions, run }) {
 }
 
 // While `leaving`, the dialog plays its exit and takes no input.
-export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false }) {
+export function SettingsDialog({ page, id, focusName, roster, actions, useUpdate, leaving = false }) {
   const [error, setError] = useState('')
   const schedules = useSchedules(actions)
   const close = useCallback(() => actions.closeSettings(), [])
@@ -165,9 +165,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           ['about', 'feedback'].includes(shown) ? h('div', { className: 'bt-settings-tabs', role: 'group', 'aria-label': t('Help and about') }, [['about', 'About QibitAI'], ['feedback', 'Feedback and support']].map(([key, title]) => h('button', { key, type: 'button', 'aria-pressed': shown === key, onClick: () => actions.openSettings(key) }, t(title)))) : null,
           shown === 'general' ? h(GeneralPage, { roster, actions, run }) : null,
           shown === 'models' ? h(ModelServicesPage, { roster, actions }) : null,
-          bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
+          bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run, focusName })) : null,
           shown === 'bots' && !bot ? h(BotsPage, { roster, actions, run }) : null,
-          room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
+          room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run, focusName })) : null,
           shown === 'groups' && !room ? h(GroupsPage, { roster, actions, run }) : null,
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,

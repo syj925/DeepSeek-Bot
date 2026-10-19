@@ -56,7 +56,7 @@ async function start(seed) {
     return agents.get(sessionId)
   }
   Object.assign(ctx, {
-    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    llm: { listProviders: () => [{ id: 'mock' }], listModels: async () => [{ id: 'default', inputModalities: ['text', 'image'] }], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
       get: () => undefined,
       resolveByPath: async () => undefined,
@@ -102,6 +102,21 @@ async function start(seed) {
 }
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
+
+test('supervisor routing is durable before delivery and invalid explicit choices send nothing', async t => {
+  const app = await start(team())
+  t.after(app.stop)
+  const result = await app.tool('message_bot', { to: 'Writer', message: 'Draft a report', model: 'mock/default', task_kind: 'writing' }, 'a')
+  assert.match(result, /Task model: mock\/default/)
+  const delivered = app.agentOf('b').calls[0][1]
+  assert.equal(delivered.source.taskModel.ref, 'mock/default')
+  assert.equal(delivered.source.taskModel.explicit, true)
+  assert.equal((await app.exchanges())[0].taskModel.ref, 'mock/default')
+  await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Other task', model: 'missing' }, 'a'), /not available/)
+  await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Correction', model: 'mock/default', when: 'now' }, 'a'), /cannot switch/)
+  assert.equal(app.agentOf('b').calls.length, 1)
+  assert.equal((await app.call('state')).value.bots.find(bot => bot.id === 'b').model, undefined)
+})
 
 test('completion tool connects turn success to persistent notification state', async t => {
   const app = await start(team())
@@ -189,11 +204,11 @@ test('message_bot when "queue" waits for the current work, and reply_to "user" a
 
   emit('b', 'turn/start', { turn: 1 })
   const queued = await tool('message_bot', { to: 'Writer', message: 'later', when: 'queue' }, 'a')
-  assert.equal(queued, 'Queued for Writer: it reads your message after its current work. Its reply will arrive later as a new message; do not wait for it.')
+  assert.match(queued, /^Queued for Writer:.*Task model: mock\/default\./)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
 
   const toUser = await tool('message_bot', { to: 'Writer', message: 'tell them', reply_to: 'user', when: 'now' }, 'a')
-  assert.equal(toUser, 'Delivered to Writer. It will answer the user in its own chat; nothing comes back to you, so point the user to Writer\'s chat instead of relaying.')
+  assert.match(toUser, /^Delivered to Writer\. It will answer the user in its own chat;.*Task model: mock\/default\./)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup', 'followup'])
   assert.equal(agents.get('b').calls[1][1].source.audience, 'user')
 })

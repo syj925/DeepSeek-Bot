@@ -104,9 +104,9 @@ export function MemberDock({ sessionId, useRoster, useWork, actions }) {
   if (!shown) return null
   if (room) {
     const { rows, rest } = splitBusy(busy)
-    const open = () => actions.showDetails(sessionId)
+    const open = () => actions.showExecution(sessionId)
     return h('div', { ref, className: 'bt-mw-dock-stack' },
-      rows.map(entry => h(WorkRow, { key: entry.id, bot: entry.bot, tool: entry.doing.tool, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
+      rows.map(entry => h(WorkRow, { key: entry.id, bot: entry.bot, tool: entry.doing.tool, label: entry.bot.name, at: entry.doing.since, now, onOpen: () => actions.showExecution(sessionId, entry.id) })),
       rest.length > 0 ? h(SummaryLine, { busy: rest, onOpen: open }) : null)
   }
   return h('div', { ref, className: 'bt-mw-dock-stack' }, groups.slice(0, ROWS_MAX).map(item => h(WorkRow, {
@@ -220,9 +220,9 @@ export const MEMBER_CSS = `
 .bt-mw-stop{flex:none;height:22px;padding:0 10px;border:1px solid var(--bt-line,rgba(0,0,0,.12));border-radius:11px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer}
 .bt-mw-stop:hover{background:var(--bt-hover)}
 .bt-mw-stop:disabled{opacity:.5;cursor:default}
-.bt-event.bt-mw-dock{margin:0 0 6px;pointer-events:none}
+.bt-event.bt-mw-dock{margin:0 0 6px;pointer-events:none;justify-content:flex-start}
 .bt-mw-dock>button{pointer-events:auto;animation:bt-mw-in .32s cubic-bezier(.23,1,.32,1) backwards}
-.bt-mw-line{gap:6px!important}
+.bt-mw-line{gap:10px!important;font-size:14px!important;height:32px!important;margin-inline-start:-6px;padding-inline-start:6px!important}
 .bt-mw-stack{display:inline-flex;align-items:center;flex:none;line-height:0}
 .bt-mw-stack>*+*{margin-left:-4px}
 .bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%}

@@ -6,7 +6,7 @@ import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
-import { BotSchedules } from './schedules.js'
+import { useSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide } from './motion.js'
@@ -160,6 +160,8 @@ function AvatarEditor({ bot, actions, run, onClose }) {
         type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: t('Reset character to default'),
         onClick: () => run(actions.updateBot(bot.id, { avatar: null, color: null })),
       }, t('Reset'))),
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: ['queued', 'generating'].includes(bot.portraitGeneration?.status), onClick: () => run(actions.updateBot(bot.id, { formalAvatar: true })) }, t(['queued', 'generating'].includes(bot.portraitGeneration?.status) ? 'Creating portrait…' : 'Create QiBit portrait')),
+    h('span', { className: 'bt-note', role: 'status' }, t(({ unavailable: 'Portrait service is not configured. You can upload an image.', failed: 'Portrait creation failed. Keep working and retry when ready.', interrupted: 'Portrait creation was interrupted. You can retry.', generated: 'QiBit portrait saved.' })[bot.portraitGeneration?.status] ?? 'Uses the QiBit style reference. Work continues during creation.')),
     tab === 'preset' ? h('div', { className: 'bt-avedit-presets', style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', padding: '4px 0' } },
       IP_AVATARS.map((src, idx) => h('button', {
         key: idx, type: 'button', className: 'bt-avedit-preset-btn',
@@ -199,13 +201,46 @@ function MemoryCard({ bot, actions }) {
       h('span', { className: 'bt-mem-row-go' }, t('Manage'), h(ChevronRightIcon))))
 }
 
+function AccessCard({ bot, roster, actions, run }) {
+  const [pending, setPending] = useState(null)
+  const catalog = roster.permissions
+  if (!catalog?.options?.length) return null
+  const value = pending ?? bot.permission ?? catalog.defaultPreset ?? ''
+  const labels = { 'read-only': 'Read only', 'workspace-write': 'Workspace', 'danger-full-access': 'Full access' }
+  return h(Card, { title: t('Access permissions') },
+    h(Row, { label: t('File and tool access'), hint: t('Applies to this employee only.') },
+      h('select', {
+        className: 'bt-input', 'aria-label': t('Access permissions'), value, disabled: pending !== null,
+        onChange: async (event) => {
+          const permission = event.target.value
+          if (permission === bot.permission) return
+          setPending(permission)
+          try { await run(actions.updateBot(bot.id, { permission })) } finally { setPending(null) }
+        },
+      }, !value ? h('option', { value: '', disabled: true }, t('Choose permissions')) : null,
+      catalog.options.map(option => h('option', { key: option.value, value: option.value, title: option.description }, labels[option.value] ? t(labels[option.value]) : option.name)))))
+}
+
+function TaskSettingsLink({ bot, actions }) {
+  const view = useSchedules(actions)
+  if (!view?.available) return null
+  return h(Card, { title: t('Scheduled tasks') },
+    h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: () => actions.openSettings('schedules', bot.id) },
+      h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Manage scheduled tasks')), h('span', { className: 'bt-set-hint' }, t('Create and manage tasks in one place.'))),
+      h('span', { className: 'bt-chevron' }, h(ChevronRightIcon))))
+}
+
 // A Bot's settings as grouped cards: who it is (avatar, name, label), what it runs on
 // (model), what it does (instructions), its memory and tasks, its Main Bot role, its
 // sidebar place, and copies.
-export function BotSettingsForm({ bot, roster, actions, run }) {
+export function BotSettingsForm({ bot, roster, actions, run, focusName }) {
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const closeEditor = useCallback(() => setEditing(false), [])
+  const root = useRef(null)
+  useEffect(() => {
+    if (focusName) { const input = root.current?.querySelector('input'); input?.focus(); input?.select() }
+  }, [focusName])
   useEffect(() => {
     if (!confirming) return undefined
     const timer = setTimeout(() => setConfirming(false), 4000)
@@ -219,7 +254,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
-  return h('div', { className: 'bt-bs' },
+  return h('div', { ref: root, className: 'bt-bs' },
     h('div', { className: 'bt-bs-hero' },
       h('div', { className: 'bt-avatar-anchor' },
         h('button', { type: 'button', className: 'bt-avatar-trigger', 'aria-label': t('Edit Bot avatar'), 'aria-expanded': editing, onClick: () => setEditing(value => !value) },
@@ -232,6 +267,9 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Profile') },
       h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
       h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
+    bot.employment === 'temporary' ? h(Card, { title: t('Temporary employee') },
+      h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: () => save({ employment: 'long-term' }) }, t('Keep as a long-term employee')),
+      h('span', { className: 'bt-note' }, t('Keeps task experience and requests a formal portrait.'))) : null,
     bot.generalAssistant ? null : h(Card, { title: t('Team membership') },
       h(Row, { label: t('Lasting team'), hint: t('Groups do not change affiliation, conversations or permissions.') },
         !(roster.teams ?? []).length && !bot.teamId ? h('span', { className: 'bt-set-hint' }, t('No team assigned yet. You can still chat and work together.')) : h('select', { className: 'bt-input', 'aria-label': t('Team membership'), value: bot.teamId ?? '', onChange: event => save({ teamId: event.target.value || null }) },
@@ -249,8 +287,13 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
+    h(AccessCard, { bot, roster, actions, run }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
-    h(BotSchedules, { bot, roster, actions }),
+    h(TaskSettingsLink, { bot, actions }),
+    h('details', { className: 'bt-settings-advanced-card' }, h('summary', null, t('Advanced information')),
+      h(Card, { title: t('Usage') }, h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: () => actions.openSettings('usage', bot.id) },
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Tokens and cache usage'))),
+        h('span', { className: 'bt-chevron' }, h(ChevronRightIcon))))),
     bot.generalAssistant ? null : h('details', { className: 'bt-settings-advanced-card' }, h('summary', null, t('Permissions and list display')),
     h(Card, { title: t('Management rights') },
       onlyMain

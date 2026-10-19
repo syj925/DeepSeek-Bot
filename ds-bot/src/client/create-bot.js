@@ -27,6 +27,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [model, setModel] = useState(() => startModel(roster))
   const [effort, setEffort] = useState(undefined)
   const [teamId, setTeamId] = useState('')
+  const [employment, setEmployment] = useState('long-term')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
@@ -43,7 +44,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), teamId: teamId || null })
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), teamId: teamId || null, employment, ...(employment === 'temporary' ? { avatar: null } : {}) })
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -60,10 +61,10 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     h('div', { className: 'bt-create-preview' },
       // The key remounts the mark, so every new pick plays the pop.
       h('span', { key: `${look.shape}:${look.color}:${image ? 'photo' : ''}`, className: 'bt-create-pop' },
-        h(BotMark, { look: previewLook, bot: { id: 'new-bot' }, size: 88, live: true, gaze: true, pokeable: true })),
+        h(BotMark, { look: employment === 'temporary' ? undefined : previewLook, bot: { id: 'new-bot', employment, name: finalName }, size: 88, live: true, gaze: true, pokeable: true })),
       h('span', { className: 'bt-create-name' }, finalName)),
     h('div', { className: 'bt-create-step' }, t('Look')),
-    h('div', { className: 'bt-create-looks' },
+    employment === 'temporary' ? h('p', { className: 'bt-note' }, t('Temporary employees start with a role icon.')) : h('div', { className: 'bt-create-looks' },
       h('div', { className: 'bt-create-presets', style: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', marginBottom: '10px' } },
         IP_AVATARS.map((src, idx) => h('button', {
           key: idx, type: 'button', className: 'bt-create-preset-btn',
@@ -101,10 +102,15 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
         ? t('The Bot runs on this model. You can change it later in its details.')
         : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))),
     h('label', { className: 'bt-field' }, h('span', { className: 'bt-field-label' }, t('Team membership')),
-      h('select', { className: 'bt-input', value: teamId, onChange: event => setTeamId(event.target.value) },
+      h('select', { className: 'bt-input', value: teamId, disabled: employment === 'temporary', onChange: event => setTeamId(event.target.value) },
         h('option', { value: '' }, t('Independent employee')),
         (roster.teams ?? []).map(team => h('option', { key: team.id, value: team.id }, team.name))),
       h('span', { className: 'bt-note' }, t('Optional. Groups do not change team membership.'))),
+    h('label', { className: 'bt-field' }, h('span', { className: 'bt-field-label' }, t('Employee duration')),
+      h('select', { className: 'bt-input', value: employment, onChange: event => { setEmployment(event.target.value); if (event.target.value === 'temporary') setTeamId('') } },
+        h('option', { value: 'long-term' }, t('Long-term employee')),
+        h('option', { value: 'temporary' }, t('Temporary employee'))),
+      h('span', { className: 'bt-note' }, employment === 'temporary' ? t('Removed from the active roster after its task.') : t('Keeps a compact experience summary for future tasks.'))),
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     h('div', { className: 'bt-create-foot' },
       h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),

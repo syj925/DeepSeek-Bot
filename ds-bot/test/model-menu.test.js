@@ -15,7 +15,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   require: name => {
     const platform = {
       react: {
-        createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+        createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
         useState: initial => [initial, () => {}],
         useEffect: () => {},
       },

@@ -14,19 +14,22 @@ export function TaskNotificationButton({ useTaskNotices, actions }) {
 
 function Delivery({ item, roster, actions }) {
   const bot = roster.byId[item.botId]
-  return h('div', { className: 'bt-notice-delivery' },
+  const open = () => actions.openTaskConversation(item)
+  return h('div', { className: 'bt-notice-delivery', role: 'button', tabIndex: 0,
+    'aria-label': `${bot?.name ?? item.name} · ${t('Open conversation')}`,
+    onClick: event => { if (!event.target.closest('button')) open() },
+    onKeyDown: event => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); open() } } },
     bot ? h(BotAvatar, { bot, size: 38, state: 'idle' }) : h('span', { className: 'bt-notice-check' }, '✓'),
     h('div', { className: 'bt-notice-copy' },
       h('div', { className: 'bt-notice-meta' }, h('strong', null, bot?.name ?? item.name), h('span', { 'data-message': item.kind === 'message' || undefined }, t(item.kind === 'message' ? 'New message' : 'Task completed'))),
       item.kind !== 'message' ? h('div', { className: 'bt-notice-title', title: item.title }, item.title) : null,
       h('p', null, item.summary),
       item.files.length ? h('div', { className: 'bt-notice-files' }, item.files.map(file => h('button', { key: file.path, type: 'button', title: file.path, onClick: () => actions.openTaskResult(item, file) }, '↗ ', file.name))) : null,
-      h('div', { className: 'bt-notice-actions' },
-        item.files.length ? h('button', { type: 'button', className: 'bt-notice-primary', onClick: () => actions.openTaskResult(item, item.files[0]) }, t('View result')) : null,
-        h('button', { type: 'button', onClick: () => actions.openTaskConversation(item) }, t('Open conversation')))))
+      item.files.length ? h('div', { className: 'bt-notice-actions' },
+        h('button', { type: 'button', className: 'bt-notice-primary', onClick: () => actions.openTaskResult(item, item.files[0]) }, t('View result'))) : null))
 }
 
-function Toast({ ids, children, dismiss }) {
+function Toast({ ids, children, dismiss, onOpen }) {
   const [leaving, setLeaving] = useState(false)
   const remaining = useRef(6000), started = useRef(0), timer = useRef(), exit = useRef()
   const element = useRef(null)
@@ -45,7 +48,9 @@ function Toast({ ids, children, dismiss }) {
     window.addEventListener('blur', pause); window.addEventListener('focus', resume)
     return () => { clearTimeout(timer.current); clearTimeout(exit.current); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('blur', pause); window.removeEventListener('focus', resume) }
   }, [key])
-  return h('article', { ref: element, className: 'bt-task-toast', 'data-leaving': leaving || undefined, onMouseEnter: pause, onMouseLeave: resume, onFocus: pause, onBlur: event => { if (!event.currentTarget.contains(event.relatedTarget)) queueMicrotask(resume) } }, children,
+  return h('article', { ref: element, className: 'bt-task-toast', 'data-leaving': leaving || undefined,
+    onClick: event => { if (!event.target.closest('button,[role="button"]')) onOpen?.() },
+    onMouseEnter: pause, onMouseLeave: resume, onFocus: pause, onBlur: event => { if (!event.currentTarget.contains(event.relatedTarget)) queueMicrotask(resume) } }, children,
     h('button', { type: 'button', className: 'bt-icon-btn bt-notice-dismiss', 'aria-label': t('Dismiss'), onClick: hide }, h(CloseIcon)))
 }
 
@@ -69,7 +74,7 @@ export function TaskNotifications({ useTaskNotices, useRoster, actions }) {
   const visible = items.length > 3 ? items.slice(0, 2) : items
   const more = items.length > 3 ? items.slice(2).map(item => item.id) : []
   return h('div', { className: 'bt-task-notifications' },
-    h('div', { className: 'bt-task-toast-stack', 'aria-live': 'polite', 'aria-relevant': 'additions' }, !state.open && visible.map(item => h(Toast, { key: item.id, ids: [item.id], dismiss: actions.dismissTaskNotices }, h(Delivery, { item, roster, actions }))),
+    h('div', { className: 'bt-task-toast-stack', 'aria-live': 'polite', 'aria-relevant': 'additions' }, !state.open && visible.map(item => h(Toast, { key: item.id, ids: [item.id], dismiss: actions.dismissTaskNotices, onOpen: () => actions.openTaskConversation(item) }, h(Delivery, { item, roster, actions }))),
       !state.open && more.length ? h(Toast, { key: 'more', ids: more, dismiss: actions.dismissTaskNotices }, h('div', { className: 'bt-notice-summary' }, h('strong', null, t('{count} more notifications', { count: more.length })), h('button', { type: 'button', onClick: actions.toggleTaskNotices }, t('View all')))) : null),
     mounted ? h('section', { ref: center, tabIndex: -1, role: 'dialog', 'aria-label': t('Task notifications'), className: 'bt-notice-center', 'data-open': state.open || undefined },
       h('header', null, h(BellIcon), h('strong', null, t('Task notifications')), h('button', { type: 'button', onClick: actions.readAllTaskNotices }, t('Mark all read')), h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: actions.closeTaskNotices }, h(CloseIcon))),
@@ -84,9 +89,9 @@ export const TASK_NOTICE_CSS = `
 .bt-notice-bell{position:relative}.bt-notice-badge{position:absolute;right:-4px;top:-4px;background:#26745e;color:#fff;border-radius:10px;padding:0 4px;font:10px/15px system-ui;min-width:15px}
 .bt-task-toast-stack{position:fixed;right:24px;bottom:24px;z-index:1050;display:flex;flex-direction:column;gap:12px;width:min(370px,calc(100vw - 32px));pointer-events:none}
 .bt-task-toast,.bt-notice-center{color:var(--bt-ink,#20232a);background:var(--bt-card,#fff);border:1px solid var(--bt-line-2,#e6e8ec);box-shadow:0 10px 40px #00000016;border-radius:18px;pointer-events:auto}
-.bt-task-toast{position:relative;padding:20px 30px 18px 18px;animation:bt-task-arrive .32s cubic-bezier(.2,.8,.2,1)}
+.bt-task-toast{cursor:pointer;position:relative;padding:20px 30px 18px 18px;animation:bt-task-arrive .32s cubic-bezier(.2,.8,.2,1)}
 .bt-task-toast[data-leaving]{opacity:0;transform:translateX(24px) scale(.98);transition:opacity .18s,transform .18s}
-.bt-notice-delivery{display:flex;align-items:flex-start;gap:12px}.bt-notice-copy{flex:1;min-width:0}.bt-notice-meta{display:flex;align-items:center;gap:8px;font-size:12px}.bt-notice-meta strong{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bt-notice-meta span{color:#278368;font-size:11px}.bt-notice-meta span:before{content:'✓';margin-right:4px}
+.bt-notice-delivery{cursor:pointer;outline-offset:5px;border-radius:8px;display:flex;align-items:flex-start;gap:12px}.bt-notice-copy{flex:1;min-width:0}.bt-notice-meta{display:flex;align-items:center;gap:8px;font-size:12px}.bt-notice-meta strong{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bt-notice-meta span{color:#278368;font-size:11px}.bt-notice-meta span:before{content:'✓';margin-right:4px}
 .bt-notice-meta span[data-message]:before{content:'•'}.bt-notice-title{margin-top:8px;font-size:14px;line-height:1.5;font-weight:600;overflow-wrap:anywhere}.bt-notice-copy p{margin:5px 0 12px;font-size:12px;line-height:1.65;color:var(--bt-ink-2,#69717d);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .bt-task-notifications button{font:inherit;cursor:pointer}.bt-notice-actions{display:flex;gap:8px}.bt-notice-actions button,.bt-notice-files button,.bt-notice-summary button,.bt-notice-center header>button:not(.bt-icon-btn),.bt-notice-center footer button{border:0;border-radius:7px;padding:5px 9px;background:var(--bt-hover,#f3f5f7);color:inherit;font-size:11px}.bt-notice-actions .bt-notice-primary{background:#26745e;color:#fff}.bt-notice-dismiss{position:absolute;right:7px;top:7px}.bt-notice-check{display:grid;place-items:center;width:38px;height:38px;background:#2d8a6815;color:#26745e;border-radius:12px;flex-shrink:0}
 .bt-notice-files{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 10px}.bt-notice-files button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bt-notice-summary{display:flex;flex-direction:column;gap:10px;align-items:flex-start;font-size:13px}

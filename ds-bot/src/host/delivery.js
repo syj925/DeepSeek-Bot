@@ -40,7 +40,7 @@ export function install(rt) {
   // exchange is recorded already too. `askedBy` is the member whose @mention called a
   // group turn (groups.js). `fromRoomId`: the group whose Session the sender wrote
   // from; the reply goes back to that Session (turns.js).
-  async function deliver({ fromId, toId, sessionId, text, role, hop = 0, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, askedBy, fromRoomId }) {
+  async function deliver({ fromId, toId, sessionId, text, role, hop = 0, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, askedBy, fromRoomId, taskModel }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
@@ -57,6 +57,7 @@ export function install(rt) {
       exchangeId,
       senderName: fromName,
       hop,
+      ...(taskModel ? { taskModel } : {}),
       ...(fromId ? { senderSessionId: fromId } : {}),
       ...(replyTo ? { replyTo } : {}),
       ...(roomId ? { roomId } : {}),
@@ -68,10 +69,11 @@ export function install(rt) {
       ...(fromRoomId ? { senderRoomId: fromRoomId } : {}),
     }
     if (EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried && !resent) {
-      state.exchanges.push({ id: exchangeId, from: fromId, to: toId, text, role, time: Date.now(), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}) })
+      state.exchanges.push({ id: exchangeId, from: fromId, to: toId, text, role, time: Date.now(), ...(fromRoomId ? { fromRoomId } : {}), ...(taskModel ? { taskModel } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}) })
       void rt.save().catch(() => {})
     }
     const targetSessionId = sessionId ?? rt.chatOf(toId)
+    if (rt.botOf(toId)?.retiredAt) throw new Error('This temporary employee has retired. Assign an active employee instead.')
     await rt.ensureCapabilities(targetSessionId)
     const agent = await resolveAgent(targetSessionId)
     // A steered message cuts into a running turn at its next step; a follow-up
@@ -80,6 +82,7 @@ export function install(rt) {
       content: [{ type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried })}\n${text}` }],
       source,
     })
+    if (rt.botOf(toId)?.retiredAt) throw new Error('This temporary employee has retired. Assign an active employee instead.')
     if (steer) agent.steer(message)
     else agent.followup(message)
     await ctx.sessions.flush(agent.session)

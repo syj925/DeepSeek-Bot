@@ -1,18 +1,16 @@
 import { RESTORED_CHAT_CSS } from './restored-chat-styles.js'
-import { createElement as h, useEffect } from 'react'
+import { createElement as h, useEffect, useRef } from 'react'
+import { preserveReadingPosition } from './chat-reading-position.js'
 import { currentPart } from './text.js'
 import { CanvasSession } from './canvas-session.js'
 
 // Keep one canonical conversation surface for files, mentions, tools and approvals.
-export function TeamAgentChat({ entity, roster, actions, useSessions }) {
+export function TeamAgentChat({ entity, roster, actions, useSessions, onOpenConversation }) {
+  const root = useRef(null)
   const sessionId = roster.roomsById?.[entity.id] ? entity.id : currentPart(entity)
-  useEffect(() => {
-    actions.beginVisit(sessionId)
-    actions.clearUnread(entity.id)
-    return () => actions.endVisit(sessionId)
-  }, [sessionId])
-  return h('div', { className: 'bt-agent-chat-container bt-restored-chat' },
-    h(CanvasSession, { sessionId, actions, useSessions }))
+  useEffect(() => preserveReadingPosition(root.current), [sessionId])
+  return h('div', { ref: root, className: 'bt-agent-chat-container bt-restored-chat' },
+    h(CanvasSession, { sessionId, actions, useSessions, onOpenConversation }))
 }
 
 export const TEAM_AGENT_CHAT_CSS = `${RESTORED_CHAT_CSS}

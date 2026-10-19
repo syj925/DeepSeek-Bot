@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createSource } from '../src/client/sources.js'
 import { watchCompletions } from '../src/client/completion-unread.js'
 
-function fixture() {
+function fixture(readingChats) {
   const bot = { id: 'writer', sessionId: 'writer-part' }
   const roster = createSource({
     ready: true, bots: [bot], rooms: [{ id: 'room' }], byId: { writer: bot, 'writer-part': bot }, roomsById: { room: { id: 'room' } },
@@ -13,7 +13,7 @@ function fixture() {
   const panels = createSource({ activePanelId: 'ds-bot-canvas' })
   const completions = createSource({})
   const page = { visibilityState: 'visible', listeners: new Set(), addEventListener(type, listener) { if (type === 'visibilitychange') this.listeners.add(listener) }, removeEventListener(type, listener) { this.listeners.delete(listener) } }
-  const stop = watchCompletions({ sessions, roster, canvas, panels, completions, canvasSize: () => ({ width: 1000, height: 800, insets: { top: 80, bottom: 100, left: 0, right: 0 } }), page })
+  const stop = watchCompletions({ sessions, roster, canvas, panels, completions, readingChats, canvasSize: () => ({ width: 1000, height: 800, insets: { top: 80, bottom: 100, left: 0, right: 0 } }), page })
   return { bot, roster, sessions, canvas, panels, completions, page, stop }
 }
 
@@ -24,6 +24,43 @@ test('initial idle and running baselines do not create historical completion unr
   data.sessions.set({ byId: { 'writer-part': { running: true }, room: { running: false } } })
   assert.deepEqual(data.completions.getSnapshot(), {})
   data.sessions.set({ byId: { 'writer-part': { running: false }, room: { running: false } } })
+  assert.deepEqual(data.completions.getSnapshot(), { 'writer-part': true })
+  data.stop()
+})
+
+test('opening the team chat acknowledges a completion and closing does not restore it', () => {
+  const reading = createSource({})
+  const data = fixture(reading)
+  data.sessions.set({ byId: { 'writer-part': { running: true }, room: { running: true } } })
+  data.sessions.set({ byId: { 'writer-part': { running: false }, room: { running: false } } })
+  assert.deepEqual(data.completions.getSnapshot(), { 'writer-part': true, room: true })
+  reading.set({ 'writer-part': 1 })
+  assert.deepEqual(data.completions.getSnapshot(), { room: true })
+  reading.set({})
+  assert.deepEqual(data.completions.getSnapshot(), { room: true })
+  data.sessions.set({ byId: { 'writer-part': { running: true }, room: { running: false } } })
+  data.sessions.set({ byId: { 'writer-part': { running: false }, room: { running: false } } })
+  assert.deepEqual(data.completions.getSnapshot(), { 'writer-part': true, room: true })
+  data.stop()
+})
+
+test('visible chat completions are read, but hidden pages and other panels keep them unread', () => {
+  const reading = createSource({ 'writer-part': 1 })
+  const data = fixture(reading)
+  const finish = () => {
+    data.sessions.set({ byId: { 'writer-part': { running: true } } })
+    data.sessions.set({ byId: { 'writer-part': { running: false } } })
+  }
+  finish()
+  assert.deepEqual(data.completions.getSnapshot(), {})
+  data.page.visibilityState = 'hidden'
+  finish()
+  assert.deepEqual(data.completions.getSnapshot(), { 'writer-part': true })
+  data.page.visibilityState = 'visible'
+  for (const listener of data.page.listeners) listener()
+  assert.deepEqual(data.completions.getSnapshot(), {})
+  data.panels.set({ activePanelId: 'plugins' })
+  finish()
   assert.deepEqual(data.completions.getSnapshot(), { 'writer-part': true })
   data.stop()
 })

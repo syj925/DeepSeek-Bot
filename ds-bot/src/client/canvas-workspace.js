@@ -1,5 +1,5 @@
 import { RESTORED_CHAT_CSS } from './restored-chat-styles.js'
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { previewOf } from './text.js'
 import { PlusIcon, PeopleIcon, ChatsIcon, GearIcon, CloseIcon, FolderIcon, DotsIcon, PencilIcon, CalendarIcon, SearchIcon } from './icons.js'
@@ -13,11 +13,31 @@ import { CANVAS_LIMITS, collapseWindow, groupWindows, moveWindow, openWindow, re
 import { t } from './i18n.js'
 import { departmentFor, managerFor, reportsFor } from './designer-data.js'
 import { Dock, DockIcon, DockItem, DockLabel } from './dock.js'
-import { overlapMain, groupDropTarget, selectedMains, canvasDropPoint } from './canvas-collaboration.js'
+import { overlapMain, groupDropTarget, selectedMains, canvasDropPoint, mergeHintPosition } from './canvas-collaboration.js'
 import { addDraftMembers, createEmptyGroup } from './canvas-state.js'
 import { fitChat, resizeChat } from './chat-geometry.js'
 import { MAIN_AGENT_POINTER } from './main-agent-drag.js'
 import { MainAgentGroup, MAIN_GROUP_CSS } from './main-agent-group.js'
+
+function MergeHint({ pair, viewport, canvasRef }) {
+  const badge = useRef(null)
+  const [position, setPosition] = useState({ visibility: 'hidden' })
+  useLayoutEffect(() => {
+    const place = () => {
+      if (!badge.current || !canvasRef.current) return
+      setPosition(mergeHintPosition(pair.source, pair.target, viewport,
+        { width: canvasRef.current.clientWidth, height: canvasRef.current.clientHeight },
+        { width: badge.current.offsetWidth, height: badge.current.offsetHeight }))
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(badge.current)
+    observer.observe(canvasRef.current)
+    return () => observer.disconnect()
+  }, [pair, viewport, canvasRef])
+  return h('div', { ref: badge, className: 'bt-metaball-badge glass-button glass-button--pill', style: position, role: 'status' },
+    `${t('Release to create group chat')} · ${pair.sourceName} ＋ ${pair.targetName}`)
+}
 
 function gooeyBridge(p1, p2, r1 = 36, r2 = 36) {
   const dx = p2.x - p1.x
@@ -492,6 +512,9 @@ const safeSetTimeout = (fn, ms) => {
 
 function CanvasChatWindow(props) {
   const { window, roster, actions, active = true, order = 0, size } = props
+  const [conversationId, setConversationId] = useState(window.entityId)
+  const conversation = roster.byId[conversationId] ?? roster.roomsById[conversationId]
+  const displayWindow = conversation ? { ...window, entityId: conversation.id, kind: roster.roomsById[conversation.id] ? 'room' : 'bot' } : window
   const [closing, setClosing] = useState(false)
   const [offset, setOffset] = useState(() => ({ x: Math.min((order % 5) * 28, Math.max(0, ((size?.width ?? 1000) - 860) / 2 - 24)), y: Math.min((order % 5) * 24, Math.max(0, ((size?.height ?? 800) - 700) / 2 - 24)) }))
   const [dimensions, setDimensions] = useState(null)
@@ -609,7 +632,17 @@ function CanvasChatWindow(props) {
         if (event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent?.isComposing && !event.target.closest('[role=combobox],[aria-expanded=true]')) { event.preventDefault(); event.stopPropagation(); dismiss() }
       },
       onAnimationEnd: event => { if (closing && event.target === event.currentTarget) finish() },
-    }, h('div', { className: 'bt-restored-chat-shell' }, h('header', { className: 'bt-team-chat-bar', onPointerDown: event => { if (!event.target.closest('button')) start(event) } }, h('div', { className: 'bt-team-chat-header-main' }, window.kind === 'room' ? h(RoomAvatar, { room: entityOf(window, roster), roster, size: 36 }) : h(BotAvatar, { bot: entityOf(window, roster), size: 36 }), h('strong', { className: 'bt-team-chat-name' }, entityOf(window, roster)?.name), entityOf(window, roster)?.generalAssistant ? h('span', { className: 'bt-assistant-badge' }, t('General Assistant')) : null), h('div', { className: 'bt-team-chat-tools' }, button(null, () => actions.openSettings(window.kind === 'room' ? 'groups' : 'bots', window.entityId), GearIcon, { title: t('Settings'), 'aria-label': t('Settings') }), button(null, dismiss, CloseIcon, { title: t('Close window'), 'aria-label': t('Close window') }))), h('div', { className: 'bt-agent-chat-container bt-restored-chat' }, h(CanvasSession, { sessionId: canvasSessionId(window, roster), actions, useSessions: props.useSessions, SessionProvider: props.SessionProvider, renderSlot: props.renderSlot }))),
+    }, h('div', { className: 'bt-restored-chat-shell' },
+      h('header', { className: 'bt-team-chat-bar', onPointerDown: event => { if (!event.target.closest('button')) start(event) } },
+        h('div', { className: 'bt-team-chat-header-main' },
+          displayWindow.kind === 'room' ? h(RoomAvatar, { room: entityOf(displayWindow, roster), roster, size: 36 }) : h(BotAvatar, { bot: entityOf(displayWindow, roster), size: 36 }),
+          h('strong', { className: 'bt-team-chat-name' }, entityOf(displayWindow, roster)?.name),
+          entityOf(displayWindow, roster)?.generalAssistant ? h('span', { className: 'bt-assistant-badge' }, t('General Assistant')) : null),
+        h('div', { className: 'bt-team-chat-tools' },
+          button(null, () => actions.openSettings(displayWindow.kind === 'room' ? 'groups' : 'bots', displayWindow.entityId), GearIcon, { title: t('Settings'), 'aria-label': t('Settings') }),
+          button(null, dismiss, CloseIcon, { title: t('Close window'), 'aria-label': t('Close window') }))),
+      h('div', { className: 'bt-agent-chat-container bt-restored-chat' },
+        h(CanvasSession, { sessionId: canvasSessionId(displayWindow, roster), actions, useSessions: props.useSessions, SessionProvider: props.SessionProvider, renderSlot: props.renderSlot, onOpenConversation: setConversationId }))),
     ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'].map(edge => h('div', {
       key: edge, className: 'bt-chat-resize', 'data-edge': edge, 'aria-hidden': true,
       title: t('Drag to resize'), onPointerDown: event => start(event, edge),
@@ -769,30 +802,17 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     if (current.moved && (current.kind === 'avatar' || current.kind === 'window') && current.ids?.length === 1) {
       const draggedWin = (current.latest ?? latest.current).windows.find(w => w.id === current.id)
       if (draggedWin && draggedWin.kind === 'bot' && roster.byId[draggedWin.entityId]) {
-        const draggedCenterX = draggedWin.x + windowWidth(draggedWin) / 2
-        const draggedCenterY = draggedWin.y + windowHeight(draggedWin) / 2
-        const otherBots = visible.filter(w => w.id !== draggedWin.id && w.kind === 'bot' && roster.byId[w.entityId])
-        let closest = null
-        let minD = Infinity
-        for (const other of otherBots) {
-          const ocx = other.x + windowWidth(other) / 2
-          const ocy = other.y + windowHeight(other) / 2
-          const d = Math.hypot(draggedCenterX - ocx, draggedCenterY - ocy)
-          if (d < 180 && d < minD) {
-            minD = d
-            closest = {
-              sourceId: draggedWin.entityId,
-              sourceWindowId: draggedWin.id,
-              sourceName: roster.byId[draggedWin.entityId]?.name || '',
-              targetId: other.entityId,
-              targetWindowId: other.id,
-              targetName: roster.byId[other.entityId]?.name || '',
-              source: { x: draggedCenterX, y: draggedCenterY },
-              target: { x: ocx, y: ocy },
-              dist: d,
-            }
-          }
-        }
+        // Preview and drop use the same displayed avatar geometry and threshold.
+        const shown = { ...(current.latest ?? latest.current), windows: (current.latest ?? latest.current).windows.map(window => ({ ...window, compact: true })) }
+        const other = current.target ? undefined : overlapMain(shown, roster, current.id)
+        const closest = other ? {
+          sourceWindowId: draggedWin.id, targetWindowId: other.id,
+          sourceName: roster.byId[draggedWin.entityId]?.name || '',
+          targetName: roster.byId[other.entityId]?.name || '',
+          source: { x: draggedWin.x + 60, y: draggedWin.y + 38 },
+          target: { x: other.x + 60, y: other.y + 38 },
+          dist: Math.hypot(draggedWin.x - other.x, draggedWin.y - other.y),
+        } : null
         setMergePair(closest)
       } else if (mergePairRef.current) setMergePair(null)
     } else if (mergePairRef.current) {
@@ -832,7 +852,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     }
     if (current.moved && current.ids?.length === 1 && ['avatar', 'window'].includes(current.kind)) {
       const next = current.latest ?? latest.current
-      const target = overlapMain(next, roster, current.id)
+      const target = overlapMain({ ...next, windows: next.windows.map(window => ({ ...window, compact: true })) }, roster, current.id)
       if (target) {
         const source = next.windows.find(window => window.id === current.id)
         update(current.state)
@@ -981,7 +1001,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
         visible.map(window => h(WindowCard, { key: window.id, window: { ...window, compact: true }, roster, selected: state.selected.includes(window.id), active: state.active === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget: dropTarget === window.id, isMergeTarget: mergePair?.targetWindowId === window.id })),
         mergePair ? h('div', {
           className: 'bt-metaball-container',
-          style: { position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1000 },
+          style: { position: 'absolute', left: 0, top: 0, width: '1px', height: '1px', pointerEvents: 'none', zIndex: 1 },
         },
           h('svg', {
             className: 'bt-metaball-svg',
@@ -1009,18 +1029,10 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
                 d: gooeyBridge(mergePair.source, mergePair.target, 36, 40),
                 fill: 'rgba(56, 120, 250, 0.88)',
               }))),
-          h('div', {
-            className: 'bt-metaball-badge glass-button glass-button--pill',
-            style: {
-              position: 'absolute',
-              left: (mergePair.source.x + mergePair.target.x) / 2,
-              top: (mergePair.source.y + mergePair.target.y) / 2 - 42,
-              transform: 'translate(-50%, -50%)',
-              whiteSpace: 'nowrap',
-            },
-          }, `✨ ${t('Release to create group chat')} · ${mergePair.sourceName} ＋ ${mergePair.targetName}`)) : null),
+          ) : null),
       visible.length === 0 ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
     visible.filter(window => !window.compact).sort((a, b) => a.z - b.z).map((window, order) => h(CanvasChatWindow, { key: window.id, window, active: state.active === window.id, order, size, roster, actions, useSessions, SessionProvider, renderSlot })),
+    mergePair ? h(MergeHint, { pair: mergePair, viewport: state.viewport, canvasRef: root }) : null,
     h(CanvasQuickMessage, { bot: quickBot, actions }),
     h(CanvasAgenda, { roster, actions }),
     marquee ? h('div', { className: 'bt-canvas-marquee', style: marquee }) : null,

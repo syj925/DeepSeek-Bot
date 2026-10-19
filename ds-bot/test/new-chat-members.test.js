@@ -14,7 +14,7 @@ function fixture({ mode = 'group', initialMembers = [] } = {}) {
   const slots = []
   let cursor = 0
   const react = {
-    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
     useRef(initial) { return slots[cursor++] ??= { current: initial } },
     useState(initial) {

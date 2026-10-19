@@ -15,7 +15,7 @@ function renderer() {
   const scopes = new Map()
   let slots, cursor
   const react = {
-    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
     useRef(initial) { return slots[cursor++] ??= { current: initial } },
     useState(initial) {

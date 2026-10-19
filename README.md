@@ -1,4 +1,8 @@
-QibitAI canvas snapshot 0.1.31: [source handoff, build steps and known limits](docs/qibitai-0.1.31-handoff.md).
+QibitAI canvas plugin 0.1.46: includes task-scoped collaboration, recovery and chat improvements, temporary employee role icons, and the bundled QiBit portrait design kit. [Portrait integration and service requirements](docs/qibitai-employee-portraits.zh.md). Portrait generation requires a separately configured service.
+
+Earlier snapshot 0.1.31: [source handoff, build steps and known limits](docs/qibitai-0.1.31-handoff.md).
+
+QibitAI 0.1.32 adds task-scoped model routing before supervisor delegation, with explicit model priority and unchanged employee defaults. [Routing and integration notes](docs/qibitai-task-model-routing.zh.md).
 
 <p align="center">
   <picture>
@@ -141,3 +145,11 @@ The plugin source is in [`ds-bot/`](ds-bot/). For options and internals, see [`d
 DS Bot is an independent community project. **It is not an official DeepSeek product**, and it is not affiliated with, endorsed by or sponsored by DeepSeek. "DeepSeek", "DeepSeek Harness" and the other names are trademarks of their owners. They are used here only to say what this plugin works with.
 
 Bots use your own model quota, and they read and write files and run commands when you ask them to. Check important actions yourself.
+
+### Streaming group replies
+
+Group chats display replies as employees generate them, with one employee finishing before the next starts. Tool execution no longer skips a speaker after 15 seconds. Task discussions with useful replies from at least two employees end with one administrator summary; ordinary chats do not add a summary. Busy work, permission waits and long pauses retain status updates and later reporting.
+
+### Task-scoped execution contexts
+
+Verified task completion now moves long-term employees (including Chief) to a fresh conversation part while retaining searchable history. Each group has its own employee execution sessions; group delegation stays in that group. Successful Chief handoffs release its private task context, and completed group reports stay in the group with an on-demand task index. Reusable lessons are extracted into bounded memory topics, separately from results. Temporary employees retire only when no other work, questions, approvals, queued input or schedules remain; historical identities and deliverables are retained. See [lifecycle details](docs/qibitai-task-context-lifecycle.zh.md).

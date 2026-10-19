@@ -158,6 +158,13 @@ export const canvasStyles = `
   background: var(--canvas-background);
 }
 
+.bt-canvas[data-wallpaper=custom] {
+  background-image: var(--bt-wallpaper-image), var(--canvas-background);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 .bt-canvas::before {
   display: none !important;
 }
@@ -1988,10 +1995,19 @@ export const canvasStyles = `
   overflow-y: auto;
   overscroll-behavior: contain;
   background: transparent;
+  padding-bottom: 18px;
   scrollbar-width: thin;
   scrollbar-color: rgba(0,0,0,.15) transparent;
 }
+.bt-canvas .bt-group-failure{display:flex;flex-wrap:wrap;align-items:center;gap:7px 10px;padding:8px 10px;color:#b42318;background:rgba(254,242,242,.82);border:1px solid rgba(248,113,113,.28);border-radius:10px}
+.bt-canvas .bt-group-failure-note{flex-basis:100%;font-size:11px;color:#9f1239}
+.bt-canvas .bt-group-failure-actions{display:inline-flex;gap:6px}
+.bt-canvas .bt-group-failure-actions .bt-soft{padding:3px 8px;border:1px solid rgba(180,35,24,.22);border-radius:7px;background:rgba(255,255,255,.72);color:#9f1239;cursor:pointer;font:inherit;font-size:11px}
+.bt-canvas .bt-group-failure-actions .bt-soft:hover{background:#fff}
 .bt-canvas [data-composer-seat] {
+  position:relative;
+  z-index:2;
+  flex:none;
   margin-top: auto;
   background: transparent !important;
   border-top: 1px solid var(--divider) !important;
@@ -2450,6 +2466,13 @@ body:has(.canvas-viewport) .bt-pane > div {
 }
 
 .bt-metaball-badge {
+  position: absolute;
+  z-index: 45;
+  pointer-events: none;
+  box-sizing: border-box;
+  max-width: calc(100% - 16px);
+  white-space: normal;
+  overflow-wrap: anywhere;
   background: #E1FF67 !important;
   border: 1px solid rgba(0, 0, 0, 0.12) !important;
   color: #000000 !important;
@@ -2463,18 +2486,18 @@ body:has(.canvas-viewport) .bt-pane > div {
 @keyframes bt-merge-badge-pop {
   from {
     opacity: 0;
-    transform: translate(-50%, -40%) scale(0.9);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: none;
   }
 }
 
-.bt-canvas-merge-target {
+.bt-canvas-merge-target .bt-mark {
   outline: 3px solid #3878fa !important;
   box-shadow: 0 0 32px rgba(56, 120, 250, 0.5) !important;
-  animation: bt-merge-target-pulse 0.75s ease-in-out infinite alternate !important;
+  animation: none !important;
 }
 
 @keyframes bt-merge-target-pulse {

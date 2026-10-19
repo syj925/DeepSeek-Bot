@@ -33,6 +33,11 @@ import * as update from './src/host/update.js'
 import * as dshUpdate from './src/host/dsh-update.js'
 import * as channel from './src/host/channel.js'
 import * as taskNotices from './src/host/task-notices.js'
+import * as taskModels from './src/host/task-models.js'
+import * as recovery from './src/host/recovery.js'
+import * as taskGroups from './src/host/task-groups.js'
+import * as employeePortraits from './src/host/employee-portraits.js'
+import * as taskContext from './src/host/task-context.js'
 
 export { COLORS } from './src/host/constants.js'
 
@@ -43,7 +48,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // the functions other modules call; they call them through `rt` at run time, never during
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them.
-const MODULES = [diagnostics, store, models, permissions, turns, delivery, roster, teams, generalAssistant, folders, agents, prompt, timeContext, tools, taskNotices, chatIndex, groups, approvals, resume, memory, parts, images, secrets, connectors, capabilities, schedules, browser, usage, update, dshUpdate, channel]
+const MODULES = [diagnostics, store, models, permissions, turns, delivery, roster, teams, generalAssistant, folders, agents, prompt, timeContext, tools, taskNotices, recovery, chatIndex, groups, approvals, resume, memory, parts, taskModels, images, secrets, connectors, capabilities, schedules, browser, usage, update, dshUpdate, channel]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
@@ -63,6 +68,6 @@ export function createRuntime(ctx, config = {}) {
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of MODULES) module.install(rt)
+  for (const module of [...MODULES, taskGroups, taskContext, employeePortraits]) module.install(rt)
   return rt
 }

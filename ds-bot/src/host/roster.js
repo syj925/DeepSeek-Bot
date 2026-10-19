@@ -6,6 +6,7 @@ import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOT
 import { currentColor, isColor, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 import { assistantIdentityProblem, ASSISTANT_RESERVED } from '../shared/assistant-identity.js'
+import { roleIcon } from '../shared/employee-avatar.js'
 import { checkRoomMembers } from './ownership.js'
 
 export function install(rt) {
@@ -60,7 +61,7 @@ export function install(rt) {
 
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
   // greeting waits until a model is chosen. So does a Bot made when no model is served.
-  async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, teamId = null, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, quiet = false, generalAssistant = false }) {
+  async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, teamId = null, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, quiet = false, generalAssistant = false, employment = 'long-term' }) {
     const cleanName = String(botName ?? '').trim().slice(0, 40)
     const cleanRole = String(role).trim().slice(0, 24)
     const problem = nameProblem(cleanName) ?? assistantIdentityProblem({ name: cleanName, role: cleanRole })
@@ -69,6 +70,9 @@ export function install(rt) {
     if (rt.findBot(cleanName)) throw new Error(`A Bot named ${cleanName} already exists`)
     rt.checkTeamAssignment(undefined, teamId)
     const cleanAvatarValue = cleanAvatar(avatar)
+    const cleanEmployment = employment === 'temporary' ? 'temporary' : 'long-term'
+    if (!['temporary', 'long-term'].includes(employment)) throw new Error('Unknown employment type')
+    if (cleanEmployment === 'temporary' && (main || teamId !== null)) throw new Error('Promote a temporary employee before assigning a lasting team or supervisor role')
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
     const effortId = modelRef !== undefined && effort !== undefined ? await rt.resolveEffort(modelRef, effort) : undefined
@@ -81,13 +85,14 @@ export function install(rt) {
         role: cleanRole,
         // A color is only stored when the user picks one; otherwise the id picks it.
         ...(isColor(currentColor(color)) ? { color: currentColor(color) } : {}),
-        ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : {}),
+        ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : cleanEmployment === 'temporary' ? { avatar: { icon: roleIcon({ role: cleanRole, name: cleanName }) } } : {}),
         ...(modelRef ? { model: modelRef } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
+        employment: cleanEmployment,
         teamId: null,
         capabilities: [],
       }
@@ -176,6 +181,9 @@ export function install(rt) {
   async function updateBot(id, patch) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (bot.retiredAt) throw new Error('This temporary employee has retired')
+    if (patch.employment !== undefined && !['temporary', 'long-term'].includes(patch.employment)) throw new Error('Unknown employment type')
+    if (patch.employment === 'temporary' && (rt.isGeneralAssistant(id) || rt.isMain(id) || bot.teamId || patch.teamId || Object.values(state.teams).some(team => team.leaderId === id))) throw new Error('A lasting team member or supervisor cannot be temporary')
     if (!rt.isGeneralAssistant(id)) {
       // Legacy names stay editable, but a new reserved identity is rejected before any mutation.
       const name = patch.name === undefined ? undefined : String(patch.name).trim().slice(0, 40)
@@ -187,6 +195,13 @@ export function install(rt) {
     if (patch.teamId !== undefined) rt.checkTeamAssignment(id, patch.teamId)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const nextModel = patch.model === undefined ? bot.model : patch.model === null || patch.model === '' ? undefined : await rt.resolveModel(patch.model)
+    let nextEffort
+    if (patch.effort !== undefined && patch.effort !== null && patch.effort !== '') {
+      const ref = nextModel ?? bot.appliedModel
+      if (ref === undefined) throw new Error('Pick a model before choosing a thinking level')
+      nextEffort = await rt.resolveEffort(ref, patch.effort)
+    }
     if (patch.name !== undefined) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
@@ -201,27 +216,33 @@ export function install(rt) {
     }
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
+    const promoted = bot.employment === 'temporary' && patch.employment === 'long-term'
+    if (promoted && !bot.avatar?.image) bot.avatar = { icon: roleIcon(bot) }
+    if (patch.employment !== undefined) {
+      bot.employment = patch.employment === 'temporary' ? 'temporary' : 'long-term'
+      if (bot.employment === 'long-term') delete bot.retirePending
+    }
     let modelChanged = false
     if (patch.color !== undefined) {
       if (patch.color === null) delete bot.color
       else if (isColor(currentColor(patch.color))) bot.color = currentColor(patch.color)
     }
     if (patch.avatar !== undefined) {
+      rt.cancelPortrait?.(id)
+      delete bot.portraitGeneration
       const avatar = cleanAvatar(patch.avatar)
       if (avatar) bot.avatar = avatar
       else delete bot.avatar
     }
     if (patch.model !== undefined) {
       if (patch.model === null || patch.model === '') delete bot.model
-      else bot.model = await rt.resolveModel(patch.model)
+      else bot.model = nextModel
       modelChanged = true
     }
     if (patch.effort !== undefined) {
       if (patch.effort === null || patch.effort === '') delete bot.effort
       else {
-        const ref = bot.model ?? bot.appliedModel
-        if (ref === undefined) throw new Error('Pick a model before choosing a thinking level')
-        bot.effort = await rt.resolveEffort(ref, patch.effort)
+        bot.effort = nextEffort
       }
       modelChanged = true
     }
@@ -240,6 +261,9 @@ export function install(rt) {
       delete bot.kickoff
       await rt.save()
       sendKickoff(bot, held)
+    }
+    if (patch.formalAvatar === true || promoted && !bot.avatar?.image) {
+      await rt.requestPortrait?.(id)
     }
     return bot
   }
@@ -292,7 +316,7 @@ export function install(rt) {
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
   }
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, task } = {}) {
     const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
     checkMembers(members)
     checkRoomMembers(state, members)
@@ -317,6 +341,7 @@ export function install(rt) {
         notice: cleanNotice(notice),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
+        ...(task ? { task } : {}),
       }
       await rt.save()
       return state.rooms[id]
@@ -426,6 +451,7 @@ export function install(rt) {
   async function setMain(id, main, { primary = false, replace } = {}) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (bot.retiredAt || main && rt.isTemporaryBot?.(id)) throw new Error('Promote a temporary employee before making it a supervisor')
     const others = state.mainBotIds.filter(other => other !== id)
     let next
     if (!main) {
@@ -490,6 +516,31 @@ export function install(rt) {
     if (failed !== undefined) throw failed
   }
 
+  // A temporary employee leaves the active roster after its task, while its identity
+  // remains in completed group history so old bubbles keep their name and avatar.
+  async function retireTemporaryBot(id) {
+    const bot = rt.botOf(id)
+    if (!bot || bot.retiredAt || bot.employment !== 'temporary' || rt.isMain(id) || rt.isGeneralAssistant(id)) return false
+    if (Object.values(state.teams).some(team => team.leaderId === id)) return false
+    if (!rt.temporaryBotBusy || await rt.temporaryBotBusy(id)) return false
+    // Plain archive refuses active work, approvals and schedules. Never force-stop
+    // another task to retire a worker; leave its history and identity readable.
+    const parts = new Set([rt.chatOf(id), ...rt.groupSessionsOf(id)])
+    for (const part of parts) await ctx.workspaceRegistry.archiveSession(part)
+    if (await rt.temporaryBotBusy(id)) return false
+    for (const team of Object.values(state.teams)) team.members = team.members.filter(member => member !== id)
+    bot.hidden = true
+    rt.cancelPortrait?.(id)
+    bot.retiredAt = Date.now()
+    bot.teamId = null
+    delete bot.retirePending
+    delete bot.pendingTaskReset
+    delete bot.taskExperience
+    await rt.archiveBotMemory(id)
+    await rt.save()
+    return true
+  }
+
   // A deletion whose save fails stays in memory, and the next save writes it, so its
   // Sessions are stopped anyway: left armed, their scheduled tasks would keep running
   // with nothing in the team to show or delete them. Only a host that lost the team
@@ -522,6 +573,6 @@ export function install(rt) {
   Object.assign(rt, {
     ensureWorkspace, createSession, createBot, duplicateBot, updateBot, setFlags,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
-    setMain, deleteBot, bootstrap, dropKickoff,
+    setMain, deleteBot, retireTemporaryBot, bootstrap, dropKickoff,
   })
 }

@@ -21,7 +21,7 @@ function runtime() {
   const slots = []
   let cursor = 0, effects = [], dirty = false, mounted = true, lateUpdates = 0, component, props, tree
   const react = {
-    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     useState(initial) {
       const index = cursor++
       const cell = slots[index] ??= { value: typeof initial === 'function' ? initial() : initial }
@@ -42,6 +42,7 @@ function runtime() {
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
     module, exports: module.exports,
+    setTimeout, clearTimeout,
     require: name => ({ react, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],
   })
   const render = () => {
@@ -226,25 +227,31 @@ test('a synchronous retain failure renders an error without creating a reference
   data.page.unmount()
 })
 
-test('an expanded canvas conversation mounts its activity inside the same scoped root', () => {
+test('an expanded canvas conversation mounts its activity and acknowledges only after the editor is ready', async () => {
   const page = runtime(), visits = []
   const bot = { id: 'writer', name: 'Writer' }
   const useSession = pick => pick({ openState: 'ready' })
   const useRoster = pick => pick({ byId: { writer: bot }, roomsById: {} })
   const useSessionStatus = () => {}, useLive = () => {}
-  const actions = { beginVisit: id => visits.push(['begin', id]), endVisit: id => visits.push(['end', id]), clearUnread: id => visits.push(['read', id]) }
+  const actions = { beginVisit: id => visits.push(['begin', id]), endVisit: id => visits.push(['end', id]), clearUnread: id => visits.push(['read', id]), readCanvasChat: id => { visits.push(['visible', id]); return () => visits.push(['hidden', id]) } }
   const tree = page.render(page.CanvasConversation, {
     sessionId: 'writer', useSession, useRoster, useSessionStatus, useLive, actions,
     useCanvas: pick => pick({ active: 'bot:writer', windows: [{ id: 'bot:writer', entityId: 'writer' }] }),
     renderFactorySlot: () => ({ type: 'transcript', props: {}, children: [] }),
   })
-  const activity = tree.children.find(child => child?.type?.name === 'ActivityIndicator')
+  const surface = tree.children[0]
+  const activity = surface.children.find(child => child?.type?.name === 'ActivityIndicator')
   assert.ok(activity)
   assert.equal(activity.props.sessionId, 'writer')
-  assert.equal(activity.props.rootRef, tree.props.ref)
+  assert.equal(activity.props.rootRef, surface.props.ref)
   assert.equal(activity.props.useSessionStatus, useSessionStatus)
   assert.equal(activity.props.useLive, useLive)
-  assert.deepEqual(visits, [['begin', 'writer'], ['read', 'writer']])
+  assert.deepEqual(visits, [])
+  page.flush()
+  await new Promise(resolve => setTimeout(resolve, 5))
+  page.flush()
+  assert.deepEqual(visits, [['visible', 'writer'], ['begin', 'writer'], ['read', 'writer']])
   page.unmount()
+  assert.deepEqual(visits.at(-2), ['hidden', 'writer'])
   assert.deepEqual(visits.at(-1), ['end', 'writer'])
 })

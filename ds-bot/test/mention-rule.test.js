@@ -19,7 +19,7 @@ const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports,
   require: (name) => {
-    const platform = { react: { createElement: () => null, Fragment: 'fragment', useState: initial => [initial, () => {}], useEffect: () => {}, useRef: initial => ({ current: initial }), useLayoutEffect: () => {}, useId: () => 'id' }, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} }
+    const platform = { react: { createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: () => null, Fragment: 'fragment', useState: initial => [initial, () => {}], useEffect: () => {}, useRef: initial => ({ current: initial }), useLayoutEffect: () => {}, useId: () => 'id' }, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} }
     if (!(name in platform)) throw new Error(`no platform module ${name}`)
     return platform[name]
   },

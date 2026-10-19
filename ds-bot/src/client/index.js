@@ -4,6 +4,7 @@ import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { countCards, createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
+import { recoveryNotice } from './recovery-state.js'
 import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, ConnectPlugins, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
@@ -68,6 +69,7 @@ export function apply(ctx) {
   const surface = createSource({ mode: readMode(), plain: false })
   const canvas = createSource(readCanvas())
   const completions = createSource({})
+  const readingChats = createSource({})
   let canvasPreferred = true
   try { canvasPreferred = localStorage.getItem(STORAGE.workspaceView) !== 'classic' } catch { /* storage unavailable */ }
   const canvasVisible = () => ctx.layout.panelInfo?.getSnapshot().activePanelId === CANVAS_PANEL
@@ -106,7 +108,7 @@ export function apply(ctx) {
     window.addEventListener('pagehide', saveCanvas)
     return () => { off(); saveCanvas(); window.removeEventListener('pagehide', saveCanvas) }
   }, 'ds-bot: canvas layout')
-  ctx.effect(() => watchCompletions({ sessions: ctx.sessions.list, roster, canvas, panels: ctx.layout.panelInfo, completions, canvasSize: () => canvasSize }), 'ds-bot: conversation completions')
+  ctx.effect(() => watchCompletions({ sessions: ctx.sessions.list, roster, canvas, panels: ctx.layout.panelInfo, completions, readingChats, canvasSize: () => canvasSize }), 'ds-bot: conversation completions')
   // DSH Agent Session ids from the last pull, so a reload already knows the main
   // view is a plain Session before the team answers.
   let agentSessionCache = new Set()
@@ -193,8 +195,14 @@ export function apply(ctx) {
     const current = roster.getSnapshot()
     // Connector and capability states change without a new revision.
     const live = {}
+    if (value.taskProgress !== undefined && JSON.stringify(value.taskProgress) !== JSON.stringify(current.taskProgress ?? {})) live.taskProgress = value.taskProgress
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
+    if (value.modelFailures !== undefined && JSON.stringify(value.modelFailures) !== JSON.stringify(current.modelFailures ?? [])) {
+      live.modelFailures = value.modelFailures
+      const notice = recoveryNotice(current.modelFailures ?? [], value.modelFailures)
+      if (notice) ui.set(state => ({ ...state, toast: { text: t(notice), token: Date.now() } }))
+    }
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) { taskNotices.receive(value.taskNotices ?? []); return }
     // On a browser with no visit record yet, everything already there counts as seen.
@@ -283,9 +291,7 @@ export function apply(ctx) {
         if (!on && stopReads) { stopReads(); stopReads = null }
         // A Bot deleted here or in another window takes its guests and saved tabs along.
         void browsers.retain(snapshot.bots.map(bot => bot.id))
-        // A panel open on the browser view without a browsable subject falls back
-        // to the details view.
-        ui.set(state => (state.details && state.view === 'browser' && (!on || !snapshot.byId[state.details]) ? { ...state, view: 'details' } : state))
+        ui.set(state => (state.details && (!on || !snapshot.byId[state.details]) ? { ...state, details: null, view: 'browser' } : state))
       }
       sync()
       const offRoster = roster.subscribe(sync)
@@ -479,26 +485,29 @@ export function apply(ctx) {
     openExchange: (a, b) => { if (a && b) ui.set(state => ({ ...state, exchange: [a, b] })) },
     openVoice: (id) => { if (id) ui.set(state => ({ ...state, voice: id, menu: null })) },
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
-    toggleDetails: (id, force) => {
-      ui.set((state) => {
-        const details = force || state.details !== id || state.view !== 'details' ? id : null
-        return { ...state, renaming: false, tab: null, details, view: 'details' }
-      })
-    },
-    // The open panel follows the main view; a subject with no browser (a group
-    // chat, an outside Session) settles on the details view.
+    toggleDetails: id => actions.showDetails(id),
+    // Only the browser follows conversation focus. Management stays in its dialog.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state
-        const view = state.view === 'browser' && roster.getSnapshot().byId[id] === undefined ? 'details' : state.view
-        return { ...state, details: id, view, renaming: false, tab: null }
+        const bot = roster.getSnapshot().byId[id]
+        return { ...state, details: bot ? id : null, view: 'browser', renaming: false, tab: null }
       })
     },
-    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab })) },
-    // Opening the conversation would move focus to its composer and blur the name field.
-    renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null })) },
+    showExecution: (sessionId, botId) => ui.set(state => ({ ...state, execution: { sessionId, botId } })),
+    closeExecution: () => ui.set(state => ({ ...state, execution: null })),
+    execution: (sessionId, botId) => call('execution', { sessionId, botId }),
+    showDetails: (id) => {
+      const snapshot = roster.getSnapshot()
+      const bot = snapshot.byId[id]
+      if (bot || snapshot.roomsById[id]) actions.openSettings(bot ? 'bots' : 'groups', bot?.id ?? id)
+    },
+    renameBot: (id) => {
+      actions.showDetails(id)
+      ui.set(state => state.settings ? { ...state, settings: { ...state.settings, focusName: Date.now() } } : state)
+    },
     // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
-    openSettings: (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) },
+    openSettings: (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, details: null, renaming: false, tab: null, menu: null, palette: null, newChat: null })) },
     closeSettings: () => { ui.set(state => (state.settings ? { ...state, settings: null } : state)) },
     openMemory: (botId) => { ui.set(state => ({ ...state, memory: botId, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
@@ -565,7 +574,26 @@ export function apply(ctx) {
     }),
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
-    clearUnread: id => setUnread(id, false),
+    clearUnread: id => {
+      setUnread(id, false)
+      const bot = roster.getSnapshot().byId[id]
+      const part = bot ? currentPart(bot) : id
+      completions.set(state => {
+        if (!state[part]) return state
+        const next = { ...state }
+        delete next[part]
+        return next
+      })
+    },
+    readCanvasChat: id => {
+      readingChats.set(state => ({ ...state, [id]: (state[id] ?? 0) + 1 }))
+      return () => readingChats.set(state => {
+        const next = { ...state }
+        if (next[id] > 1) next[id] -= 1
+        else delete next[id]
+        return next
+      })
+    },
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
     deleteRoom: id => after(call('delete-room', { id })),
     openMenu: (menu) => { ui.set(state => ({ ...state, menu })) },
@@ -589,6 +617,7 @@ export function apply(ctx) {
     setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
     updateRoom: (id, patch) => after(call('update-room', { id, ...patch })),
     send: (sessionId, text) => after(call('send', { sessionId: partFor(sessionId), text })),
+    recoverFailure: (id, action) => after(call('recover-failure', { id, action })),
     answerQuestion: (sessionId, questionId, answer) => after(call('answer-question', { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
     answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
@@ -784,6 +813,7 @@ export function apply(ctx) {
   }
   actions.setPanelView = (view) => {
     if (view !== 'details' && view !== 'browser') return
+    if (view === 'details') { actions.showDetails(ui.getSnapshot().details); return }
     ui.set(state => (state.details && state.view !== view ? { ...state, view } : state))
   }
   actions.closePanel = () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null } : state)) }

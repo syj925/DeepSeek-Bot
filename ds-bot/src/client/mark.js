@@ -2,6 +2,8 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { getLetterAvatarProps } from './avatar-colors.js'
 import { t } from './i18n.js'
+import { employeeIcon } from '../shared/employee-avatar.js'
+import { EmployeeIcon } from './employee-icon.js'
 
 export { colorOf, lookOf } from './characters.js'
 export { getAvatarBgColor, getAvatarTheme, getLetterAvatarProps, AVATAR_BG_COLORS, getContrastTextColor } from './avatar-colors.js'
@@ -56,6 +58,7 @@ function useGaze(ref, enabled) {
 const FIDGETS = ['hop', 'sway', 'stretch', 'look']
 export function BotMark({ bot, look: given, size = 36, state = 'idle', live = false, gaze = false, pokeable = false, label }) {
   const look = given ?? lookOf(bot)
+  const icon = !given && employeeIcon(bot)
   const ref = useRef(null)
   const maskId = useRef('')
   if (maskId.current === '') maskId.current = `bt-mark-${nextMarkSerial()}`
@@ -64,7 +67,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
   const common = {
     ref,
     className: poked ? 'bt-mark bt-mark-poke' : 'bt-mark',
-    'data-shape': look.image ? 'image' : shapeId(look.shape),
+    'data-shape': icon ? 'role-icon' : look.image ? 'image' : shapeId(look.shape),
     'data-state': STATES.includes(state) ? state : 'idle',
     'data-live': live ? '' : undefined,
     'data-fidget': live ? FIDGETS[fnv1a(`${bot?.id ?? ''}:fidget`) % FIDGETS.length] : undefined,
@@ -77,6 +80,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
     onClick: pokeable ? () => setPoked(true) : undefined,
     onAnimationEnd: poked ? (event) => { if (/^bt-poke/.test(event.animationName)) setPoked(false) } : undefined,
   }
+  if (icon) return h('span', { ...common, title: bot?.employment === 'temporary' ? t('Temporary employee') : undefined }, h(EmployeeIcon, { icon }))
   if (look.image) return h('span', common, h('img', { className: 'bt-mark-img', src: look.image, alt: '', draggable: false }))
   const box = shapeOf(look.shape).size
   return h('span', common, h('svg', { viewBox: `0 0 ${box} ${box}`, dangerouslySetInnerHTML: { __html: characterMarkup(look.shape, look.color).replaceAll(MASK_ID, maskId.current) } }))
@@ -139,7 +143,7 @@ function clusterSeats(count, frame) {
 }
 
 export function RoomAvatar({ room, roster, size = 36 }) {
-  const members = room.members.map(id => roster.byId[id]).filter(Boolean)
+  const members = room.members.map(id => roster.byId[id] ?? roster.retiredById?.[id]).filter(Boolean)
   // A group with one Bot left shows the user beside it.
   const people = members.length === 1 ? [members[0], null] : members
   const seat = (bot, seatSize, key) => (bot

@@ -15,6 +15,7 @@ export function install(rt) {
     if (current && current.id !== teamId) throw new Error('Hand over team leadership before moving its leader')
     if (teamId !== null && !teamOf(teamId)) throw new Error('Unknown team')
     if (teamId !== null && rt.isGeneralAssistant(botId)) throw new Error('The General Assistant stays independent of departments')
+    if (teamId !== null && rt.isTemporaryBot?.(botId)) throw new Error('Promote a temporary employee before assigning a lasting team')
   }
   const assign = (botId, teamId) => {
     for (const team of teams()) team.members = team.members.filter(id => id !== botId)
@@ -59,6 +60,8 @@ export function install(rt) {
     if (teams().some(team => team.id !== id && team.name.toLowerCase() === name.toLowerCase())) throw new Error('A team with this name already exists')
     const members = [...new Set([input.leaderId, ...(input.members ?? [])])]
     if (!input.leaderId || members.some(member => !rt.botOf(member))) throw new Error('Choose an existing leader and employees')
+    if (rt.isTemporaryBot?.(input.leaderId)) throw new Error('A temporary employee cannot lead a lasting team')
+    if (members.some(member => rt.isTemporaryBot?.(member))) throw new Error('Temporary employees cannot belong to a lasting team')
     if (members.some(member => rt.isGeneralAssistant(member))) throw new Error('The General Assistant stays independent of departments')
     for (const member of members) {
       checkTeamAssignment(member, id ?? null)

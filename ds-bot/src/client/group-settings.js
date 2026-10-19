@@ -1,4 +1,4 @@
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { PlusIcon, ChevronRightIcon } from './icons.js'
 import { AdminStar, BotAvatar, BotMark, RoomAvatar } from './mark.js'
@@ -23,9 +23,13 @@ export function roomSubtitle(room, roster) {
 // A group chat's settings as grouped cards: its name and notice, who answers, its
 // members and admin, its sidebar place, and deleting it. The user may change all of
 // it; the host enforces what Bots may change.
-export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
+export function GroupSettingsForm({ room, roster, actions, run, onDeleted, focusName }) {
   const [adding, setAdding] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const root = useRef(null)
+  useEffect(() => {
+    if (focusName) { const input = root.current?.querySelector('input'); input?.focus(); input?.select() }
+  }, [focusName])
   useEffect(() => {
     if (!confirming) return undefined
     const timer = setTimeout(() => setConfirming(false), 4000)
@@ -42,7 +46,7 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
     if (!confirming) { setConfirming(true); return }
     void Promise.resolve(run(actions.deleteRoom(room.id))).then((done) => { if (done) onDeleted?.() })
   }
-  return h('div', { className: 'bt-bs' },
+  return h('div', { ref: root, className: 'bt-bs' },
     h('div', { className: 'bt-bs-hero' },
       h(RoomAvatar, { room, roster, size: 64 }),
       h('div', { className: 'bt-bs-who' },
