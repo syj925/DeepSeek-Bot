@@ -13,8 +13,8 @@ unified [QibitAI publishing protocol](https://github.com/syj925/qibitai-site/blo
 3. Tag that commit with exactly `ds-bot-v<package version>` and push the tag:
 
    ```sh
-   git tag ds-bot-v0.1.51
-   git push fork ds-bot-v0.1.51
+   git tag ds-bot-v0.1.52
+   git push fork ds-bot-v0.1.52
    ```
 
 4. Wait for **DS Bot Plugin Release** to finish both jobs. It installs the pinned
@@ -27,7 +27,7 @@ unified [QibitAI publishing protocol](https://github.com/syj925/qibitai-site/blo
 The commands assume this fork's remote is named `fork`; use your remote name
 for `https://github.com/syj925/DeepSeek-Bot.git` if it differs.
 
-Plain versions publish to `stable`; prereleases such as `0.1.52-beta.1` publish to
+Plain versions publish to `stable`; prereleases such as `0.1.53-beta.1` publish to
 `beta`. The workflow writes the selected update channel into the packed manifest.
 Every version must be globally newer than previously published versions across
 both channels. Published versions are immutable: use a new version for a fix.

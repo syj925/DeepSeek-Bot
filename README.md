@@ -1,4 +1,4 @@
-The QibitAI 0.1.51 source integrates Chief routing, task collaboration and desktop UI updates. Source integration is separate from publication; the stable install address serves the latest published release.
+The QibitAI 0.1.52 source integrates Chief routing, task collaboration and desktop UI updates. Source integration is separate from publication; the stable install address serves the latest published release.
 
 QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
 

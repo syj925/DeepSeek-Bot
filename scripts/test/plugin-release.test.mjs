@@ -123,6 +123,19 @@ test('freezes a real archive, ignores npm lifecycle scripts, and records its dig
   await assert.rejects(packagePluginRelease({ env: f.env }), /already contains a frozen release/);
 });
 
+test('rejects npm PAX records from Unicode asset paths before freezing a release', async t => {
+  const f = await fixture(t);
+  const asset = 'assets/\u5458\u5de5\u5934\u50cf.png';
+  await mkdir(join(f.plugin, 'assets'));
+  await writeFile(join(f.plugin, asset), 'fixture image bytes');
+  f.manifest.files.push(asset);
+  await writeFile(join(f.plugin, 'package.json'), JSON.stringify(f.manifest));
+  await assert.rejects(packagePluginRelease({ env: f.env }), /unsupported tar entries.*PAX/);
+  for (const name of ['package.tgz', 'release.json', 'notes.md']) {
+    assert.equal(existsSync(join(f.env.PACKAGE_DIR, name)), false, `${name} must not be frozen`);
+  }
+});
+
 test('refuses packaging when the tested package has a different update channel', async t => {
   const f = await fixture(t);
   f.env.RELEASE_CHANNEL = 'beta';

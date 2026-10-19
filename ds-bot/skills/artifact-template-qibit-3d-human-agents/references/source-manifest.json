@@ -7,7 +7,7 @@
   "retainedOriginals": [
     {
       "role": "QiBit · 主智能体",
-      "file": "assets/characters/01_QiBit_主Agent_任务统筹与协作调度.png",
+      "file": "assets/characters/01-qibit-coordinator.png",
       "sha256": "1e5904971e2dcfd14dd376ab887a6905cf50f871f7607edc33d7bbda5593725d",
       "width": 1024,
       "height": 1024,
@@ -15,7 +15,7 @@
     },
     {
       "role": "技术",
-      "file": "assets/characters/02_技术Agent_代码开发与技术实现.png",
+      "file": "assets/characters/02-engineering.png",
       "sha256": "65186555f9b7aff39fe52ce6b63d903a5eeaed3f36dcc086a6242f92c0d207f1",
       "width": 1024,
       "height": 1024,
@@ -23,7 +23,7 @@
     },
     {
       "role": "设计",
-      "file": "assets/characters/03_设计Agent_界面设计与视觉创作.png",
+      "file": "assets/characters/03-design.png",
       "sha256": "6996dbf6926116d855fc7873fcd7c4f6a57b5fde7d15f369cfa2133041fa7507",
       "width": 1024,
       "height": 1024,
@@ -31,7 +31,7 @@
     },
     {
       "role": "行政",
-      "file": "assets/characters/04_行政Agent_日程安排与事务协调.png",
+      "file": "assets/characters/04-administration.png",
       "sha256": "13fa9ee8e4abba6a470f3b7942690b4c1b8ffb4770194b0423e182deaf0537a6",
       "width": 1024,
       "height": 1024,
@@ -39,7 +39,7 @@
     },
     {
       "role": "运营",
-      "file": "assets/characters/05_运营Agent_数据分析与运营推进.png",
+      "file": "assets/characters/05-operations.png",
       "sha256": "df42e9e66884a948cd0322757489c6bb0eac56dad2d1add7ecd0206681a30dcc",
       "width": 1024,
       "height": 1024,
@@ -47,7 +47,7 @@
     },
     {
       "role": "财务",
-      "file": "assets/characters/06_财务Agent_预算管理与账目核对.png",
+      "file": "assets/characters/06-finance.png",
       "sha256": "1f18e56d40c6a355a663fb94525b2256191e7c3827ddfa69fb47783c62d6c0d7",
       "width": 1024,
       "height": 1024,
@@ -55,7 +55,7 @@
     },
     {
       "role": "销售",
-      "file": "assets/characters/07_销售Agent_客户跟进与商务沟通.png",
+      "file": "assets/characters/07-sales.png",
       "sha256": "5759dc004e87dfe4b4791985189c895aa0be4be43b1953d241af5e53a33c23f5",
       "width": 1024,
       "height": 1024,

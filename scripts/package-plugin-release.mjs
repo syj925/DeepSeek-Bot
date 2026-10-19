@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
@@ -70,6 +71,37 @@ function runNpm(args, options) {
   return execFileSync('npm', args, options);
 }
 
+function validateArchiveEntries(bytes) {
+  // npm emits PAX records for some paths (including Unicode names); the gateway
+  // accepts only ordinary files and directories, even when local tar can read them.
+  let tar;
+  try { tar = gunzipSync(bytes, { maxOutputLength: 100 * 1024 * 1024 }); }
+  catch { throw new Error('Package gzip data is invalid or exceeds the gateway 100 MiB expansion limit'); }
+  if (tar.length < 1024 || tar.length % 512) throw new Error('Package has invalid tar framing');
+  for (let offset = 0; offset < tar.length;) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every(byte => byte === 0)) {
+      if (offset + 1024 > tar.length || tar.subarray(offset).some(byte => byte !== 0)) {
+        throw new Error('Package has invalid trailing tar records');
+      }
+      return;
+    }
+    if (![0, 48, 53].includes(header[156]) || header.subarray(157, 257).some(byte => byte !== 0)) {
+      throw new Error('Package contains unsupported tar entries (links, PAX/GNU extensions or special files); use portable asset paths');
+    }
+    const field = header.subarray(124, 136);
+    const octal = field.toString('ascii').replace(/[\0 ]+$/g, '').trim();
+    const size = Number.parseInt(octal, 8);
+    const next = offset + 512 + Math.ceil(size / 512) * 512;
+    if (field[0] & 0x80 || !/^[0-7]+$/.test(octal) || !Number.isSafeInteger(size)
+        || !Number.isSafeInteger(next) || next > tar.length) {
+      throw new Error('Package has invalid tar entry framing');
+    }
+    offset = next;
+  }
+  throw new Error('Package is missing trailing tar records');
+}
+
 export async function packagePluginRelease({ env = process.env } = {}) {
   const config = configuration(env);
   const out = resolve(required(env, 'PACKAGE_DIR'));
@@ -99,6 +131,8 @@ export async function packagePluginRelease({ env = process.env } = {}) {
   const path = join(out, packed[0].filename);
   const size = (await stat(path)).size;
   if (size < 18 || size > 50 * 1024 * 1024) throw new Error('Package exceeds gateway size limits');
+  const bytes = await readFile(path);
+  validateArchiveEntries(bytes);
   // Git Bash tar interprets the colon in a Windows drive path as a remote host.
   const manifest = JSON.parse(execFileSync('tar', ['-xzOf', basename(path), 'package/package.json'], {
     cwd: out, encoding: 'utf8', maxBuffer: 1024 * 1024,
@@ -108,7 +142,6 @@ export async function packagePluginRelease({ env = process.env } = {}) {
     cwd: out, maxBuffer: 100 * 1024 * 1024,
   });
   if (!patchBytes.length) throw new Error('Bundle patch is empty');
-  const bytes = await readFile(path);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const version = manifest.version;
   const metadata = {
