@@ -60,6 +60,10 @@ export function Dock({
   role = 'toolbar',
   'aria-label': ariaLabel = 'Application dock',
   style = {},
+  hoverRegionRef,
+  hoverLift = 0,
+  focusedIconSize = MAGNIFIED_ICON_SIZE,
+  hoverExitDelay = 0,
   ...rest
 }) {
   const dockRef = useRef(null)
@@ -70,11 +74,22 @@ export function Dock({
   const hoveredRef = useRef(-1)
   const frameId = useRef(0)
   const lastTime = useRef(0)
+  const geometryDirty = useRef(true)
+  const exitTimer = useRef(null)
 
   // Animation frame loop for macOS spring dock physics
   const tick = (now) => {
     const dt = Math.min(0.04, Math.max(0.001, (now - (lastTime.current || now)) / 1000))
     lastTime.current = now
+
+    if (geometryDirty.current && isHovered.current) {
+      // Measure the fixed hit boxes together, before any scale writes.
+      itemsRef.current.forEach(item => {
+        const rect = item.element?.getBoundingClientRect?.()
+        item.centerX = rect?.width > 0 ? rect.left + rect.width / 2 : Infinity
+      })
+      geometryDirty.current = false
+    }
 
     // Step item widths
     let itemsMoving = false
@@ -83,45 +98,61 @@ export function Dock({
     let closestDist = Infinity
 
     itemsRef.current.forEach(item => {
+      if (!item.element || !isHovered.current || !Number.isFinite(mX) || !Number.isFinite(item.centerX)) return
+      const d = Math.abs(mX - item.centerX)
+      if (d < closestDist) { closestDist = d; closestIdx = item.index }
+    })
+    const nextHovered = isHovered.current && closestDist <= 48 ? closestIdx : -1
+
+    itemsRef.current.forEach(item => {
       if (!item.element) return
       let targetW = BASE_ITEM_WIDTH
       if (isHovered.current && Number.isFinite(mX)) {
-        const rect = item.element.getBoundingClientRect?.()
-        if (rect && rect.width > 0) {
-          const centerX = rect.left + rect.width / 2
-          const d = Math.abs(mX - centerX)
+        if (Number.isFinite(item.centerX)) {
+          const d = Math.abs(mX - item.centerX)
           if (d < distance) {
             const curve = Math.cos((d / distance) * (Math.PI / 2))
             targetW = BASE_ITEM_WIDTH + (magnification - BASE_ITEM_WIDTH) * curve
           }
-          if (d < closestDist) {
-            closestDist = d
-            closestIdx = item.index
-          }
         }
       }
       item.spring.target = targetW
+      item.liftSpring.target = item.index === nextHovered ? hoverLift : 0
       // Integrate in small steps so a slow frame cannot destabilize the spring.
       let moving = false
       const steps = Math.ceil(dt / 0.008)
-      for (let i = 0; i < steps; i++) moving = item.spring.step(dt / steps) || moving
+      for (let i = 0; i < steps; i++) {
+        moving = item.spring.step(dt / steps) || moving
+        moving = item.liftSpring.step(dt / steps) || moving
+      }
       if (moving) itemsMoving = true
 
       const curW = Math.round(item.spring.current * 10) / 10
       const iconRatio = (curW - BASE_ITEM_WIDTH) / (magnification - BASE_ITEM_WIDTH || 1)
-      const curIconSize = BASE_ICON_SIZE + (MAGNIFIED_ICON_SIZE - BASE_ICON_SIZE) * Math.max(0, Math.min(1, iconRatio))
+      const liftProgress = hoverLift > 0 ? Math.max(0, Math.min(1, item.liftSpring.current / hoverLift)) : 0
+      const curIconSize = BASE_ICON_SIZE + (MAGNIFIED_ICON_SIZE - BASE_ICON_SIZE) * Math.max(0, Math.min(1, iconRatio)) + (focusedIconSize - MAGNIFIED_ICON_SIZE) * liftProgress
 
       // Keep hit boxes fixed: magnification must never move the next target.
-      item.element.style?.setProperty?.('--dock-icon-scale', String(curIconSize / BASE_ICON_SIZE))
+      const scale = (curIconSize / BASE_ICON_SIZE).toFixed(4)
+      if (item.lastScale !== scale) {
+        item.icon ??= item.element.querySelector?.('.bt-dock-icon-wrap') ?? item.element
+        item.icon.style?.setProperty?.('--dock-icon-scale', scale)
+        item.lastScale = scale
+      }
+      const lift = `${-Math.round(item.liftSpring.current * 100) / 100}px`
+      if (item.lastLift !== lift) {
+        item.icon ??= item.element.querySelector?.('.bt-dock-icon-wrap') ?? item.element
+        item.icon.style?.setProperty?.('--dock-icon-lift', lift)
+        item.lastLift = lift
+      }
     })
 
-    const nextHovered = isHovered.current && closestDist <= 48 ? closestIdx : -1
     if (hoveredRef.current !== nextHovered) {
       hoveredRef.current = nextHovered
       setHoveredIdx(nextHovered)
     }
 
-    if (itemsMoving || isHovered.current) {
+    if (itemsMoving) {
       if (typeof requestAnimationFrame !== 'undefined') {
         frameId.current = requestAnimationFrame(tick)
       }
@@ -139,29 +170,70 @@ export function Dock({
 
   const registerItem = useCallback((itemData) => {
     itemsRef.current.add(itemData)
-    return () => { itemsRef.current.delete(itemData) }
+    geometryDirty.current = true
+    return () => { itemsRef.current.delete(itemData); geometryDirty.current = true }
   }, [])
 
+  const cancelExit = () => {
+    if (exitTimer.current !== null && typeof clearTimeout !== 'undefined') clearTimeout(exitTimer.current)
+    exitTimer.current = null
+  }
   const handleMouseMove = (event) => {
+    cancelExit()
+    // Keep the last tab's animation target while interacting with its preview.
+    if (hoverRegionRef && event?.target && !dockRef.current?.contains?.(event.target)) return
+    if (!isHovered.current) geometryDirty.current = true
     isHovered.current = true
     mouseX.current = event?.clientX ?? event?.pageX ?? Infinity
     startLoop()
   }
 
-  const handleMouseLeave = () => {
+  const resetHover = () => {
+    exitTimer.current = null
     isHovered.current = false
     mouseX.current = Infinity
     itemsRef.current.forEach(item => { item.spring.target = BASE_ITEM_WIDTH })
-    hoveredRef.current = -1
-    setHoveredIdx(-1)
+    if (hoveredRef.current !== -1) {
+      hoveredRef.current = -1
+      setHoveredIdx(-1)
+    }
     startLoop()
   }
+  const handleMouseLeave = () => {
+    cancelExit()
+    if (hoverExitDelay > 0 && typeof setTimeout !== 'undefined') exitTimer.current = setTimeout(resetHover, hoverExitDelay)
+    else resetHover()
+  }
 
-  useEffect(() => () => {
-    if (frameId.current && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(frameId.current)
+  useEffect(() => {
+    const region = hoverRegionRef?.current
+    const invalidateGeometry = () => {
+      geometryDirty.current = true
+      if (isHovered.current) startLoop()
     }
-  }, [])
+    region?.addEventListener('mousemove', handleMouseMove, { passive: true })
+    region?.addEventListener('mouseleave', handleMouseLeave)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', invalidateGeometry)
+      window.addEventListener('scroll', invalidateGeometry, true)
+    }
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(invalidateGeometry) : null
+    if (dockRef.current) observer?.observe(dockRef.current)
+    const container = (region ?? dockRef.current)?.parentElement
+    if (container) observer?.observe(container)
+    return () => {
+      cancelExit()
+      region?.removeEventListener('mousemove', handleMouseMove)
+      region?.removeEventListener('mouseleave', handleMouseLeave)
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', invalidateGeometry)
+        window.removeEventListener('scroll', invalidateGeometry, true)
+      }
+      observer?.disconnect()
+      if (frameId.current && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(frameId.current)
+      frameId.current = 0
+    }
+  }, [hoverRegionRef, distance, magnification, hoverLift, focusedIconSize, hoverExitDelay])
 
   const contextValue = useMemo(() => ({
     registerItem,
@@ -182,8 +254,8 @@ export function Dock({
     },
     role,
     'aria-label': ariaLabel,
-    onMouseMove: handleMouseMove,
-    onMouseLeave: handleMouseLeave,
+    onMouseMove: hoverRegionRef ? undefined : handleMouseMove,
+    onMouseLeave: hoverRegionRef ? undefined : handleMouseLeave,
     ...rest,
   },
     h(DockProvider, { value: contextValue },
@@ -205,9 +277,11 @@ export function DockItem({
   const hoveredIdx = dockContext?.hoveredIdx ?? -1
   const spring = dockContext?.spring || { mass: 0.1, stiffness: 150, damping: 12 }
   const springRef = useRef(null)
+  const liftSpringRef = useRef(null)
 
   if (!springRef.current) {
     springRef.current = createSpring(spring.mass, spring.stiffness, spring.damping, BASE_ITEM_WIDTH)
+    liftSpringRef.current = createSpring(spring.mass, spring.stiffness, spring.damping)
   }
 
   useEffect(() => {
@@ -216,6 +290,7 @@ export function DockItem({
       index,
       element: itemRef.current,
       spring: springRef.current,
+      liftSpring: liftSpringRef.current,
     }
     return registerItem(itemData)
   }, [index, registerItem])

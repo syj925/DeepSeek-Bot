@@ -2,6 +2,8 @@ import { INKS } from './inks.js'
 import { DEFAULT_MASK } from './characters.js'
 import { MENTION_ORIGIN } from './text.js'
 import { SPRING_SHAPE, SPRING_TAP, SPRING_STRETCH, SPRING_POP, spring } from './motion.js'
+import { AGENT_AVATAR_CSS } from './agent-avatar-preview.js'
+import { VISUAL_TOKENS } from './visual-tokens.js'
 
 // The pill stretches for "Memory updated" on SPRING_STRETCH, and its icon pops on
 // SPRING_POP; it closes on SPRING_SHAPE.
@@ -13,6 +15,7 @@ import { SPRING_SHAPE, SPRING_TAP, SPRING_STRETCH, SPRING_POP, spring } from './
 // CONVERSATION_CSS re-skins the shell's own conversation DOM and styles what only
 // the conversation renders.
 export const SHELL_CSS = `
+${VISUAL_TOKENS}
 body{--bt-ink:#141414;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56)}
 body[data-ds-dark-theme]{--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62)}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join('')}
@@ -105,10 +108,18 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-badge-main path{fill:var(--bt-star);stroke:var(--bt-sidebar);stroke-width:2.6;stroke-linejoin:round;paint-order:stroke}
 .bt-badge-alert{background:color-mix(in srgb,var(--bt-accent) 78%,var(--bt-sidebar));color:var(--bt-accent-ink,#fff);font-size:8.5px;line-height:12px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 .bt-badge-working{background:color-mix(in srgb,var(--bt-green) 82%,var(--bt-sidebar));width:8px;height:8px;right:1px;bottom:1px}
-.bt-cluster{position:relative;display:inline-block;flex:none;line-height:0}
+.bt-cluster{position:relative;display:inline-block;flex:none;line-height:0;border-radius:10px;background:rgba(0,0,0,.045);border:1px solid rgba(0,0,0,.06);box-sizing:border-box;overflow:hidden}
 .bt-cluster>*{position:absolute}
+.bt-cluster .bt-cluster-seat{position:absolute!important;display:block!important;line-height:0!important;border-radius:50%!important}
+.bt-cluster .bt-cluster-seat>*{width:100%!important;height:100%!important;display:block!important}
+.bt-cluster .bt-mark,
+.bt-cluster .bt-cluster-you,
+.bt-cluster .bt-cluster-more{border-radius:50%!important;box-shadow:0 0 0 1.2px #ffffff,0 1px 3px rgba(0,0,0,.12)!important;overflow:hidden!important}
+.bt-cluster .bt-mark img,
+.bt-cluster .bt-mark .bt-mark-img{border-radius:50%!important;object-fit:cover!important;width:100%!important;height:100%!important}
 .bt-cluster-more,.bt-cluster-you{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--bt-active);color:var(--bt-ink-3);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-weight:500;line-height:1;font-variant-numeric:tabular-nums}
 .bt-cluster-you{background:color-mix(in srgb,var(--bt-ink) 12%,transparent)}
+.bt-room-cluster>.bt-cluster-more{display:flex!important;align-items:center;justify-content:center;line-height:1!important}
 .bt-stack{display:inline-flex;align-items:center;flex:none;line-height:0}
 .bt-stack>*+*{margin-left:calc(var(--bt-stack-size) * -.3)}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
@@ -308,6 +319,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-create-step{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-bottom:-10px}
 .bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
 .bt-create-lookbar{justify-content:center}
+${AGENT_AVATAR_CSS}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
 .bt-create-go{height:36px;padding:0 20px}
 @media (prefers-reduced-motion:reduce){.bt-create-card,.bt-create-pop{animation:none}}

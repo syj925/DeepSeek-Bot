@@ -221,6 +221,23 @@ test('keyboard movement and folding remain usable when pointer dragging is unava
   page.unmount()
 })
 
+test('opening a conversation expands the saved folded panel without toggling it closed on repeated selection', () => {
+  const page = runtime(storage('{"x":60,"y":75,"folded":true}'))
+  let panel = page.draw()
+  assert.equal(panel.folded, true)
+  panel.expand()
+  panel.expand()
+  panel = page.flush()
+  assert.equal(panel.folded, false)
+  assert.equal(page.column.dataset.folded, 'false')
+  panel.expand()
+  panel = page.flush()
+  assert.equal(panel.folded, false)
+  page.advance(180)
+  assert.deepEqual(plain(page.saved.writes.at(-1).value), { x: 60, y: 75, folded: false })
+  page.unmount()
+})
+
 test('returning to Classic removes only owned styles and cancels observers and pending writes', () => {
   const page = runtime()
   page.column.classes.add('carrier-sidebar')

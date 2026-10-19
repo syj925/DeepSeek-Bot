@@ -29,6 +29,17 @@ function start(state, { config = {}, services } = {}) {
 }
 
 // Listeners run, and tools are listed, in the order they are registered.
+test('bundled font is served through the authenticated route with no arbitrary path access', async t => {
+  const app = start()
+  t.after(app.stop)
+  const font = await app.get('asset=qibit-font-v1')
+  assert.equal(font.status, 200)
+  assert.equal(font.headers.get('content-type'), 'font/ttf')
+  assert.ok((await font.arrayBuffer()).byteLength > 100000)
+  assert.equal((await app.get('asset=../../state.json')).status, 400)
+  assert.equal((await app.get('asset=qibit-font-v1&path=state.json')).status, 400)
+})
+
 test('apply registers listeners, tools, and effects in a fixed order', (t) => {
   const { ctx, stop, applyResult } = start()
   t.after(stop)

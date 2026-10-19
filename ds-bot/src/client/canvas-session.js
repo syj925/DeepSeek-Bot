@@ -6,6 +6,7 @@ import { ClassicAgentIcon } from './icons.js'
 import { ModelRecovery, MODEL_RECOVERY_CSS } from './model-recovery.js'
 import { chatSurfaces } from './chat-surface.js'
 import { TaskGroupJourney, TaskGroupNavigation } from './task-groups.js'
+import { ExecutionStatus, EXECUTION_STATUS_CSS } from './execution-status.js'
 
 export const CANVAS_PANEL = 'ds-bot-canvas'
 export const CANVAS_CONVERSATION = 'ds-bot.canvas.conversation'
@@ -67,7 +68,7 @@ export function CanvasSession({ sessionId, actions, useSessions, SessionProvider
 function CanvasChat({ renderSlot }) { return renderSlot('conversation.session', { view: 'chat' }) }
 const CONTENT_SLOTS = { views: CanvasChat, widthControls: () => null }
 
-export function CanvasConversation({ sessionId, useSession, useRoster, useSessionStatus, useLive, useCanvas, actions, renderFactorySlot, onOpenConversation }) {
+export function CanvasConversation({ sessionId, useSession, useRoster, useWork, useSessionStatus, useLive, useCanvas, actions, renderFactorySlot, onOpenConversation }) {
   const session = useSession(value => value)
   const roster = useRoster(value => value)
   const entity = roster.byId[sessionId] ?? roster.roomsById[sessionId] ?? (roster.bots ?? []).find(bot => currentPart(bot) === sessionId)
@@ -100,7 +101,7 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useSessio
     'data-bt-room': roster.roomsById[sessionId] ? '' : undefined,
     style: { '--bt-placeholder': JSON.stringify(t('Message {name}', { name: entity?.name ?? '' })), '--bt-first-sep': 'none' },
   }, session.openState === 'error' ? h('div', { role: 'alert' }, t('Could not open conversation')) : null,
-  h('style', null, MODEL_RECOVERY_CSS),
+  h('style', null, MODEL_RECOVERY_CSS + EXECUTION_STATUS_CSS),
   h(TaskGroupJourney, { sessionId, roster, actions, onOpenConversation }),
   h(ModelRecovery, { sessionId, roster, actions, onOpenConversation }),
   entity?.contextResetError ? h('div', { className: 'bt-context-clear-note', role: 'alert' }, t('Context could not be cleared. Your history is safe; try /clear again.'))
@@ -109,6 +110,7 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useSessio
     ? renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false }, { slots: CONTENT_SLOTS })
     : h('div', { className: 'bt-canvas-session-error' }, h('p', null, t('This conversation is open in another window.')),
       h('button', { type: 'button', className: 'bt-canvas-button', onClick: () => surface.current?.activate() }, t('Continue here'))),
+  h(ExecutionStatus, { sessionId, useRoster, useWork, useSessionStatus, useSession, useLive, actions }),
   h(ActivityIndicator, { key: sessionId, sessionId, useRoster, useSessionStatus, useSession, useLive, actions, rootRef: root })))
 }
 

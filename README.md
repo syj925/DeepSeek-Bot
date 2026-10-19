@@ -1,3 +1,5 @@
+QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
+
 QibitAI canvas plugin 0.1.46: includes task-scoped collaboration, recovery and chat improvements, temporary employee role icons, and the bundled QiBit portrait design kit. [Portrait integration and service requirements](docs/qibitai-employee-portraits.zh.md). Portrait generation requires a separately configured service.
 
 Earlier snapshot 0.1.31: [source handoff, build steps and known limits](docs/qibitai-0.1.31-handoff.md).

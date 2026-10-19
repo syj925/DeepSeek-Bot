@@ -130,7 +130,7 @@ function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, use
   }
   return h('button', {
     type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
-    'data-room-id': id, title: room.name, onClick: onRowClick,
+    'data-room-id': id, 'data-room-drop-id': canvasActive ? id : undefined, title: room.name, onClick: onRowClick,
     onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
     draggable: true, onDragStart: event => {
       try {
@@ -328,6 +328,7 @@ export function TeamSidebar(props) {
     clearTimeout(chatCloseTimer.current)
     floating.expand()
     setChatClosing(false)
+    floating.expand()
     setTeamChatId(id)
     actions.clearUnread(id)
   }
@@ -464,6 +465,7 @@ export function TeamSidebar(props) {
       isSplit ? h('div', {
         key: 'chat-shell',
         className: `bt-team-split-chat${chatClosing ? ' bt-chat-closing' : ''}`,
+        'data-room-drop-id': isRoom && !chatClosing ? activeEntity.id : undefined,
       },
         h('header', { className: 'bt-team-chat-bar' },
           h('div', { className: 'bt-team-chat-header-main' },

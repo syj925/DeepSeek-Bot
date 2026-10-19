@@ -4,6 +4,7 @@ import { BotMark, RoomAvatar } from './mark.js'
 import { Shimmer, PHRASES } from './cells.js'
 import { reducedMotion } from './motion.js'
 import { t } from './i18n.js'
+import { currentPart } from './text.js'
 
 // -------------------------------------------------------------------------
 // The activity row: the Bot's mark and a shimmering phrase at the transcript
@@ -94,7 +95,7 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   // send counts as fresh input.
   const pendingInput = useSession(snapshot => Math.max(0, ...(snapshot?.pendingSubmissions ?? [])
     .filter(sub => sub.placement !== 'queued').map(sub => sub.time)))
-  const bot = roster.byId[sessionId]
+  const bot = roster.byId[sessionId] ?? roster.bots?.find(item => currentPart(item) === sessionId)
   const room = roster.roomsById[sessionId]
   const entries = useMemo(() => Object.values(JSON.parse(liveKey)), [liveKey])
   const streaming = entries.some(entry => entry.text)

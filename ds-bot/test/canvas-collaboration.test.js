@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { overlapMain, canvasDropPoint, groupDropTarget, selectedMains, marqueeWindows, mergeHintPosition } from '../src/client/canvas-collaboration.js'
+import { overlapMain, canvasPoint, canvasDropPoint, groupDropTarget, selectedMains, marqueeWindows, mergeHintPosition } from '../src/client/canvas-collaboration.js'
 
 test('merge hint stays in viewport at edges and accounts for zoom and pan', () => {
   for (const viewport of [{ x: 0, y: 0, zoom: 1 }, { x: -200, y: 40, zoom: .5 }]) {
@@ -27,7 +27,7 @@ test('only compact, visible main avatars can form a collision pair', () => {
 })
 
 test('contact drop positions account for canvas origin, pan and zoom', () => {
-  assert.deepEqual(canvasDropPoint({ viewport: { x: 20, y: -40, zoom: .5 } }, { left: 200, top: 100 }, 400, 200), { x: 300, y: 240 })
+  assert.deepEqual(canvasDropPoint({ viewport: { x: 20, y: -40, zoom: .5 } }, { left: 200, top: 100 }, 400, 200), { x: 300, y: 246 })
 })
 
 test('all employees can join real groups or drafts without management rights', () => {
@@ -43,4 +43,26 @@ test('all employees can join real groups or drafts without management rights', (
   assert.deepEqual(groupDropTarget(state, { ...roster, roomsById: { r: {} } }, ['wa'], { x: 310, y: 30 }), { kind: 'room', id: 'r', windowId: 'wr' })
   assert.deepEqual(marqueeWindows(state, roster, { x: 0, y: 0, width: 1000, height: 700 }, true), ['wa', 'wc'])
   assert.deepEqual(selectedMains({ ...state, windows: [{ ...main, open: false }] }, roster, ['wa'], true), ['a'])
+})
+
+
+test('canvas coordinates share one origin, pan and zoom transform for pointer and contact drops', () => {
+  const state = { viewport: { x: 20, y: -40, zoom: .5 } }
+  const box = { left: 200, top: 100 }
+  assert.deepEqual(canvasPoint(state, box, 400, 200), { x: 360, y: 280 })
+  assert.deepEqual(canvasDropPoint(state, box, 400, 200), { x: 300, y: 246 })
+})
+
+test('group drops use visible card bounds including the wide right side and exclude space below its auto height', () => {
+  const employee = { id: 'wc', entityId: 'child', kind: 'bot', compact: true, open: true, x: 20, y: 20 }
+  const roster = { mainBotIds: [], byId: { child: {} }, roomsById: { room: { members: ['a', 'b'], admin: 'a' } } }
+  for (const compact of [true, false]) {
+    const room = { id: 'wr', entityId: 'room', kind: 'room', compact, open: true, x: 300, y: 20, z: 5, width: 420, height: 540 }
+    const state = { windows: [employee, room], groups: [] }
+    const boundsOf = window => window.id === 'wr' ? { x: 300, y: 20, width: 580, height: 126 } : undefined
+    const expected = { kind: 'room', id: 'room', windowId: 'wr' }
+    assert.deepEqual(groupDropTarget(state, roster, ['wc'], { x: 879, y: 80 }, boundsOf), expected)
+    assert.equal(groupDropTarget(state, roster, ['wc'], { x: 881, y: 80 }, boundsOf), null)
+    assert.equal(groupDropTarget(state, roster, ['wc'], { x: 500, y: 147 }, boundsOf), null)
+  }
 })

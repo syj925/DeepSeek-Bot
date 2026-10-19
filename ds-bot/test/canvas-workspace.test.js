@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { createCanvasState, openWindow, setCanvasSelection, setWindowCompact, collapseWindow } from '../src/client/canvas-state.js'
+import { createCanvasState, openWindow, setCanvasSelection, setWindowCompact, collapseWindow, setRoomExpanded } from '../src/client/canvas-state.js'
 
 const { outputFiles } = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/canvas-workspace.js', import.meta.url))],
@@ -12,8 +12,36 @@ const { outputFiles } = await build({
 })
 
 function renderer() {
-  const scopes = new Map()
-  let slots, cursor
+  const scopes = new Map(), timers = new Map(), frames = new Map()
+  const documentListeners = new Map()
+  const doc = {
+    activeElement: null, defaultView: null,
+    addEventListener(type, callback, options = false) {
+      const capture = typeof options === 'boolean' ? options : Boolean(options.capture)
+      const listeners = documentListeners.get(type) ?? []
+      if (!listeners.some(listener => listener.callback === callback && listener.capture === capture)) listeners.push({ callback, capture })
+      documentListeners.set(type, listeners)
+    },
+    removeEventListener(type, callback, options = false) {
+      const capture = typeof options === 'boolean' ? options : Boolean(options.capture)
+      documentListeners.set(type, (documentListeners.get(type) ?? []).filter(listener => listener.callback !== callback || listener.capture !== capture))
+    },
+    emit(type, event, capture) {
+      for (const listener of documentListeners.get(type) ?? []) if (listener.capture === capture) listener.callback(event)
+    },
+    dispatch(type, event, onTarget) {
+      event.type ??= type
+      this.emit(type, event, true)
+      onTarget?.(event)
+      if (!event.stopped) this.emit(type, event, false)
+    },
+  }
+  let slots, cursor, now = 0, serial = 0
+  const sameDeps = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, i) => Object.is(value, b[i]))
+  const effect = (create, deps) => {
+    const cell = slots[cursor++] ??= { effect: true, deps: undefined, pending: null, cleanup: null }
+    if (!sameDeps(cell.deps, deps)) { cell.pending = create; cell.nextDeps = deps }
+  }
   const react = {
     createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
@@ -22,25 +50,62 @@ function renderer() {
       const cell = slots[cursor++] ??= { value: typeof initial === 'function' ? initial() : initial }
       return [cell.value, next => { cell.value = typeof next === 'function' ? next(cell.value) : next }]
     },
-    useEffect() { cursor++ },
-    useLayoutEffect() { cursor++ },
+    useEffect: effect,
+    useLayoutEffect: effect,
     useMemo(make) { cursor++; return make() },
     useId: () => 'test-id',
   }
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
-    module, exports: module.exports,
+    module, exports: module.exports, document: doc,
+    setTimeout: (callback, delay = 0) => { const id = ++serial; timers.set(id, { callback, at: now + delay }); return id },
+    clearTimeout: id => timers.delete(id),
+    requestAnimationFrame: callback => { const id = ++serial; frames.set(id, callback); return id },
+    cancelAnimationFrame: id => frames.delete(id),
     getComputedStyle: node => node.computedStyle ?? { paddingLeft: '0px', paddingRight: '0px' },
     require: name => ({ react, 'react-dom': { createPortal: node => node }, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],
   })
   return {
-    ...module.exports,
+    ...module.exports, document: doc,
     render(component, props, key = component.name) {
       slots = scopes.get(key) ?? []
       scopes.set(key, slots)
       cursor = 0
       return component(props)
     },
+    flushEffects(key) {
+      for (const cell of scopes.get(key) ?? []) {
+        if (!cell?.effect || !cell.pending) continue
+        cell.cleanup?.()
+        const create = cell.pending
+        cell.pending = null
+        cell.deps = cell.nextDeps
+        cell.cleanup = create()
+      }
+    },
+    unmount(key) {
+      for (const cell of scopes.get(key) ?? []) if (cell?.effect) cell.cleanup?.()
+      scopes.delete(key)
+    },
+    advance(ms) {
+      const end = now + ms
+      while (true) {
+        const due = [...timers].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!due) break
+        const [id, timer] = due
+        now = timer.at
+        timers.delete(id)
+        timer.callback()
+      }
+      now = end
+    },
+    flushFrames() {
+      const pending = [...frames]
+      frames.clear()
+      for (const [, callback] of pending) callback(now)
+    },
+    get pendingTimers() { return timers.size },
+    get pendingFrames() { return frames.size },
   }
 }
 
@@ -53,7 +118,7 @@ const find = (node, predicate) => findAll(node, predicate)[0]
 const button = (node, label) => find(node, value => value.type === 'button' && (value.props['aria-label'] === label || value.children.includes(label)))
 const hasSession = node => findAll(node, value => value.type?.name === 'CanvasSession').length
 
-test('dragging Main avatars together proposes a group; cancellation and multi-selection do not', () => {
+test('dragging Main avatars together proposes a group; cancellation and multi-selection do not', async () => {
   for (const cancelled of [false, true]) {
     const app = fixture()
     const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
@@ -64,30 +129,87 @@ test('dragging Main avatars together proposes a group; cancellation and multi-se
     tree.props.onPointerMove(pointer({ clientX: 100 + other.x - source.x, clientY: 100 + other.y - source.y }))
     tree = app.draw()
     assert.equal(app.card(tree, 'partner').props['data-drop-target'], true)
-    tree.props.onPointerUp(pointer({ type: cancelled ? 'pointercancel' : 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: cancelled ? 'pointercancel' : 'pointerup', clientX: 100 + other.x - source.x, clientY: 100 + other.y - source.y }))
     tree = app.draw()
     const modal = find(tree, value => value.type?.name === 'MainAgentGroup')
-    assert.equal(Boolean(modal), !cancelled)
-    assert.equal(app.calls.opened.length, 0)
-    if (modal) {
-      assert.deepEqual(Array.from(modal.props.members), ['writer', 'partner'])
-      modal.props.onClose()
-      assert.equal(Boolean(find(app.draw(), value => value.type?.name === 'MainAgentGroup')), false)
+    assert.equal(Boolean(modal), false)
+    if (!cancelled) {
+      await Promise.resolve()
+      await Promise.resolve()
+      assert.deepEqual(app.calls.created[0][0], ['writer', 'partner'])
+      assert.equal(app.calls.entities[0], 'created-room')
     }
   }
 })
 const textOf = node => typeof node === 'string' ? node : node?.children?.map(textOf).join('') ?? ''
 
+test('native contact drops use the same avatar distance as desktop grouping', async () => {
+  for (const distance of [80, 58, 57]) {
+    const app = fixture()
+    const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
+    const tree = app.draw()
+    tree.props.onDrop(pointer({ clientX: other.x + 60 - distance, clientY: other.y + 34,
+      dataTransfer: { getData: () => JSON.stringify({ id: 'writer', kind: 'bot' }) } }))
+    await Promise.resolve()
+    assert.equal(app.calls.created.length, distance < 58 ? 1 : 0)
+  }
+})
+
+test('repeat avatar grouping reopens the matching ordinary room but preserves task groups', async () => {
+  for (const task of [undefined, { objective: 'Existing work' }]) {
+    const app = fixture()
+    const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
+    app.roster.rooms.push({ id: 'same', name: 'Writer + Partner', members: ['writer', 'partner'], task })
+    app.draw().props.onDrop(pointer({ clientX: other.x + 60, clientY: other.y + 34, dataTransfer: { getData: () => JSON.stringify({ id: 'writer', kind: 'bot' }) } }))
+    await Promise.resolve()
+    if (!task) { assert.equal(app.calls.created.length, 0); assert.deepEqual(app.calls.entities, ['same']) }
+    else { assert.equal(app.calls.created.length, 1); assert.equal(app.calls.created[0][1].name, 'Writer + Partner (2)') }
+  }
+})
+
+test('release rechecks current coordinates, including before the scheduled drag frame', async () => {
+  for (const scenario of ['preview-only', 'rapid-commit', 'leave-target', 'cancel']) {
+    const app = fixture()
+    const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
+    let tree = app.draw()
+    const source = app.state.windows.find(window => window.entityId === 'writer')
+    const at = distance => pointer({ clientX: 100 + other.x - source.x - distance, clientY: 100 + other.y - source.y })
+    button(app.card(tree), 'Open conversation').props.onPointerDown(pointer())
+    const updates = app.calls.updates
+    tree.props.onPointerMove(at(scenario === 'preview-only' ? 80 : 20))
+    if (scenario !== 'rapid-commit') {
+      tree = app.draw()
+      assert.equal(app.calls.updates, updates, 'movement must not publish the whole canvas')
+      const hint = find(tree, value => value.type?.name === 'MergeHint')
+      assert.ok(hint)
+      assert.equal(app.card(tree, 'partner').props['data-drop-target'] === true, scenario !== 'preview-only')
+    }
+    tree.props.onPointerUp({ ...at(scenario === 'leave-target' ? 150 : scenario === 'preview-only' ? 80 : 20), type: scenario === 'cancel' ? 'pointercancel' : 'pointerup' })
+    app.draw()
+    await Promise.resolve()
+    assert.equal(app.calls.created.length, scenario === 'rapid-commit' ? 1 : 0)
+    assert.equal(app.calls.opened.length, 0)
+    assert.equal(app.captures.size, 0)
+    if (scenario === 'cancel') assert.equal(app.state.windows.find(window => window.entityId === 'writer').x, source.x)
+  }
+})
+
 function pointer(options = {}) {
   return {
-    button: 0, pointerId: 1, clientX: 100, clientY: 100, shiftKey: false,
+    button: 0, pointerId: 1, pointerType: 'mouse', buttons: 0, clientX: 100, clientY: 100, shiftKey: false,
     prevented: false, stopped: false,
     preventDefault() { this.prevented = true }, stopPropagation() { this.stopped = true },
     target: { closest: () => null }, ...options,
   }
 }
 
-function fixture() {
+function fixture({ rootBox = { left: 0, top: 0, width: 1000, height: 700 }, cardRects = [], roomExpanded = false, strictDom = false } = {}) {
+  class FakeElement {}
+  const contains = (parent, node) => {
+    if (strictDom && node != null && !(node instanceof FakeElement)) throw new TypeError("Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'.")
+    for (let current = node; current; current = current.parentElement) if (current === parent) return true
+    return false
+  }
   const render = renderer()
   const writer = { id: 'writer', sessionId: 'writer-current', name: 'Writer', role: 'Product writing' }
   const room = { id: 'planning', name: 'Planning', members: ['writer'], admin: 'writer', mode: 'admin', preview: 'Next steps for the team' }
@@ -95,18 +217,32 @@ function fixture() {
   const work = { bots: {}, rooms: {}, approvals: [] }
   let state = openWindow(createCanvasState(), { kind: 'bot', id: 'writer' }, { x: 30, y: 70, width: 560, height: 640 })
   state = openWindow(state, { kind: 'room', id: 'planning' }, { x: 430, y: 70 })
-  const calls = { opened: [], selected: [], details: [], settings: [], menus: [], entities: [], newChats: [], exchanges: [], created: [], added: [], saved: 0, arranged: 0, compacted: 0 }
+  state = setRoomExpanded(state, 'planning', roomExpanded)
+  const calls = { focused: [], updates: 0, opened: [], selected: [], details: [], settings: [], menus: [], entities: [], newChats: [], exchanges: [], created: [], added: [], saved: 0, arranged: 0, compacted: 0 }
   const captures = new Set()
+  const roomHit = { current: null }
+  const rectOf = rect => ({ ...rect, right: rect.right ?? rect.left + rect.width, bottom: rect.bottom ?? rect.top + rect.height })
+  const rootRect = () => rectOf(rootBox)
+  const document = render.document
+  if (strictDom) document.defaultView = { Node: FakeElement }
+  document.elementFromPoint = () => roomHit.current
   const root = {
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 700 }),
+    ownerDocument: document,
+    contains: node => contains(root, node),
+    querySelectorAll: selector => selector === '.bt-canvas-group-card[data-window-id]'
+      ? [...cardRects, ...state.windows.filter(window => window.kind === 'room' && window.open && !cardRects.some(value => value.windowId === window.id && value.stage === 'avatar')).map(window => ({
+          windowId: window.id, stage: 'avatar', rect: { left: rootBox.left + state.viewport.x + window.x * state.viewport.zoom, top: rootBox.top + state.viewport.y + window.y * state.viewport.zoom, width: 120 * state.viewport.zoom, height: 132 * state.viewport.zoom },
+        }))].map(({ windowId, rect, stage = 'preview' }) => ({ dataset: { windowId, roomStage: stage }, getBoundingClientRect: () => rectOf(rect) })) : [],
+    getBoundingClientRect: rootRect,
     setPointerCapture: id => captures.add(id),
     hasPointerCapture: id => captures.has(id),
     releasePointerCapture: id => captures.delete(id),
   }
+  Object.setPrototypeOf(root, FakeElement.prototype)
   const actions = {
     createRoom: async (members, options) => { calls.created.push([Array.from(members), { ...options }]); return { id: 'created-room', members: Array.from(members), ...options } },
-    updateRoom: async (id, patch) => { calls.added.push([id, Array.from(patch.add)]); room.members = [...new Set([...room.members, ...patch.add])] },
-    updateCanvas: next => { state = typeof next === 'function' ? next(state) : next },
+    updateRoom: async (id, patch) => { calls.added.push([id, Array.from(patch.add)]); room.members = [...new Set([...room.members, ...patch.add])]; return { room } },
+    updateCanvas: next => { calls.updates++; state = typeof next === 'function' ? next(state) : next },
     selectCanvasWindow: (id, selected = true, additive = false) => {
       calls.selected.push([id, selected, additive])
       const ids = additive ? selected ? [...new Set([...state.selected, id])] : state.selected.filter(value => value !== id) : [id]
@@ -134,23 +270,79 @@ function fixture() {
     renderSlot: () => { throw new Error('a lightweight card must not render conversation slots') },
   }
   const draw = () => {
+    render.flushFrames()
     const tree = render.render(render.CanvasWorkspace, props)
     tree.props.ref.current = root
     return tree
   }
+  const hosts = new Map(), byProps = new WeakMap()
+  const matches = (host, selector) => selector.split(',').some(value => {
+    const part = value.trim(), props = host.node?.props ?? {}
+    if (part.startsWith('.')) return props.className?.split(/\s+/).includes(part.slice(1))
+    if (part.startsWith('[')) {
+      const [, key, quoted] = part.match(/^\[([^=\]]+)(?:=["']?([^"'\]]+)["']?)?\]$/) ?? []
+      return key && props[key] !== undefined && (quoted === undefined || String(props[key]) === quoted)
+    }
+    return host.node?.type === part.replace(/:.*/, '')
+  })
+  const mount = (node, window, scope, parent = root, path = '0') => {
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'fragment') { node.children.forEach((child, index) => mount(child, window, scope, parent, `${path}.${index}`)); return }
+    const key = `${scope}:${path}`, host = hosts.get(key) ?? new FakeElement()
+    hosts.set(key, host)
+    host.node = node
+    host.parentElement = node.props['data-room-stage'] === 'preview' ? root : parent
+    host.ownerDocument = document
+    host.children = []
+    if (host.parentElement.children) host.parentElement.children.push(host)
+    host.dataset = Object.fromEntries(Object.entries(node.props).filter(([key]) => key.startsWith('data-')).map(([key, value]) => [key.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase()), value]))
+    host.contains = target => contains(host, target)
+    host.closest = selector => { for (let current = host; current?.node; current = current.parentElement) if (matches(current, selector)) return current; return null }
+    host.querySelector = selector => {
+      const visit = current => { for (const child of current.children ?? []) { if (matches(child, selector)) return child; const result = visit(child); if (result) return result } return null }
+      return visit(host)
+    }
+    host.focus = () => { document.activeElement = host; calls.focused.push(node.props['aria-label'] ?? node.props.className ?? 'node') }
+    host.blur = () => { if (document.activeElement === host) document.activeElement = null }
+    host.getBoundingClientRect = () => {
+      const props = host.node.props
+      if (props['data-room-stage'] === 'preview') return rectOf({ left: rootBox.left + parseFloat(props.style.left), top: rootBox.top + parseFloat(props.style.top), width: parseFloat(props.style.width ?? props.style['--bt-room-preview-width']) || 320, height: parseFloat(props.style.height ?? props.style['--bt-room-preview-height']) || 300 })
+      return rectOf({ left: rootBox.left + state.viewport.x + window.x * state.viewport.zoom, top: rootBox.top + state.viewport.y + window.y * state.viewport.zoom, width: 120 * state.viewport.zoom, height: (window.kind === 'room' ? 132 : 112) * state.viewport.zoom })
+    }
+    byProps.set(node.props, host)
+    if (node.props.ref) node.props.ref.current = host
+    node.children.forEach((child, index) => mount(child, window, scope, host, `${path}.${index}`))
+  }
   const nested = (node, names) => {
     if (!node || typeof node !== 'object') return node
-    if (names.includes(node.type?.name)) return nested(render.render(node.type, node.props, `${node.type.name}:${node.props.group?.id ?? node.props.room?.id ?? node.props.window?.id}`), names)
+    if (names.includes(node.type?.name)) {
+      const key = `${node.type.name}:${node.props.group?.id ?? node.props.room?.id ?? node.props.window?.id}`
+      const result = nested(render.render(node.type, node.props, key), names)
+      if (node.type.name === 'WindowCard') { mount(result, node.props.window, key); render.flushEffects(key); render.flushFrames() }
+      return result
+    }
     return { ...node, children: node.children.map(child => nested(child, names)) }
   }
   const chat = tree => {
     const value = find(tree, value => value.type?.name === 'CanvasChatWindow')
     return value ? nested(value, ['CanvasChatWindow', 'WindowCard']) : null
   }
-  const desktopCards = tree => findAll(tree, value => value.type?.name === 'WindowCard').map(value => nested(value, ['WindowCard', 'RoomSummary']))
+  const desktopTrees = tree => findAll(tree, value => value.type?.name === 'WindowCard').map(value => nested(value, ['WindowCard', 'RoomSummary']))
+  const desktopCards = tree => desktopTrees(tree).flatMap(value => findAll(value, node => node.props['data-window-id'] && node.props['data-entity-id'] && node.props['data-room-stage'] !== 'preview'))
   const cards = tree => [...desktopCards(tree), ...findAll(chat(tree), value => value.props.className === 'bt-canvas-window')]
   const card = (tree, id = 'writer') => cards(tree).findLast(value => value.props['data-entity-id'] === id)
+  const preview = (tree, id = 'planning') => {
+    const window = state.windows.find(window => window.entityId === id)
+    return desktopTrees(tree).flatMap(value => findAll(value, node => node.props['data-room-stage'] === 'preview' && node.props['data-window-id'] === window?.id))[0] ?? null
+  }
+  const showPreview = (id = 'planning') => {
+    const value = card(draw(), id)
+    const toggle = button(value, 'Expand group card') ?? button(value, 'Group card details')
+    toggle.props.onClick(pointer({ detail: 0 }))
+    return preview(draw(), id)
+  }
   const group = tree => nested(find(tree, value => value.props.className === 'bt-canvas-group'), ['GroupTitle'])
+  const departmentDock = tree => nested(find(tree, value => value.type?.name === 'CanvasDepartmentDock'), ['CanvasDepartmentDock'])
   const addBot = (bot, inRoom = true) => {
     roster.bots.push(bot)
     roster.byId[bot.id] = bot
@@ -163,7 +355,7 @@ function fixture() {
     const node = find(draw(), value => value.type?.name === 'MainAgentGroup')
     return node ? render.render(node.type, node.props, 'group-dialog') : null
   }
-  return { draw, cards, card, chat, desktopCards, group, addBot, modal, roster, room, work, calls, captures, actions, get state() { return state }, set state(value) { state = value } }
+  return { draw, cards, card, preview, showPreview, host: node => byProps.get(node?.props), advance: ms => render.advance(ms), get pendingTimers() { return render.pendingTimers }, unmountRoom: (id = 'planning') => render.unmount(`WindowCard:${state.windows.find(window => window.entityId === id)?.id}`), document, chat, desktopCards, group, departmentDock, addBot, modal, roster, room, work, calls, captures, actions, rootBox, cardRects, roomHit, get state() { return state }, set state(value) { state = value } }
 }
 
 test('right-drag selects all employees and a short right-click offers group actions', async () => {
@@ -205,7 +397,7 @@ test('a short background right-click creates an empty, movable group without a b
   const title = find(node, value => value.type?.name === 'GroupTitle')
   title.props.start(pointer(), 'group', app.state.groups[0].id)
   tree.props.onPointerMove(pointer({ clientX: 140, clientY: 150 }))
-  tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+  tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 140, clientY: 150 }))
   assert.equal(app.state.groups[0].x, 640)
   assert.equal(app.state.groups[0].y, 350)
 })
@@ -221,7 +413,7 @@ test('a draft stages one Main Agent, then creates a real group with a second eve
     button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
     tree.props.onPointerMove(pointer({ clientX: 530, clientY: 400 }))
     assert.equal(find(app.draw(), value => value.props['data-group-id']).props['data-drop-target'], true)
-    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 530, clientY: 400 }))
   }
   const positions = Array.from(app.state.windows, ({ x, y }) => [x, y])
   drop('writer')
@@ -250,7 +442,7 @@ test('multi-selection can join an existing Main Agent group; cancellation restor
     button(app.card(tree, 'partner'), 'Open conversation').props.onPointerDown(pointer())
     tree.props.onPointerMove(pointer({ clientX: 500, clientY: 140 }))
     assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], true)
-    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 500, clientY: 140 }))
     assert.deepEqual(Array.from(app.state.windows, ({ x, y }) => [x, y]), positions)
     const modal = app.modal()
     await button(modal, cancelled ? 'Cancel' : 'Add to group').props.onClick()
@@ -267,7 +459,7 @@ test('already-present members and failed invitations leave the group unchanged a
     const tree = app.draw()
     button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
     tree.props.onPointerMove(pointer({ clientX: 500, clientY: 140 }))
-    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 500, clientY: 140 }))
   }
   invite('writer')
   let modal = app.modal()
@@ -293,12 +485,12 @@ test('employee avatars and Room cards keep management reachable without mounting
   const data = fixture(), tree = data.draw(), cards = data.cards(tree)
   assert.equal(cards.length, 2)
   for (const card of cards) {
-    assert.equal(card.props['data-mode'], 'card')
-    const expected = card.props['data-kind'] === 'bot' ? { width: 120, height: 112 } : { width: 320, height: 200 }
+    assert.equal(card.props['data-mode'], card.props['data-kind'] === 'bot' ? 'card' : 'avatar')
+    const expected = card.props['data-kind'] === 'bot' ? { width: 120, height: 112 } : { width: 120, height: 132 }
     assert.deepEqual({ width: card.props.style.width, height: card.props.style.height }, expected)
     assert.equal(hasSession(card), 0)
     assert.equal(findAll(card, value => value.props.contentEditable || value.props.role === 'textbox' || /Editor|Composer|CanvasConversation/.test(value.type?.name ?? '')).length, 0)
-    assert.ok(button(card, 'Open conversation'))
+    assert.ok(button(card, card.props['data-kind'] === 'bot' ? 'Open conversation' : 'Expand group card'))
     assert.equal(button(card, 'Memory'), undefined)
     assert.equal(button(card, 'Scheduled tasks'), undefined)
     assert.equal(find(card, value => value.props.className === 'bt-canvas-resize'), undefined)
@@ -306,8 +498,9 @@ test('employee avatars and Room cards keep management reachable without mounting
   assert.equal(button(data.card(tree), 'Details'), undefined)
   data.card(tree).props.onContextMenu(pointer({ type: 'contextmenu', currentTarget: { getBoundingClientRect: () => ({ right: 100, bottom: 100 }) } }))
   assert.equal(data.calls.menus.at(-1).id, 'writer')
-  assert.ok(button(data.card(tree, 'planning'), 'Group settings'))
-  assert.ok(button(data.card(tree, 'planning'), 'Planning actions'))
+  const preview = data.showPreview()
+  assert.ok(button(preview, 'Group settings'))
+  assert.ok(button(preview, 'Planning actions'))
   assert.match(textOf(data.card(tree)), /Main Bot/)
 })
 
@@ -319,7 +512,7 @@ test('opening either employee or group mounts one floating Session and keeps its
     const tree = data.draw(), chat = data.chat(tree)
     assert.equal(find(chat, node => node.type?.name === 'CanvasSession').props.sessionId, id === 'writer' ? 'writer-current' : id)
     assert.equal(hasSession(data.card(tree, id)), 0)
-    assert.equal(data.card(tree, id).props['data-mode'], 'card')
+    assert.equal(data.card(tree, id).props['data-mode'], id === 'writer' ? 'card' : 'avatar')
     assert.deepEqual(data.state.windows.map(w => [w.x, w.y]), before)
     assert.equal(findAll(chat, node => node.props.className === 'bt-chat-resize').length, 8)
   }
@@ -410,7 +603,7 @@ test('dragging an avatar moves all selected windows and never opens a conversati
   avatar.props.onPointerDown(pointer())
   tree.props.onPointerMove(pointer({ clientX: 105, clientY: 100 }))
   data.state.windows.forEach((value, index) => {
-    assert.equal(value.x, before[index].x + 5)
+    assert.equal(value.x, before[index].x, 'drag motion does not commit shared layout')
     assert.equal(value.y, before[index].y)
   })
   tree.props.onPointerMove(pointer())
@@ -486,7 +679,7 @@ test('grouping and moving compact cards keeps every conversation unmounted', () 
   const group = data.group(tree)
   button(group, 'Window group').props.onPointerDown(pointer())
   tree.props.onPointerMove(pointer({ clientX: 140, clientY: 120 }))
-  tree.props.onPointerUp(pointer())
+  tree.props.onPointerUp(pointer({ clientX: 140, clientY: 120 }))
   data.state.windows.forEach((value, index) => {
     assert.equal(value.x, before[index].x + 40)
     assert.equal(value.y, before[index].y + 20)
@@ -553,10 +746,10 @@ test('compact menus use stable employee and room identities while transcript con
 })
 
 test('room member shortcuts and room settings route to original management actions', () => {
-  const data = fixture(), tree = data.draw()
-  button(data.card(tree, 'planning'), 'Writer').props.onClick()
-  button(data.card(tree, 'planning'), 'Group settings').props.onClick()
-  const mode = find(data.card(tree, 'planning'), value => value.props.className === 'bt-canvas-room-mode')
+  const data = fixture(), preview = data.showPreview()
+  button(preview, 'Writer').props.onClick()
+  button(preview, 'Group settings').props.onClick()
+  const mode = find(preview, value => value.props.className === 'bt-canvas-room-mode')
   mode.props.onClick()
   assert.deepEqual(data.calls.details, [])
   assert.deepEqual(data.calls.entities, ['writer'])
@@ -595,7 +788,7 @@ test('compact room summary shows admin, reply mode, member work, and approvals w
   data.addBot({ id: 'reviewer', name: 'Reviewer' })
   data.work.rooms.planning = [{ botId: 'writer', tool: 'read', since: 100 }]
   data.work.approvals = [{ id: 'approval', botId: 'designer', roomId: 'planning', tool: 'write' }]
-  let card = data.card(data.draw(), 'planning')
+  let card = data.showPreview()
   assert.match(textOf(find(card, value => value.props.className === 'bt-canvas-room-mode')), /Admin leads.*Admin Writer/)
   assert.equal(button(card, 'Writer').props['data-state'], 'work')
   assert.equal(button(card, 'Designer').props['data-state'], 'ask')
@@ -611,7 +804,7 @@ test('compact room summary shows admin, reply mode, member work, and approvals w
   assert.deepEqual(data.calls.entities, ['designer'])
   assert.equal(hasSession(card), 0)
   delete data.room.admin
-  card = data.card(data.draw(), 'planning')
+  card = data.preview(data.draw())
   assert.match(textOf(find(card, value => value.props.className === 'bt-canvas-room-mode')), /Everyone.*No admin/)
 })
 
@@ -619,7 +812,7 @@ test('room member overflow opens the existing details panel and hides missing ro
   const data = fixture()
   for (const id of ['designer', 'reviewer', 'ops']) data.addBot({ id, name: id })
   data.room.members.push('missing')
-  const card = data.card(data.draw(), 'planning')
+  const card = data.showPreview()
   const members = find(card, value => value.props.className === 'bt-canvas-members')
   assert.equal(members.props['aria-label'], 'Members · 4')
   assert.equal(findAll(members, value => value.props['data-state']).length, 3)
@@ -763,4 +956,517 @@ test('focusing a conversation raises it without selecting its desktop avatar', (
   assert.equal(data.state.active, ids[0])
   assert.equal(data.state.selected.length, 0)
   assert.equal(data.state.windows.filter(window => !window.compact).length, 2)
+})
+
+
+function showMeasuredGroupCard(app, height = 300) {
+  const room = app.state.windows.find(window => window.entityId === app.room.id)
+  const preview = app.showPreview()
+  assert.ok(preview)
+  const box = app.host(preview).getBoundingClientRect()
+  app.cardRects.splice(0, app.cardRects.length, {
+    windowId: room.id, stage: 'preview',
+    rect: { left: box.left, top: box.top, width: box.width, height },
+  })
+  return { clientX: box.left + box.width * .8, clientY: box.top + Math.min(40, height / 2) }
+}
+
+test('ordinary employees join the wide visible group card from two to three to four members without creating another room', async () => {
+  const app = fixture()
+  app.addBot({ id: 'second', name: 'Second' })
+  for (const id of ['third', 'fourth']) app.addBot({ id, name: id }, false)
+  app.state = { ...app.state, windows: app.state.windows.map(window => window.kind === 'room' ? { ...window, compact: true, width: 420, height: 540 } : window) }
+  const at = showMeasuredGroupCard(app)
+  const positions = app.state.windows.map(({ x, y }) => [x, y])
+  for (const id of ['third', 'fourth']) {
+    assert.equal(app.roster.mainBotIds.includes(id), false)
+    const tree = app.draw()
+    button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
+    tree.props.onPointerMove(pointer(at))
+    assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], true)
+    tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+    const modal = app.modal()
+    assert.ok(modal)
+    await button(modal, 'Add to group').props.onClick()
+    const expected = id === 'third' ? ['writer', 'second', 'third'] : ['writer', 'second', 'third', 'fourth']
+    assert.deepEqual(app.room.members, expected)
+    assert.equal(app.room.id, 'planning')
+    assert.equal(app.room.admin, 'writer')
+    assert.deepEqual(Array.from(app.state.windows, ({ x, y }) => [x, y]), positions)
+  }
+  assert.deepEqual(app.calls.added, [['planning', ['third']], ['planning', ['fourth']]])
+  assert.deepEqual(app.calls.created, [])
+})
+
+test('dropping below the visible auto-height group card does not invite an employee', () => {
+  for (const roomExpanded of [true, false]) {
+    const app = fixture({ roomExpanded })
+    app.addBot({ id: 'third', name: 'Third' }, false)
+    app.state = { ...app.state, windows: app.state.windows.map(window => window.kind === 'room' ? { ...window, compact: true, width: 420, height: 540 } : window) }
+    showMeasuredGroupCard(app)
+    const rect = app.cardRects[0].rect
+    const at = { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height + 1 }
+    const tree = app.draw()
+    button(app.card(tree, 'third'), 'Open conversation').props.onPointerDown(pointer())
+    tree.props.onPointerMove(pointer(at))
+    assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], undefined)
+    tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+    assert.equal(app.modal(), null)
+    assert.deepEqual(app.calls.added, [])
+    assert.deepEqual(app.calls.created, [])
+  }
+})
+
+test('native drops resolve the visible group card after canvas origin, pan and zoom changes', async () => {
+  const app = fixture({ rootBox: { left: 200, top: 100, width: 1000, height: 700 } })
+  app.addBot({ id: 'second', name: 'Second' })
+  app.addBot({ id: 'third', name: 'Third' }, false)
+  app.state = { ...app.state, viewport: { x: 20, y: -40, zoom: .5 }, windows: app.state.windows.map(window => window.kind === 'room' ? { ...window, compact: true, width: 420, height: 540 } : window) }
+  const at = showMeasuredGroupCard(app)
+  const payload = JSON.stringify({ id: 'third', kind: 'bot' })
+  app.draw().props.onDrop({ ...pointer(at), dataTransfer: { getData: type => type === 'application/x-ds-bot' ? payload : '' } })
+  const modal = app.modal()
+  assert.ok(modal)
+  await button(modal, 'Add to group').props.onClick()
+  assert.deepEqual(app.calls.added, [['planning', ['third']]])
+  assert.deepEqual(app.room.members, ['writer', 'second', 'third'])
+  assert.equal(app.room.admin, 'writer')
+  assert.deepEqual(app.calls.created, [])
+})
+
+test('an employee can join an open sidebar group without a canvas room card or popping out that conversation', async () => {
+  const app = fixture()
+  app.addBot({ id: 'second', name: 'Second' })
+  app.addBot({ id: 'third', name: 'Third' }, false)
+  app.state = { ...app.state, windows: app.state.windows.filter(window => window.kind !== 'room') }
+  app.roomHit.current = { closest: selector => selector === '[data-room-drop-id]' ? { dataset: { roomDropId: 'planning' } } : null }
+  const tree = app.draw(), at = { clientX: 750, clientY: 350 }
+  button(app.card(tree, 'third'), 'Open conversation').props.onPointerDown(pointer())
+  tree.props.onPointerMove(pointer(at))
+  tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+  const modal = app.modal()
+  assert.ok(modal)
+  await button(modal, 'Add to group').props.onClick()
+  assert.deepEqual(app.calls.added, [['planning', ['third']]])
+  assert.deepEqual(app.room.members, ['writer', 'second', 'third'])
+  assert.equal(app.room.admin, 'writer')
+  assert.deepEqual(app.calls.created, [])
+  assert.deepEqual(app.calls.entities, [])
+  assert.equal(app.state.windows.some(window => window.kind === 'room'), false)
+})
+
+
+test('a Dock employee can join a room after one move event while preserving the original desktop geometry', async () => {
+  for (const surface of ['card', 'sidebar']) {
+    const app = fixture()
+    app.addBot({ id: 'partner', name: 'Partner' })
+    app.addBot({ id: 'designer', name: '设计Agent' }, false)
+    app.roster.teams = [{ id: 'design', name: '设计部', members: ['designer'], leaderId: 'designer' }]
+    let at
+    if (surface === 'sidebar') {
+      app.state = { ...app.state, windows: app.state.windows.filter(window => window.kind !== 'room') }
+      app.roomHit.current = { closest: selector => selector === '[data-room-drop-id]' ? { dataset: { roomDropId: 'planning' } } : null }
+      at = { clientX: 750, clientY: 350 }
+    } else at = showMeasuredGroupCard(app)
+    const geometry = app.state.windows.map(({ id, x, y }) => [id, x, y])
+    const tree = app.draw()
+    const dock = find(app.departmentDock(tree), node => node.type?.name === 'DockItem' && node.props['aria-label'] === '设计部')
+    assert.ok(dock)
+    dock.props.onPointerDown(pointer())
+    tree.props.onPointerMove(pointer(at))
+    tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+    assert.deepEqual(Array.from(app.state.windows, ({ id, x, y }) => [id, x, y]), geometry)
+    const modal = app.modal()
+    assert.ok(modal)
+    await button(modal, 'Add to group').props.onClick()
+    assert.deepEqual(app.calls.added, [['planning', ['designer']]])
+    assert.deepEqual(app.room.members, ['writer', 'partner', 'designer'])
+    assert.equal(app.room.admin, 'writer')
+    assert.deepEqual(app.calls.created, [])
+    assert.deepEqual(Array.from(app.state.windows, ({ id, x, y }) => [id, x, y]), geometry)
+    if (surface === 'sidebar') {
+      assert.deepEqual(app.calls.entities, [])
+      assert.equal(app.state.windows.some(window => window.kind === 'room'), false)
+    }
+  }
+})
+
+
+test('hovering a group avatar opens its portal preview after 120ms without selecting, persisting or opening a conversation', () => {
+  const app = fixture()
+  const original = structuredClone(app.state), selected = app.calls.selected.length, updates = app.calls.updates
+  const card = app.card(app.draw(), 'planning'), avatar = button(card, 'Expand group card')
+  assert.equal(card.props['data-room-stage'], 'avatar')
+  assert.deepEqual({ width: card.props.style.width, height: card.props.style.height }, { width: 120, height: 132 })
+  assert.equal(find(card, node => node.type?.name === 'RoomAvatar').props.size, 72)
+  const editor = { id: 'existing-focus' }
+  app.document.activeElement = editor
+  avatar.props.onPointerEnter(pointer())
+  app.advance(119)
+  assert.equal(Boolean(app.preview(app.draw())), false)
+  app.advance(1)
+  const preview = app.preview(app.draw())
+  assert.ok(preview)
+  assert.equal(preview.props['data-room-drop-id'], 'planning')
+  assert.ok(button(preview, 'Open conversation'))
+  assert.equal(hasSession(preview), 0)
+  assert.ok(button(app.card(app.draw(), 'planning'), 'Expand group card'))
+  assert.equal(app.chat(app.draw()), null)
+  assert.equal(app.document.activeElement, editor)
+  assert.deepEqual(app.calls.focused, [])
+  assert.equal(app.calls.selected.length, selected)
+  assert.equal(app.calls.updates, updates)
+  assert.equal(app.calls.saved, 0)
+  assert.deepEqual(app.calls.opened, [])
+  assert.deepEqual(app.state, original)
+})
+
+test('moving from a group avatar into the preview cancels delayed close and a real exit closes after 240ms', () => {
+  const app = fixture()
+  button(app.card(app.draw(), 'planning'), 'Expand group card').props.onPointerEnter(pointer())
+  app.advance(120)
+  let card = app.card(app.draw(), 'planning'), preview = app.preview(app.draw())
+  card.props.onPointerLeave(pointer({ relatedTarget: app.host(preview) }))
+  preview.props.onPointerEnter(pointer())
+  app.advance(240)
+  assert.ok(app.preview(app.draw()))
+  preview = app.preview(app.draw())
+  preview.props.onPointerLeave(pointer({ relatedTarget: null }))
+  app.advance(239)
+  assert.ok(app.preview(app.draw()))
+  app.advance(1)
+  assert.equal(Boolean(app.preview(app.draw())), false)
+  assert.ok(button(app.card(app.draw(), 'planning'), 'Expand group card'))
+  assert.deepEqual(app.calls.opened, [])
+  const avatar = button(app.card(app.draw(), 'planning'), 'Expand group card')
+  avatar.props.onPointerEnter(pointer())
+  app.unmountRoom()
+  assert.equal(app.pendingTimers, 0)
+  app.advance(500)
+  assert.deepEqual(app.calls.opened, [])
+})
+
+test('keyboard and touch fallback and delayed mouse preview only enter the chat through Open conversation', () => {
+  for (const activation of ['keyboard', 'touch', 'mouse-tap', 'details']) {
+    const app = fixture()
+    const original = app.state.windows.find(window => window.entityId === 'planning')
+    const tree = app.draw(), avatar = button(app.card(tree, 'planning'), 'Expand group card')
+    if (activation === 'keyboard') avatar.props.onClick(pointer({ detail: 0 }))
+    else if (activation === 'details') button(app.card(tree, 'planning'), 'Group card details').props.onClick(pointer())
+    else {
+      const pointerType = activation === 'touch' ? 'touch' : 'mouse'
+      avatar.props.onPointerEnter(pointer({ pointerType }))
+      if (pointerType === 'touch') { app.advance(120); assert.equal(Boolean(app.preview(app.draw())), false) }
+      avatar.props.onPointerDown(pointer({ pointerType, buttons: 1 }))
+      tree.props.onPointerMove(pointer({ pointerType, clientX: 103, clientY: 102 }))
+      tree.props.onPointerUp(pointer({ pointerType, type: 'pointerup', clientX: 103, clientY: 102 }))
+      avatar.props.onClick(pointer({ pointerType, detail: 1 }))
+      if (activation === 'mouse-tap') {
+        assert.equal(Boolean(app.preview(app.draw())), false, 'a mouse tap must not reveal the popup immediately')
+        app.advance(119)
+        assert.equal(Boolean(app.preview(app.draw())), false)
+        app.advance(1)
+      }
+    }
+    const preview = app.preview(app.draw())
+    assert.ok(preview, activation)
+    assert.ok(button(app.card(app.draw(), 'planning'), 'Expand group card'))
+    assert.equal(app.chat(app.draw()), null)
+    assert.deepEqual(app.calls.opened, [])
+    if (activation === 'keyboard' || activation === 'details') assert.ok(app.calls.focused.includes('Open conversation'))
+    button(preview, 'Open conversation').props.onClick(pointer())
+    assert.equal(Boolean(app.preview(app.draw())), false)
+    const chat = app.chat(app.draw())
+    assert.equal(hasSession(chat), 1)
+    assert.equal(find(chat, node => node.type?.name === 'CanvasSession').props.sessionId, 'planning')
+    const roomWindow = app.state.windows.find(window => window.id === original.id)
+    assert.equal(roomWindow.compact, false)
+    assert.deepEqual([roomWindow.x, roomWindow.y], [original.x, original.y])
+  }
+})
+
+test('group preview Escape and chat dismissal preserve the permanent avatar and real members', () => {
+  for (const dismissal of ['button', 'escape', 'backdrop']) {
+    const app = fixture()
+    app.addBot({ id: 'partner', name: 'Partner' })
+    const original = app.state.windows.find(window => window.entityId === 'planning')
+    const members = [...app.room.members], admin = app.room.admin
+    const preview = app.showPreview()
+    preview.props.onKeyDown(pointer({ key: 'Escape', nativeEvent: { isComposing: false } }))
+    assert.equal(Boolean(app.preview(app.draw())), false)
+    assert.ok(button(app.card(app.draw(), 'planning'), 'Expand group card'))
+    assert.ok(app.document.activeElement === app.host(button(app.card(app.draw(), 'planning'), 'Expand group card')), 'Escape restores focus to the permanent group avatar')
+    button(app.showPreview(), 'Open conversation').props.onClick(pointer())
+    let chat = app.chat(app.draw())
+    if (dismissal === 'button') button(chat, 'Close window').props.onClick(pointer())
+    else if (dismissal === 'escape') find(chat, node => node.props.className === 'bt-canvas-chat-float').props.onKeyDown(pointer({ key: 'Escape', nativeEvent: { isComposing: false } }))
+    else {
+      const backdrop = find(chat, node => node.props.className === 'bt-canvas-chat-layer')
+      backdrop.props.onPointerDown(pointer({ target: backdrop, currentTarget: backdrop, clientX: 900, clientY: 650 }))
+      backdrop.props.onPointerUp(pointer({ type: 'pointerup', target: backdrop, currentTarget: backdrop, clientX: 900, clientY: 650 }))
+    }
+    chat = app.chat(app.draw())
+    const closing = find(chat, node => node.props.className === 'bt-canvas-chat-float')
+    assert.equal(closing.props['data-closing'], true)
+    closing.props.onAnimationEnd({ target: closing, currentTarget: closing })
+    assert.equal(app.chat(app.draw()), null)
+    assert.equal(Boolean(app.preview(app.draw())), false)
+    const avatar = app.card(app.draw(), 'planning')
+    assert.equal(avatar.props['data-room-stage'], 'avatar')
+    const roomWindow = app.state.windows.find(window => window.id === original.id)
+    assert.equal(roomWindow.open, true)
+    assert.equal(roomWindow.compact, true)
+    assert.deepEqual([roomWindow.x, roomWindow.y], [original.x, original.y])
+    assert.deepEqual(app.room.members, members)
+    assert.equal(app.room.admin, admin)
+    assert.deepEqual(app.calls.created, [])
+    assert.deepEqual(app.calls.added, [])
+  }
+})
+
+test('moving or cancelling a group avatar cancels pending hover and never opens a preview or conversation', () => {
+  for (const end of ['pointerup', 'pointercancel']) {
+    const app = fixture()
+    const original = app.state.windows.find(window => window.entityId === 'planning')
+    const tree = app.draw(), avatar = button(app.card(tree, 'planning'), 'Expand group card')
+    avatar.props.onPointerEnter(pointer())
+    avatar.props.onPointerDown(pointer({ buttons: 1 }))
+    assert.equal(app.pendingTimers, 0)
+    tree.props.onPointerMove(pointer({ clientX: 108, clientY: 106 }))
+    avatar.props.onPointerEnter(pointer({ buttons: 1 }))
+    app.advance(500)
+    assert.equal(Boolean(app.preview(app.draw())), false)
+    tree.props.onPointerMove(pointer())
+    if (end === 'pointercancel') tree.props.onPointerCancel(pointer({ type: end }))
+    else tree.props.onPointerUp(pointer({ type: end }))
+    avatar.props.onClick(pointer({ detail: 1 }))
+    app.advance(500)
+    const roomWindow = app.state.windows.find(window => window.id === original.id)
+    assert.equal(roomWindow.compact, true)
+    assert.equal(roomWindow.open, true)
+    assert.deepEqual([roomWindow.x, roomWindow.y], [original.x, original.y])
+    assert.equal(Boolean(app.preview(app.draw())), false)
+    assert.equal(app.chat(app.draw()), null)
+    assert.deepEqual(app.calls.opened, [])
+    assert.deepEqual(app.calls.entities, [])
+    assert.deepEqual(app.calls.created, [])
+    assert.equal(app.captures.size, 0)
+  }
+})
+
+test('folded group avatars accept a third and fourth ordinary member from pointer and native drops without expanding', async () => {
+  for (const source of ['pointer', 'native']) {
+    const app = fixture({ roomExpanded: false })
+    app.addBot({ id: 'partner', name: 'Partner' })
+    for (const id of ['third', 'fourth']) app.addBot({ id, name: id }, false)
+    const roomWindow = app.state.windows.find(window => window.entityId === 'planning')
+    const geometry = app.state.windows.map(({ id, x, y }) => [id, x, y])
+    const at = { clientX: roomWindow.x + 60, clientY: roomWindow.y + 60 }
+    app.roomHit.current = { closest: selector => selector === '[data-room-drop-id]' ? { dataset: { roomDropId: 'planning' } } : null }
+    for (const id of ['third', 'fourth']) {
+      assert.equal(app.roster.mainBotIds.includes(id), false)
+      const tree = app.draw(), avatar = app.card(tree, 'planning')
+      assert.equal(avatar.props['data-room-stage'], 'avatar')
+      assert.equal(avatar.props['data-room-drop-id'], 'planning')
+      assert.equal(avatar.props['data-window-id'], roomWindow.id)
+      if (source === 'pointer') {
+        button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
+        tree.props.onPointerMove(pointer(at))
+        assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], true)
+        tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+      } else {
+        const payload = JSON.stringify({ id, kind: 'bot' })
+        tree.props.onDrop({ ...pointer(at), dataTransfer: { getData: type => type === 'application/x-ds-bot' ? payload : '' } })
+      }
+      const modal = app.modal()
+      assert.ok(modal)
+      await button(modal, 'Add to group').props.onClick()
+      assert.deepEqual(app.room.members, id === 'third' ? ['writer', 'partner', 'third'] : ['writer', 'partner', 'third', 'fourth'])
+      assert.equal(app.room.admin, 'writer')
+      assert.equal(app.card(app.draw(), 'planning').props['data-room-stage'], 'avatar')
+      assert.equal(app.state.windows.find(window => window.id === roomWindow.id).roomExpanded, false)
+      assert.equal(app.chat(app.draw()), null)
+      assert.deepEqual(Array.from(app.state.windows, ({ id, x, y }) => [id, x, y]), geometry)
+    }
+    assert.deepEqual(app.calls.added, [['planning', ['third']], ['planning', ['fourth']]])
+    assert.deepEqual(app.calls.created, [])
+    assert.deepEqual(app.calls.entities, [])
+  }
+})
+
+
+test('avatar and portal rects of the same room are separate fallback invitation surfaces without an elementFromPoint hit', async () => {
+  for (const source of ['pointer', 'native']) {
+    for (const order of ['avatar-first', 'preview-first']) {
+      const app = fixture()
+      app.addBot({ id: 'partner', name: 'Partner' })
+      for (const id of ['third', 'fourth']) app.addBot({ id, name: id }, false)
+      const window = app.state.windows.find(window => window.entityId === 'planning')
+      const avatarRect = { windowId: window.id, stage: 'avatar', rect: { left: 430, top: 70, width: 120, height: 132 } }
+      const previewRect = { windowId: window.id, stage: 'preview', rect: { left: 600, top: 310, width: 320, height: 300 } }
+      app.cardRects.splice(0, app.cardRects.length, ...(order === 'avatar-first' ? [avatarRect, previewRect] : [previewRect, avatarRect]))
+      app.roomHit.current = null
+      const geometry = app.state.windows.map(({ id, x, y }) => [id, x, y])
+      for (const [id, at] of [['third', { clientX: 490, clientY: 130 }], ['fourth', { clientX: 760, clientY: 350 }]]) {
+        const tree = app.draw()
+        if (source === 'pointer') {
+          button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
+          tree.props.onPointerMove(pointer(at))
+          assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], true)
+          tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+        } else {
+          const payload = JSON.stringify({ id, kind: 'bot' })
+          tree.props.onDrop({ ...pointer(at), dataTransfer: { getData: type => type === 'application/x-ds-bot' ? payload : '' } })
+        }
+        const modal = app.modal()
+        assert.ok(modal)
+        await button(modal, 'Add to group').props.onClick()
+      }
+      assert.deepEqual(app.calls.added, [['planning', ['third']], ['planning', ['fourth']]])
+      assert.deepEqual(app.room.members, ['writer', 'partner', 'third', 'fourth'])
+      assert.equal(app.room.admin, 'writer')
+      assert.deepEqual(app.calls.entities, [])
+      assert.deepEqual(app.calls.opened, [])
+      assert.deepEqual(app.calls.created, [])
+      assert.deepEqual(Array.from(app.state.windows, ({ id, x, y }) => [id, x, y]), geometry)
+    }
+  }
+})
+
+test('the gap between a room avatar and its portal is not an invitation surface', () => {
+  const app = fixture()
+  app.addBot({ id: 'third', name: 'Third' }, false)
+  const window = app.state.windows.find(window => window.entityId === 'planning')
+  app.cardRects.push(
+    { windowId: window.id, stage: 'avatar', rect: { left: 430, top: 70, width: 120, height: 132 } },
+    { windowId: window.id, stage: 'preview', rect: { left: 600, top: 310, width: 320, height: 300 } },
+  )
+  app.roomHit.current = null
+  const at = { clientX: 575, clientY: 240 }, tree = app.draw()
+  button(app.card(tree, 'third'), 'Open conversation').props.onPointerDown(pointer())
+  tree.props.onPointerMove(pointer(at))
+  assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], undefined)
+  tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+  assert.equal(app.modal(), null)
+  assert.deepEqual(app.calls.added, [])
+  assert.deepEqual(app.calls.created, [])
+})
+
+
+test('a mouse press preserves an open group preview until the avatar actually starts moving', () => {
+  const app = fixture()
+  let tree = app.draw(), avatar = button(app.card(tree, 'planning'), 'Expand group card')
+  avatar.props.onPointerEnter(pointer())
+  app.advance(120)
+  assert.ok(app.preview(app.draw()))
+  avatar.props.onPointerDown(pointer({ buttons: 1 }))
+  assert.ok(app.preview(app.draw()), 'pressing an avatar must not remove the popup')
+  tree.props.onPointerMove(pointer({ clientX: 103, clientY: 102, buttons: 1 }))
+  assert.ok(app.preview(app.draw()))
+  tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 103, clientY: 102 }))
+  avatar.props.onClick(pointer({ detail: 1 }))
+  assert.ok(app.preview(app.draw()), 'a stationary mouse tap preserves an already open preview')
+  assert.deepEqual(app.calls.opened, [])
+  tree = app.draw()
+  avatar = button(app.card(tree, 'planning'), 'Expand group card')
+  avatar.props.onPointerDown(pointer({ buttons: 1 }))
+  tree.props.onPointerMove(pointer({ clientX: 108, clientY: 106, buttons: 1 }))
+  assert.equal(Boolean(app.preview(app.draw())), false, 'the first real avatar move hides its own popup')
+  tree.props.onPointerCancel(pointer({ type: 'pointercancel' }))
+  assert.deepEqual(app.calls.opened, [])
+})
+
+test('dragging another employee keeps an open group preview available as an invitation target', async () => {
+  const app = fixture()
+  app.addBot({ id: 'partner', name: 'Partner' })
+  app.addBot({ id: 'third', name: 'Third' }, false)
+  button(app.card(app.draw(), 'planning'), 'Expand group card').props.onPointerEnter(pointer())
+  app.advance(120)
+  let preview = app.preview(app.draw())
+  assert.ok(preview)
+  const rect = app.host(preview).getBoundingClientRect()
+  const window = app.state.windows.find(window => window.entityId === 'planning')
+  app.cardRects.push({ windowId: window.id, stage: 'preview', rect })
+  const tree = app.draw(), employee = button(app.card(tree, 'third'), 'Open conversation')
+  const target = app.host(employee)
+  const start = target.getBoundingClientRect()
+  const down = pointer({ target, currentTarget: target, buttons: 1, clientX: start.left + 28, clientY: start.top + 28 })
+  app.document.dispatch('pointerdown', down, employee.props.onPointerDown)
+  assert.ok(app.preview(app.draw()), 'an external pointerdown must not remove the target popup')
+  const at = { clientX: rect.left + 40, clientY: rect.top + 40 }
+  const move = pointer({ ...at, target, currentTarget: target, buttons: 1 })
+  app.document.dispatch('pointermove', move, tree.props.onPointerMove)
+  preview = app.preview(app.draw())
+  preview.props.onPointerLeave(pointer({ relatedTarget: null }))
+  app.advance(300)
+  assert.ok(app.preview(app.draw()), 'the leave timer must not close a popup during an external drag')
+  const up = pointer({ ...at, target, currentTarget: target, type: 'pointerup' })
+  app.document.dispatch('pointerup', up, tree.props.onPointerUp)
+  assert.ok(app.preview(app.draw()), 'a completed drag must not synchronously remove the target popup')
+  const modal = app.modal()
+  assert.ok(modal)
+  await button(modal, 'Add to group').props.onClick()
+  assert.deepEqual(app.room.members, ['writer', 'partner', 'third'])
+  assert.equal(app.room.admin, 'writer')
+  assert.deepEqual(app.calls.added, [['planning', ['third']]])
+  assert.deepEqual(app.calls.entities, [])
+  assert.deepEqual(app.calls.opened, [])
+  assert.deepEqual(app.calls.created, [])
+})
+
+test('a direct preview marker accepts its real rect and rejects its transparent bridge gap', async () => {
+  for (const source of ['pointer', 'native']) for (const accepted of [false, true]) {
+    const app = fixture()
+    app.addBot({ id: 'third', name: 'Third' }, false)
+    const window = app.state.windows.find(window => window.entityId === 'planning')
+    const avatar = { windowId: window.id, stage: 'avatar', rect: { left: 430, top: 70, width: 120, height: 132 } }
+    const preview = { windowId: window.id, stage: 'preview', rect: { left: 600, top: 310, width: 320, height: 300 } }
+    if (!accepted) app.cardRects.push(avatar, preview)
+    const marker = {
+      dataset: { roomDropId: 'planning', roomStage: 'preview', windowId: window.id },
+      getBoundingClientRect: () => ({ ...preview.rect, right: 920, bottom: 610 }),
+    }
+    app.roomHit.current = { closest: selector => selector === '[data-room-drop-id]' ? marker : null }
+    const at = accepted ? { clientX: 640, clientY: 350 } : { clientX: 575, clientY: 240 }, tree = app.draw()
+    if (source === 'pointer') {
+      button(app.card(tree, 'third'), 'Open conversation').props.onPointerDown(pointer())
+      tree.props.onPointerMove(pointer(at))
+      assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], accepted || undefined)
+      tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))
+    } else {
+      const payload = JSON.stringify({ id: 'third', kind: 'bot' })
+      tree.props.onDrop({ ...pointer(at), dataTransfer: { getData: type => type === 'application/x-ds-bot' ? payload : '' } })
+    }
+    const modal = app.modal()
+    assert.equal(Boolean(modal), accepted)
+    if (accepted) await button(modal, 'Add to group').props.onClick()
+    assert.deepEqual(app.calls.added, accepted ? [['planning', ['third']]] : [])
+    assert.deepEqual(app.room.members, accepted ? ['writer', 'third'] : ['writer'])
+    assert.equal(app.room.admin, 'writer')
+    assert.deepEqual(app.calls.entities, [])
+    assert.deepEqual(app.calls.opened, [])
+    assert.deepEqual(app.calls.created, [])
+  }
+})
+
+test('leaving a group preview for a Window relatedTarget safely closes after 240ms while real DOM nodes keep it open', () => {
+  const app = fixture({ strictDom: true })
+  const avatar = app.card(app.draw(), 'planning')
+  button(avatar, 'Expand group card').props.onPointerEnter(pointer())
+  app.advance(120)
+  const preview = app.preview(app.draw()), popup = app.host(preview)
+  const view = app.document.defaultView
+  view.window = view
+  assert.ok(popup instanceof view.Node)
+  assert.throws(() => popup.contains(view), TypeError, 'the DOM stub must reject Window exactly like Node.contains')
+  assert.doesNotThrow(() => avatar.props.onPointerLeave(pointer({ relatedTarget: popup })))
+  app.advance(300)
+  assert.ok(app.preview(app.draw()), 'a real related DOM node inside the popup keeps it open')
+  assert.doesNotThrow(() => preview.props.onPointerLeave(pointer({ relatedTarget: view })))
+  app.advance(239)
+  assert.ok(app.preview(app.draw()))
+  app.advance(1)
+  assert.equal(Boolean(app.preview(app.draw())), false)
+  assert.deepEqual(app.calls.focused, [])
+  assert.deepEqual(app.calls.opened, [])
 })

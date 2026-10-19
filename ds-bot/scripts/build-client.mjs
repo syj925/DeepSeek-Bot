@@ -20,6 +20,8 @@ export async function bundleClient() {
   const result = await build({
     // Region comments name sources relative to the plugin, wherever the script runs from.
     absWorkingDir: PLUGIN,
+    // Keep dependency source labels stable when a local workspace links its packages.
+    preserveSymlinks: true,
     entryPoints: ['src/client/index.js'],
     bundle: true,
     format: 'cjs',

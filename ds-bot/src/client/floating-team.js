@@ -238,9 +238,16 @@ export const FLOATING_TEAM_CSS = `
 .bt-team-grip:focus-visible{outline:2px solid #888;outline-offset:3px}
 .bt-floating-team .bt-list{flex:1 1 0%!important;min-height:0%!important;overflow-y:auto!important;overflow-x:hidden!important;display:flex!important;flex-direction:column!important;gap:4px!important;padding-bottom:8px!important;scrollbar-width:thin}
 .bt-floating-team .bt-row{display:flex!important;align-items:center!important;position:relative!important;border:1px solid transparent!important;border-radius:10px!important;color:var(--text-primary,#262626)!important;box-sizing:border-box!important;transition:background-color .12s ease,box-shadow .12s ease,border-color .12s ease,width 280ms cubic-bezier(0.2,0,0,1),padding 280ms cubic-bezier(0.2,0,0,1)!important}
-.bt-floating-team .bt-row .bt-mark,
-.bt-floating-team .bt-row .bt-avatar,
+.bt-floating-team .bt-row > .bt-mark,
+.bt-floating-team .bt-row > .bt-avatar,
+.bt-floating-team .bt-row > .bt-cluster,
 .bt-floating-team .bt-agent-ava{flex:none!important;width:36px!important;height:36px!important;background:transparent!important;background-color:transparent!important}
+.bt-floating-team .bt-cluster{position:relative!important;display:inline-block!important;flex:none!important;width:36px!important;height:36px!important;border-radius:10px!important;background:rgba(0,0,0,.045)!important;border:1px solid rgba(0,0,0,.06)!important;box-sizing:border-box!important;overflow:hidden!important}
+.bt-floating-team .bt-cluster .bt-cluster-seat{position:absolute!important;display:block!important;line-height:0!important;border-radius:50%!important}
+.bt-floating-team .bt-cluster .bt-cluster-seat>*{width:100%!important;height:100%!important;display:block!important}
+.bt-floating-team .bt-cluster .bt-mark{width:100%!important;height:100%!important;display:block!important;border-radius:50%!important;box-shadow:0 0 0 1.2px #ffffff,0 1px 3px rgba(0,0,0,.12)!important;overflow:hidden!important}
+.bt-floating-team .bt-cluster .bt-mark img,.bt-floating-team .bt-cluster .bt-mark .bt-mark-img{width:100%!important;height:100%!important;border-radius:50%!important;object-fit:cover!important;display:block!important}
+.bt-floating-team .bt-cluster .bt-cluster-you,.bt-floating-team .bt-cluster .bt-cluster-more{width:100%!important;height:100%!important;border-radius:50%!important;box-shadow:0 0 0 1.2px #ffffff,0 1px 3px rgba(0,0,0,.12)!important;overflow:hidden!important}
 .bt-floating-team .bt-row:hover{border-color:var(--bt-line)!important;background:rgba(0,0,0,.04)!important}
 .bt-floating-team .bt-row:is([aria-current=page],[aria-selected="true"]),
 .team-item[aria-selected="true"]{background:rgba(255,255,255,.95)!important;border-radius:10px!important;box-shadow:0 4px 14px rgba(0,0,0,.06),inset 0 0 0 1px rgba(255,255,255,.9)!important;color:var(--text-primary,#262626)!important}
