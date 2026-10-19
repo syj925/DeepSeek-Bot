@@ -13,19 +13,22 @@ const browserStorage = () => { try { return globalThis.localStorage } catch { re
 function readObject(key, storage) {
   try { const value = JSON.parse(storage.getItem(key)); return record(value) ? value : {} } catch { return {} }
 }
-const widgetHome = value => record(value) && Number.isFinite(value.x) && Number.isFinite(value.y) ? { x: value.x, y: value.y } : null
+const widgetAnchor = value => record(value) ? Object.fromEntries(['right', 'bottom'].filter(edge => Number.isFinite(value[edge]) && value[edge] >= 0).map(edge => [edge, value[edge]])) : null
+const anchorFields = value => { const anchor = widgetAnchor(value?.anchor); return anchor ? { anchor } : {} }
+const placementFields = (id, value) => id === 'qibit-command' && Number.isFinite(value?.placement?.width) && value.placement.width > 0 && Number.isFinite(value?.placement?.height) && value.placement.height > 0 ? { placement: { width: value.placement.width, height: value.placement.height } } : {}
+const widgetHome = value => record(value) && Number.isFinite(value.x) && Number.isFinite(value.y) ? { x: value.x, y: value.y, ...anchorFields(value) } : null
 
 export function readSpatialWidget(id, storage = browserStorage()) {
   const value = readObject(WIDGET_KEY, storage)[id]
   const home = widgetHome(value?.home)
-  return { x: Number.isFinite(value?.x) ? value.x : null, y: Number.isFinite(value?.y) ? value.y : null, folded: typeof value?.folded === 'boolean' ? value.folded : null, ...(home ? { home } : {}) }
+  return { x: Number.isFinite(value?.x) ? value.x : null, y: Number.isFinite(value?.y) ? value.y : null, folded: typeof value?.folded === 'boolean' ? value.folded : null, ...anchorFields(value), ...placementFields(id, value), ...(home ? { home } : {}) }
 }
 
 export function writeSpatialWidget(id, value, storage = browserStorage()) {
   try {
     const saved = readObject(WIDGET_KEY, storage)
     const home = widgetHome(value.home)
-    saved[id] = { x: Number.isFinite(value.x) ? value.x : null, y: Number.isFinite(value.y) ? value.y : null, folded: value.folded === true, ...(home ? { home } : {}) }
+    saved[id] = { x: Number.isFinite(value.x) ? value.x : null, y: Number.isFinite(value.y) ? value.y : null, folded: value.folded === true, ...anchorFields(value), ...placementFields(id, value), ...(home ? { home } : {}) }
     storage.setItem(WIDGET_KEY, JSON.stringify(saved))
   } catch { /* browser storage may be unavailable */ }
 }
@@ -41,7 +44,20 @@ export function fitSpatialWidget(id, panel, area) {
   const height = Math.min(folded ? 44 : size.height, Math.max(0, area.height - top - 12))
   const defaultX = narrow ? id === 'agenda' && folded ? area.width - width - 12 : 12 : id === 'agenda' ? area.width - width - 24 : 360
   const defaultY = narrow ? top : Math.max(top, 104)
-  return { ...panel, folded, x: Math.max(12, Math.min(panel.x ?? defaultX, area.width - width - 12)), y: Math.max(top, Math.min(panel.y ?? defaultY, area.height - height - 12)), width, height }
+  const anchor = widgetAnchor(panel.anchor)
+  const x = anchor?.right !== undefined ? area.width - width - anchor.right : panel.x ?? defaultX
+  const y = anchor?.bottom !== undefined ? area.height - height - anchor.bottom : panel.y ?? defaultY
+  return { ...panel, folded, x: Math.max(12, Math.min(x, area.width - width - 12)), y: Math.max(top, Math.min(y, area.height - height - 12)), width, height }
+}
+
+const edgeAnchor = (box, area) => Object.fromEntries([
+  ['right', area.width - box.x - box.width], ['bottom', area.height - box.y - box.height],
+].filter(([, gap]) => gap >= 0 && gap <= 64))
+
+export function anchorSpatialWidget(id, panel, area) {
+  const current = fitSpatialWidget(id, panel, area)
+  const home = widgetHome(panel.home)
+  return { ...panel, folded: current.folded, anchor: widgetAnchor(panel.anchor) ?? edgeAnchor(current, area), ...(home ? { home: { ...home, anchor: widgetAnchor(home.anchor) ?? edgeAnchor(fitSpatialWidget(id, { ...home, folded: true }, area), area) } } : {}) }
 }
 
 export function toggleSpatialWidget(id) {
@@ -58,10 +74,13 @@ export function avoidSpatialWidgets(id, panel, area, peers) {
     xs.push(peer.x - fitted.width - 12, peer.x + peer.width + 12)
     ys.push(peer.y - fitted.height - 12, peer.y + peer.height + 12)
   }
-  const candidates = xs.flatMap(x => ys.map(y => fitSpatialWidget(id, { ...fitted, x, y }, area))).filter(free)
+  const candidates = xs.flatMap(x => ys.map(y => fitSpatialWidget(id, { ...fitted, anchor: undefined, x, y }, area))).filter(free)
   candidates.sort((a, b) => Math.hypot(a.x - fitted.x, a.y - fitted.y) - Math.hypot(b.x - fitted.x, b.y - fitted.y))
   // Tight spaces keep the user's placement rather than pushing other content.
-  return candidates[0] ?? fitted
+  const next = candidates[0] ?? fitted
+  // Temporary avoidance uses absolute coordinates only, never a persistent edge anchor.
+  const { anchor: _anchor, ...placement } = next
+  return placement
 }
 
 export function toggleWidgetPlacement(id, panel, area) {
@@ -70,17 +89,19 @@ export function toggleWidgetPlacement(id, panel, area) {
     const home = widgetHome(panel.home)
     const collapsed = fitSpatialWidget(id, { ...current, folded: true }, area)
     const right = current.x + current.width / 2 > area.width / 2
-    return { x: home?.x ?? (right ? current.x + current.width - collapsed.width : current.x), y: home?.y ?? current.y, folded: true }
+    return { x: home?.x ?? (right ? current.x + current.width - collapsed.width : current.x), y: home?.y ?? current.y, folded: true, ...anchorFields(home ?? panel) }
   }
   const expanded = fitSpatialWidget(id, { ...current, folded: false }, area)
   const right = current.x + current.width / 2 > area.width / 2
-  return { x: right ? current.x + current.width - expanded.width : current.x, y: current.y, folded: false, home: { x: panel.x ?? current.x, y: panel.y ?? current.y } }
+  return { x: right ? current.x + current.width - expanded.width : current.x, y: current.y, folded: false, ...anchorFields(panel), home: { x: panel.x ?? current.x, y: panel.y ?? current.y, ...anchorFields(panel) } }
 }
 
 export function moveWidgetPlacement(id, panel, visible, dx, dy, area) {
-  const next = fitSpatialWidget(id, { ...visible, x: visible.x + dx, y: visible.y + dy }, area)
+  const next = fitSpatialWidget(id, { ...visible, anchor: undefined, x: visible.x + dx, y: visible.y + dy }, area)
   const home = widgetHome(panel.home)
-  return { x: next.x, y: next.y, folded: next.folded, ...(home ? { home: { x: home.x + next.x - visible.x, y: home.y + next.y - visible.y } } : {}) }
+  const homeBox = home ? fitSpatialWidget(id, { ...home, folded: true }, area) : null
+  const movedHome = home ? { x: (home.anchor ? homeBox.x : home.x) + next.x - visible.x, y: (home.anchor ? homeBox.y : home.y) + next.y - visible.y } : null
+  return { x: next.x, y: next.y, folded: next.folded, ...(panel.anchor ? { anchor: edgeAnchor(next, area) } : {}), ...(movedHome ? { home: { ...movedHome, ...(panel.anchor ? { anchor: edgeAnchor({ ...movedHome, width: homeBox.width, height: homeBox.height }, area) } : {}) } } : {}) }
 }
 
 function widgetPeers(node) {
@@ -96,14 +117,15 @@ function widgetPeers(node) {
 }
 
 export function FloatingWidget({ id, title, icon, children }) {
-  const root = useRef(null), drag = useRef(null), placed = useRef(false)
+  const root = useRef(null), drag = useRef(null)
   const [panel, setPanel] = useState(() => readSpatialWidget(id))
   const [temporary, setTemporary] = useState(null)
   const [area, setArea] = useState({ width: 1200, height: 800, minY: 12, measured: false })
   const current = fitSpatialWidget(id, temporary ?? panel, area)
   const save = next => {
-    setPanel(next)
-    writeSpatialWidget(id, next)
+    const preferred = area.measured ? anchorSpatialWidget(id, next, area) : next
+    setPanel(preferred)
+    writeSpatialWidget(id, preferred)
   }
   const raise = () => {
     const canvas = root.current?.closest('.bt-canvas')
@@ -121,6 +143,7 @@ export function FloatingWidget({ id, title, icon, children }) {
     const toolbar = canvas.querySelector('.bt-canvas-toolbar')
     const measure = () => {
       const box = canvas.getBoundingClientRect()
+      if (box.width <= 24 || box.height <= 56) return
       const minY = toolbar ? toolbar.getBoundingClientRect().bottom - box.top + 12 : 12
       setArea({ width: box.width, height: box.height, minY, measured: true })
     }
@@ -131,11 +154,13 @@ export function FloatingWidget({ id, title, icon, children }) {
     return () => observer.disconnect()
   }, [])
   useLayoutEffect(() => {
-    if (!area.measured || placed.current) return
-    placed.current = true
+    if (!area.measured) return
+    // Migrate old coordinates only after measuring the real viewport.
+    const preferred = anchorSpatialWidget(id, panel, area)
+    if (!panel.anchor) save(preferred)
     // Avoidance is a display offset, never the user's saved placement.
-    if (!current.folded) setTemporary(avoidSpatialWidgets(id, panel, area, widgetPeers(root.current)))
-  }, [area.measured])
+    setTemporary(current.folded ? null : avoidSpatialWidgets(id, preferred, area, widgetPeers(root.current)))
+  }, [area.measured, area.width, area.height, area.minY])
   useEffect(() => {
     const receive = event => { if (event.detail === id) toggle() }
     window.addEventListener(TOGGLE_EVENT, receive)
@@ -278,22 +303,31 @@ export function CanvasAgenda({ actions, roster }) {
 }
 
 export const SPATIAL_WIDGET_CSS = `
-.bt-spatial-widget{position:absolute;z-index:20;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--bt-canvas-border);border-radius:24px;background:var(--bt-canvas-glass);box-shadow:var(--bt-canvas-shadow);color:var(--bt-ink);overflow:hidden;-webkit-backdrop-filter:blur(20px) saturate(110%);backdrop-filter:blur(20px) saturate(110%)}
-.bt-spatial-widget[data-raised=true]{z-index:22}
-.bt-spatial-widget>header{display:flex;align-items:center;flex:none;height:42px;padding:0 8px;gap:4px;box-sizing:border-box}
-.bt-spatial-grip{flex:1;min-width:0;display:flex;align-items:center;gap:7px;height:36px;border:0;border-radius:12px;padding:0 6px;background:none;color:inherit;font:inherit;font-size:12px;font-weight:600;text-align:start;touch-action:none;cursor:grab;user-select:none}
-.bt-spatial-grip:active{cursor:grabbing}.bt-spatial-grip>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.bt-spatial-grip>svg{flex:none;width:15px;height:15px;opacity:.7}
-.bt-spatial-fold{flex:none;width:30px;height:30px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;cursor:pointer}
-.bt-spatial-widget button:focus-visible,.bt-quick-form input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-spatial-body{flex:1;min-height:0;overflow:auto;padding:0 14px 12px;scrollbar-width:thin}.bt-spatial-widget[data-folded=true]{border-radius:17px}.bt-spatial-widget[data-folded=true]>header{height:42px}
-.bt-quick-person{display:flex;align-items:center;gap:12px;margin:0 0 10px}.bt-quick-person>.bt-mark{flex:none}.bt-quick-person>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.bt-quick-person strong{font-size:16px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bt-quick-person>div>span{font-size:12px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-spatial-link{flex:none;padding:5px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:11px;cursor:pointer}.bt-spatial-link:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-quick-form{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border:1px solid var(--bt-line-2);border-radius:24px;background:var(--bt-hover)}.bt-quick-form input{flex:1;min-width:0;width:0;height:28px;padding:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:12px;outline:none}.bt-quick-form input::placeholder{color:var(--bt-ink-3)}.bt-quick-form>button{display:flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:50%;background:var(--bt-accent);color:var(--bt-accent-ink);cursor:pointer}.bt-quick-form>button:disabled{opacity:.4;cursor:default}
-.bt-quick-feedback{min-height:16px;margin:5px 3px 0;font-size:10px;line-height:14px;color:var(--bt-ink-3);overflow-wrap:anywhere}.bt-quick-feedback [role=alert]{color:var(--bt-canvas-error)}
-.bt-spatial-empty{margin:8px 2px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}.bt-agenda-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:8px}.bt-agenda-week>span{display:flex;align-items:center;flex-direction:column;gap:0;padding:2px;border-radius:9px;font-size:10px;color:var(--bt-ink-2)}.bt-agenda-week small{font-size:9px;color:var(--bt-ink-3)}.bt-agenda-week b{font-weight:500}.bt-agenda-week i{width:3px;height:3px;margin-top:2px;border-radius:50%;background:transparent}.bt-agenda-week [data-today]{background:var(--bt-hover);color:var(--bt-ink)}.bt-agenda-week [data-task]>i{background:var(--bt-accent)}
-.bt-agenda-tasks{display:flex;flex-direction:column;gap:5px}.bt-agenda-task{display:flex;flex-direction:column;gap:2px;width:100%;padding:8px 10px;text-align:start;border:0;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;cursor:pointer}.bt-agenda-task strong{font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task>span{font-size:10px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task:hover{background:var(--bt-active)}.bt-agenda-manage{display:block;margin:5px 0 0 auto}
-@media (prefers-reduced-transparency:reduce){.bt-spatial-widget{background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none}}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-spatial-widget{background:var(--bt-card)}}
+.bt-spatial-widget{position:absolute;z-index:20;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--glass-border,rgba(255,255,255,.85));border-radius:24px;background:#f8f8f8;box-shadow:var(--glass-shadow,0 8px 28px rgba(0,0,0,.05),inset 0 1px 0 rgba(255,255,255,.8));color:var(--text-primary,#262626);overflow:hidden;transition:border-color .14s ease,box-shadow .14s ease}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .bt-spatial-widget{background:var(--glass-floating,rgba(255,255,255,.65));-webkit-backdrop-filter:blur(var(--glass-blur,24px));backdrop-filter:blur(var(--glass-blur,24px))}
+}
+.bt-spatial-widget:focus-within{z-index:21;border-color:rgba(0,0,0,.15)}
+.bt-spatial-widget>header{display:flex;align-items:center;flex:none;height:40px;padding:0 8px 0 10px;gap:6px;box-sizing:border-box}
+.bt-spatial-grip{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;border:0;border-radius:8px;padding:0 4px;background:none;color:inherit;font:inherit;font-size:12px;font-weight:600;letter-spacing:-0.01em;text-align:start;touch-action:none;cursor:grab;user-select:none}
+.bt-spatial-grip:active{cursor:grabbing}.bt-spatial-grip>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.bt-spatial-grip>svg{flex:none;width:15px;height:15px;opacity:.75}
+.bt-spatial-fold{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid rgba(255,255,255,.9);border-radius:8px;background:rgba(255,255,255,.9);color:var(--text-primary,#262626);font:inherit;font-size:14px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.03);transition:background-color .12s ease,color .12s ease,transform .12s cubic-bezier(0.16,1,0.3,1)}
+.bt-spatial-fold:hover{background:#ffffff;box-shadow:0 3px 8px rgba(0,0,0,.06)}
+.bt-spatial-fold:active{transform:scale(0.94)}
+.bt-spatial-widget button:focus-visible{outline:2px solid #888;outline-offset:2px}
+.bt-spatial-body{flex:1;min-height:0;overflow:auto;padding:0 14px 14px;scrollbar-width:thin}.bt-spatial-widget[data-folded=true]{border-radius:18px}.bt-spatial-widget[data-folded=true]>header{height:40px}
+.bt-quick-person{display:flex;align-items:center;gap:10px;margin:2px 0 10px}.bt-quick-person>.bt-mark{flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.08)}.bt-quick-person>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.bt-quick-person strong{font-size:13px;font-weight:600;letter-spacing:-0.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,#262626)}.bt-quick-person>div>span{font-size:11px;color:var(--text-secondary,#757575);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-spatial-link{flex:none;padding:4px 8px;border:1px solid transparent;border-radius:7px;background:none;color:var(--text-secondary,#757575);font:inherit;font-size:11px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}.bt-spatial-link:hover{background:rgba(0,0,0,.04);color:var(--text-primary,#262626)}
+.bt-quick-form{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 12px;border:1px solid var(--divider,rgba(0,0,0,.06));border-radius:12px;background:rgba(255,255,255,.75);transition:border-color .14s ease,box-shadow .14s ease}
+.bt-quick-form:focus-within{border-color:rgba(56,120,250,.45);box-shadow:0 0 0 2px rgba(56,120,250,.12);outline:none}
+.bt-quick-form input{flex:1;min-width:0;width:0;height:26px;padding:0;border:0;background:none;color:var(--text-primary,#262626);font:inherit;font-size:12px;outline:none!important;box-shadow:none!important}
+.bt-quick-form input:focus,.bt-quick-form input:focus-visible{outline:none!important;box-shadow:none!important;border:none!important}
+.bt-quick-form input::placeholder{color:var(--text-secondary,#757575)}.bt-quick-form>button{display:flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;border:0;border-radius:7px;background:var(--text-primary,#262626);color:#ffffff;cursor:pointer;transition:transform .12s ease,opacity .12s ease}.bt-quick-form>button:active:not(:disabled){transform:scale(0.92)}.bt-quick-form>button:disabled{opacity:.35;cursor:default}
+.bt-quick-feedback{min-height:16px;margin:5px 3px 0;font-size:11px;line-height:15px;color:var(--text-secondary,#757575);overflow-wrap:anywhere}.bt-quick-feedback [role=alert]{color:#dc2626}
+.bt-spatial-empty{margin:8px 2px;font-size:12px;line-height:18px;color:var(--text-secondary,#757575)}.bt-agenda-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-bottom:8px}.bt-agenda-week>span{display:flex;align-items:center;flex-direction:column;gap:1px;padding:3px 2px;border-radius:8px;font-size:10px;font-variant-numeric:tabular-nums;color:var(--text-secondary,#757575)}.bt-agenda-week small{font-size:9px;color:var(--text-secondary,#757575);text-transform:uppercase}.bt-agenda-week b{font-weight:600}.bt-agenda-week i{width:3px;height:3px;margin-top:2px;border-radius:50%;background:transparent}.bt-agenda-week [data-today]{background:rgba(255,255,255,.9);color:var(--text-primary,#262626);box-shadow:0 1px 3px rgba(0,0,0,.04)}.bt-agenda-week [data-task]>i{background:var(--bt-accent,#10a37f)}
+.bt-agenda-tasks{display:flex;flex-direction:column;gap:5px}.bt-agenda-task{display:flex;flex-direction:column;gap:2px;width:100%;padding:8px 10px;text-align:start;border:1px solid var(--divider,rgba(0,0,0,.06));border-radius:10px;background:rgba(255,255,255,.8);color:var(--text-primary,#262626);font:inherit;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.02);transition:background-color .12s ease,border-color .12s ease}.bt-agenda-task strong{font-size:11px;font-weight:600;letter-spacing:-0.005em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task>span{font-size:10px;color:var(--text-secondary,#757575);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.bt-agenda-task:hover{background:#ffffff;border-color:rgba(0,0,0,.1)}.bt-agenda-manage{display:block;margin:6px 0 0 auto}
+@media (prefers-reduced-transparency:reduce){.bt-spatial-widget{background:#f8f8f8;-webkit-backdrop-filter:none;backdrop-filter:none}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.bt-spatial-widget{background:#f8f8f8}}
 @media (forced-colors:active){.bt-spatial-widget{background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}.bt-spatial-widget button{color:ButtonText;border:1px solid ButtonText;background:ButtonFace}.bt-quick-form{border-color:CanvasText}.bt-quick-form input{color:CanvasText}.bt-agenda-week [data-task]>i{background:Highlight}.bt-spatial-widget :is(.bt-spatial-empty,.bt-quick-feedback,.bt-quick-person>div>span,.bt-agenda-week>span,.bt-agenda-week small,.bt-agenda-task>span){color:CanvasText}}
 @media (pointer:coarse){.bt-spatial-fold{width:36px;height:36px}.bt-quick-form>button{width:36px;height:36px}.bt-spatial-link{min-height:32px}}
 `

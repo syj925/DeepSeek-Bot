@@ -10,14 +10,15 @@ import { SecretToolCell } from './secret-card.js'
 import { dateLocale, t } from './i18n.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning } from './turn-reasoning.js'
+import { replyIdentity } from '../shared/employee-avatar.js'
+import { TaskGroupCard } from './task-groups.js'
 
 // -------------------------------------------------------------------------
 // Chat cells
 
 const mdLabels = () => ({ code: { copyLabel: t('Copy'), copiedLabel: t('Copied') }, footnotes: t('Footnotes') })
 
-// `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
-// row, so it lines up with the bubble whether or not reactions hang below it.
+// The sender avatar starts the first bubble; following bubbles retain its gutter.
 export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
@@ -33,9 +34,9 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
       const picked = key ? reactions?.[index] ?? [] : []
       const last = index === texts.length - 1
       const live = streaming && last
-      return h('div', { key: index, className: 'bt-msg' },
+      return h('div', { key: index, className: 'bt-msg', 'data-bt-streaming': live ? '' : undefined },
         h('div', { className: 'bt-msg-line' },
-          lead && last ? lead : null,
+          lead && index === 0 ? lead : null,
           h('div', { className: 'bt-bubble' },
             h(MarkdownText, { text: linkMentions(text, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })),
           live ? null : h(MessageTools, { text, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions })),
@@ -141,7 +142,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   return h(Fragment, null,
     relays.map(relay => {
       const source = relay.source
-      const sender = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
+      const sender = replyIdentity({ identity: source.identity, botId: source.senderSessionId, name: source.senderName ?? t('a Bot') }, roster)
       return h(EventLine, {
         key: relay.seq,
         prefix: source.role === 'stopped' ? t('Stopped by') : source.role === 'reply' ? t('Reply from') : t('Message from'),
@@ -343,7 +344,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         // stopped shows as an event of the round it opens.
         if (source.failed !== undefined || source.resumed === true || source.stopped === true) return null
         const room = roster.roomsById[sessionId]
-        const poster = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
+        const poster = replyIdentity({ identity: source.identity, botId: source.senderSessionId, name: source.senderName ?? t('a Bot') }, roster)
         return h(GroupMessage, { bot: poster, text: stripHeader(contentText(data.content)), room, roster, actions, msgKey: `${sessionId}:${data.turn}:post`, useUi })
       }
       if (source.role === 'report') {
@@ -359,7 +360,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         hiddenTurns,
       ) : null
       if (run === 'folded') return null
-      const sender = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
+      const sender = replyIdentity({ identity: source.identity, botId: source.senderSessionId, name: source.senderName ?? t('a Bot') }, roster)
       const count = run?.count ?? (isHiddenTurn(roster, sessionId, turn) ? 2 : 1)
       // Peers may be named by any part of their chat, so they are matched by Bot.
       const bots = [sender]
@@ -548,40 +549,41 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     let timer
     let seen = ''
     const tick = async () => {
-      const result = await actions.roomProgress(sessionId)
+      const result = await actions.roomProgress(sessionId).catch(() => [])
       if (stop) return
-      const entry = (result ?? []).find(item => item.callId === callId) ?? (result ?? [])[0]
-      const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : ''
-      if (entry && key !== seen) { seen = key; setLive({ replies: entry.replies ?? [], speaking: entry.speaking ?? null }) }
-      timer = setTimeout(tick, document.hidden ? 5000 : 1000)
+      const entry = callId ? (result ?? []).find(item => item.callId === callId) : (result ?? [])[0]
+      const key = entry ? JSON.stringify([entry.replies, entry.speaking, entry.streaming]) : ''
+      if (entry && key !== seen) { seen = key; setLive({ replies: entry.replies ?? [], speaking: entry.speaking ?? null, streaming: entry.streaming }) }
+      timer = setTimeout(tick, document.hidden ? 5000 : 150)
     }
     void tick()
     return () => { stop = true; clearTimeout(timer) }
   }, [done, sessionId, callId])
-  let replies = live.replies
+  let replies = live.streaming ? [...live.replies, live.streaming] : live.replies
   if (done) {
     try { replies = JSON.parse(contentText(content)).replies ?? [] } catch { replies = [] }
   }
   // Members speak one at a time, so only the current speaker is typing.
   const pending = done || !live.speaking ? [] : [live.speaking]
-  const speakerTool = useWork?.(work => work.bots?.[live.speaking]?.tool) ?? undefined
+  const speakerTool = useWork?.(work => work.rooms?.[sessionId]?.find(entry => entry.botId === live.speaking)?.tool) ?? undefined
   if (replies.length === 0 && pending.length === 0) return null
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
     replies.map((reply, index) => {
-      const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
+      const bot = replyIdentity(reply, roster)
       if (reply.kind === 'user') {
         return h('div', { key: `user-${index}`, className: 'bt-urow' }, h('div', { className: 'bt-ububble' },
           h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })))
       }
       if (reply.kind === 'failed') {
-        return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event bt-event-error', role: 'status', title: [reply.code, reply.status, reply.text].filter(Boolean).join(' · ') },
+        return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event bt-event-error', role: 'status' },
           t('{name} could not answer: {reason}', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
       }
       if (reply.kind === 'lookup') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' },
           reply.text ? t('{name} looked up its own chat for “{text}”', { name: bot.name, text: reply.text }) : t('{name} looked up its own chat', { name: bot.name }))
       }
+      if (reply.kind === 'question') return h(GroupMessage, { key: `question-${index}`, bot, text: reply.text, room, roster, actions, useUi })
       if (reply.kind === 'missed') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t("{name} didn't answer in time", { name: bot.name }))
       }
@@ -592,8 +594,8 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t('{name} was cut off by a restart again and stopped', { name: bot.name }))
       }
       if (reply.kind === 'approval' || reply.kind === 'working') {
-        return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' },
-          h('button', { type: 'button', className: 'bt-event-whole', onClick: () => actions.showDetails(sessionId) },
+        return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event bt-work-event' },
+          h('button', { type: 'button', className: 'bt-event-whole', onClick: () => actions.showExecution(sessionId, bot.id) },
             h(BotMark, { bot, size: 16 }), h('span', { className: 'bt-event-name' }, t(reply.kind === 'working' ? '{name} started on it' : '{name} paused for your approval', { name: bot.name }))))
       }
       if (reply.kind === 'stopped') {
@@ -604,7 +606,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     pending.map((id) => {
       const bot = roster.byId[id]
       if (!bot) return null
-      return h('div', { key: `pending-${id}`, className: 'bt-activity' },
+      return h('button', { key: `pending-${id}`, type: 'button', className: 'bt-activity bt-work-button', onClick: () => actions.showExecution(sessionId, id) },
         h(BotMark, { bot: bot, size: 22, state: speakerTool ? toolState(speakerTool) : 'thinking' }),
         h(Shimmer, null, speakerTool ? `${bot.name} · ${workPhrase(speakerTool)}…` : t('{name} is typing…', { name: bot.name })))
     }))
@@ -687,6 +689,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot 
       if (call.isError || !named) return h('div', { className: 'bt-event', title: result }, t(verbs[1]))
       const name = named[2]
       const room = roster.rooms.find(entry => entry.name === name)
+      if (tool === 'create_group' && room?.task) return h(TaskGroupCard, { room, roster, open: actions.openSession })
       return h(GroupEvent, { prefix: t(verbs[0]), room: tool === 'delete_group' ? undefined : room, name, roster, actions })
     }
     case 'ask_user': {

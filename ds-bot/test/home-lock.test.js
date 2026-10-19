@@ -135,21 +135,21 @@ test('while another dsh holds the team, the channel reads it, refuses changes, t
   const view = (await call('state', {})).value
   assert.deepEqual(view.bots.map(bot => bot.name), ['Chief'])
   assert.match(view.readOnly, new RegExp(`open in another dsh \\(Web or Desktop, pid ${process.ppid} on `))
-  const refused = await call('set-prefs', { theme: 'dark' })
+  const refused = await call('set-prefs', { motion: 'lively' })
   assert.equal(refused.error.code, 'bot/read-only')
   assert.equal(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).prefs, undefined)
 
   // The other host saves a change: the reading host follows the file.
-  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM, revision: 8, prefs: { theme: 'light' } }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM, revision: 8, prefs: { motion: 'quiet' } }))
   const followed = (await call('state', {})).value
   assert.equal(followed.revision, 8)
-  assert.equal(followed.prefs.theme, 'light')
+  assert.equal(followed.prefs.motion, 'quiet')
 
   // The other host exits: the next request takes over and saves.
   rmSync(join(home, 'state.lock'))
-  assert.equal((await call('set-prefs', { theme: 'dark' })).ok, true)
+  assert.equal((await call('set-prefs', { motion: 'lively' })).ok, true)
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  assert.equal(saved.prefs.theme, 'dark')
+  assert.equal(saved.prefs.motion, 'lively')
   assert.equal(saved.revision, 9)
   assert.equal(JSON.parse(readFileSync(join(home, 'state.lock'), 'utf8')).pid, process.pid)
   assert.equal((await call('state', {})).value.readOnly, null)

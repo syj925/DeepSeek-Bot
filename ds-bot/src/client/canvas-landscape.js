@@ -1,3 +1,4 @@
+import visualAssets from './visual-assets.json' with { type: 'json' }
 // Original landscape, bundled with the plugin so the default needs no network.
 const pines = (count, start, end, base, height, seed) => {
   let value = seed
@@ -53,4 +54,5 @@ export const canvasLandscape = `
   <rect width="2560" height="1600" filter="url(#grain)" opacity=".025" style="mix-blend-mode:soft-light"/>
 </svg>`
 
+export const canvasSnowfieldUrl = visualAssets['/wallpapers/01-unified-snowfield-3840x2160.png']
 export const canvasLandscapeUrl = `data:image/svg+xml,${encodeURIComponent(canvasLandscape)}`

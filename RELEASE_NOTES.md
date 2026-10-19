@@ -1,7 +1,7 @@
-DS Bot 0.1.22
+QibitAI canvas plugin 0.1.51
 
-- Integrate the latest QibitAI Bot source with Chief as General Assistant, long-term teams and explicit employee transfers.
-- Refine the glass desktop, employee grouping, team-list dragging, floating widgets and role portraits.
-- Preserve existing team data, conversations, permissions and hosted update checks.
-- Prevent overlapping secret reloads from replacing newly saved keys when taking over from another instance.
-- Maintain the fork on main, with tested packaging, HTTPS publishing and public download verification triggered by version tags.
+- Integrate the latest team source, including Chief task routing, task groups, model selection, streamed collaboration and recoverable task contexts.
+- Update the glass desktop, floating chats, team rail, Dock, role animations, task delivery notices and execution status.
+- Bundle the QiBit portrait design kit and Noto Sans SC font. Portrait generation requires a separately configured service.
+- Retain hosted update checks, immutable version-tag publishing and the secret reload fix for multi-instance takeover.
+- Merge the feature branch into main while preserving both histories and existing employee, conversation and permission data.

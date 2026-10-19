@@ -28,8 +28,11 @@ const findAll = (node, predicate) => !node || typeof node !== 'object' ? [] : [.
 const find = (node, predicate) => findAll(node, predicate)[0]
 const textOf = node => typeof node === 'string' || typeof node === 'number' ? String(node) : node?.children?.map(textOf).join('') ?? ''
 
-function runtime(saved = storage()) {
+function runtime(saved = storage(), initialArea = null) {
   const slots = [], events = new Map(), intervals = new Map()
+  let area = initialArea, measure
+  const canvas = { getBoundingClientRect: () => ({ ...area, left: 0, top: 0 }), querySelector: () => null, querySelectorAll: () => [], closest: () => canvas }
+  const root = { closest: () => canvas }
   let cursor = 0, effects = [], dirty = false, mounted = true, lateUpdates = 0, component, props, tree, nextTimer = 0
   const effectHook = (effect, deps) => {
     const index = cursor++, previous = slots[index]
@@ -57,11 +60,13 @@ function runtime(saved = storage()) {
     setInterval: run => { const id = ++nextTimer; intervals.set(id, run); return id }, clearInterval: id => intervals.delete(id),
     window: { addEventListener: (type, run) => events.set(type, run), removeEventListener: type => events.delete(type), dispatchEvent: event => events.get(event.type)?.(event) },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail } },
+    ResizeObserver: class { constructor(run) { measure = run } observe() {} disconnect() {} },
   }
   runInNewContext(outputFiles[0].text, context)
   const render = () => {
     cursor = 0; effects = []; dirty = false
     tree = component(props)
+    if (area && tree.props.ref) tree.props.ref.current = root
     for (const run of effects) run()
     return tree
   }
@@ -74,6 +79,7 @@ function runtime(saved = storage()) {
   return {
     ...module.exports, saved, context, intervals, events,
     draw(next, nextProps) { component = next; props = nextProps; render(); return flush() }, flush,
+    resize(next) { area = next; measure(); return flush() },
     async settle() { await new Promise(resolve => setImmediate(resolve)); return flush() },
     unmount() { mounted = false; for (const cell of slots) cell?.cleanup?.() },
     get lateUpdates() { return lateUpdates },
@@ -81,6 +87,68 @@ function runtime(saved = storage()) {
 }
 
 const bot = id => ({ id, name: id === 'writer' ? 'Writer' : 'Designer', role: 'A real employee' })
+
+test('right and bottom widgets follow viewport edges through resize, folding and reload', () => {
+  const saved = storage({ 'ds-bot:spatial-widgets': '{"quick":{"x":908,"y":568,"folded":false}}' })
+  const small = { width: 1280, height: 780 }, large = { width: 2560, height: 1400 }
+  let page = runtime(saved, small)
+  let tree = page.draw(page.FloatingWidget, { id: 'quick', title: 'Quick' })
+  const gaps = () => ({ right: 12, bottom: 12 })
+  assert.deepEqual(plain(page.readSpatialWidget('quick').anchor), gaps())
+  for (let repeat = 0; repeat < 3; repeat++) {
+    tree = page.resize(large)
+    assert.equal(tree.props.style.left, 2188)
+    assert.equal(tree.props.style.top, 1188)
+    tree = page.resize(small)
+    assert.equal(tree.props.style.left, 908)
+    assert.equal(tree.props.style.top, 568)
+  }
+  find(tree, node => node.props.className === 'bt-spatial-fold').props.onClick()
+  tree = page.flush()
+  tree = page.resize(large)
+  assert.equal(tree.props.style.left + tree.props.style.width, 2548)
+  assert.equal(tree.props.style.top + tree.props.style.height, 1388)
+  find(tree, node => node.props.className === 'bt-spatial-fold').props.onClick()
+  tree = page.flush()
+  assert.equal(tree.props.style.left, 2188)
+  assert.equal(tree.props.style.top, 1188)
+  page.unmount()
+  page = runtime(saved, large)
+  tree = page.draw(page.FloatingWidget, { id: 'quick', title: 'Quick' })
+  assert.equal(tree.props.style.left, 2188)
+  assert.equal(tree.props.style.top, 1188)
+  page.unmount()
+})
+
+test('edge anchors survive temporary clamping, while moving to the middle releases them', () => {
+  const page = runtime(), small = { width: 1280, height: 780, minY: 80 }, large = { width: 2560, height: 1400, minY: 80 }
+  const panel = page.anchorSpatialWidget('quick', { x: 908, y: 568, folded: false }, small)
+  page.fitSpatialWidget('quick', panel, { width: 300, height: 240, minY: 80 })
+  const restored = page.fitSpatialWidget('quick', panel, large)
+  assert.equal(restored.x, 2188)
+  assert.equal(restored.y, 1188)
+  const moved = page.moveWidgetPlacement('quick', panel, restored, -500, -400, large)
+  assert.deepEqual(plain(moved.anchor), {})
+  const resized = page.fitSpatialWidget('quick', moved, { width: 3000, height: 1800, minY: 80 })
+  assert.equal(resized.x, moved.x)
+  assert.equal(resized.y, moved.y)
+  const middle = page.anchorSpatialWidget('quick', { x: 400, y: 250, folded: false }, small)
+  assert.deepEqual(plain(middle.anchor), {})
+  assert.equal(page.fitSpatialWidget('quick', middle, large).x, 400)
+})
+
+test('avoidance can move anchored widgets without overwriting their preferred edge gap', () => {
+  const page = runtime(), area = { width: 1280, height: 780, minY: 80 }
+  const panel = page.anchorSpatialWidget('quick', { x: 908, y: 568, folded: false }, area)
+  const original = JSON.stringify(panel)
+  const avoided = page.avoidSpatialWidgets('quick', panel, area, [{ x: 908, y: 568, width: 360, height: 200 }])
+  assert.notEqual(avoided.y, 568)
+  assert.equal(avoided.anchor, undefined)
+  assert.equal(JSON.stringify(panel), original)
+  const clear = page.avoidSpatialWidgets('quick', panel, { ...area, width: 2560, height: 1400 }, [])
+  assert.equal(clear.x, 2188)
+  assert.equal(clear.y, 1188)
+})
 
 test('right-side expansion keeps its right edge and repeated collapse restores the saved home', () => {
   const page = runtime(), area = { width: 1200, height: 800, minY: 80 }

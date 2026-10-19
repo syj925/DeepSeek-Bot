@@ -37,7 +37,7 @@ export function indexRoster(value) {
     agentsById[agent.id] = agent
     for (const sessionId of agent.sessions ?? []) agentOf[sessionId] = agent.id
   }
-  return { ...value, teams: value.teams ?? [], teamsById: Object.fromEntries((value.teams ?? []).map(team => [team.id, team])), agents: value.agents ?? [], byId, roomsById, agentsById, agentOf, ready: true }
+  return { ...value, retiredById: Object.fromEntries((value.retiredBots ?? []).map(bot => [bot.id, bot])), teams: value.teams ?? [], teamsById: Object.fromEntries((value.teams ?? []).map(team => [team.id, team])), agents: value.agents ?? [], byId, roomsById, agentsById, agentOf, ready: true }
 }
 
 // Whether a main-view Session id belongs to the team's DSH Agent: the conversation

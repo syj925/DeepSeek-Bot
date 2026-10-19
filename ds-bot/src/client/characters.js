@@ -1,5 +1,5 @@
 import { INKS, GRADIENTS, isHex, inkFill } from './inks.js'
-import { ASSISTANT_PORTRAIT } from './portraits.js'
+import { ASSISTANT_PORTRAIT, normalizePortraitImage } from './portraits.js'
 
 // -------------------------------------------------------------------------
 // Characters: DS Bot's own avatars, small 3D models seen from a
@@ -68,9 +68,10 @@ export function defaultShape(id) {
 export const colorOf = bot => (isColor(bot?.color) ? bot.color : bot?.id ? defaultColor(String(bot.id)) : 'black')
 export function lookOf(bot) {
   const avatar = bot?.avatar ?? {}
+  const rawImage = avatar.image ?? (bot?.generalAssistant === true && (!avatar.shape || avatar.shape === 'whale') ? ASSISTANT_PORTRAIT.image : undefined)
   return {
     shape: hasShape(avatar.shape) ? avatar.shape : bot?.id ? defaultShape(String(bot.id)) : FALLBACK_SHAPE,
-    image: avatar.image ?? (bot?.generalAssistant === true && (!avatar.shape || avatar.shape === 'whale') ? ASSISTANT_PORTRAIT.image : undefined),
+    image: normalizePortraitImage(rawImage),
     color: colorOf(bot),
   }
 }

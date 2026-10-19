@@ -1,7 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { BotMark } from './mark.js'
-import { PORTRAITS, PortraitGrid } from './portrait-presets.js'
 import { CharacterGrid, avatarImage } from './bot-settings.js'
+import { AGENT_AVATARS, AgentAvatarPreview } from './agent-avatar-preview.js'
 import { DEFAULT_SHAPES, DEFAULT_COLORS } from './characters.js'
 import { ChevronLeftIcon, CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
@@ -22,12 +22,14 @@ const randomLook = (avoid = {}) => {
 // `inline` drops the pane's header for a form shown inside Settings.
 export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBack, onCreated, inline = false }) {
   const [look, setLook] = useState(() => randomLook())
-  const [image, setImage] = useState(() => pick(PORTRAITS).image)
-  const [lookTab, setLookTab] = useState('portraits')
+  const [image, setImage] = useState(null)
+  const [selectedAgent, setSelectedAgent] = useState(null)
+  const [agentTrigger, setAgentTrigger] = useState(0)
   const [name, setName] = useState(start?.name ?? '')
   const [model, setModel] = useState(() => startModel(roster))
   const [effort, setEffort] = useState(undefined)
   const [teamId, setTeamId] = useState('')
+  const [employment, setEmployment] = useState('long-term')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
@@ -44,38 +46,86 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), teamId: teamId || null })
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), teamId: teamId || null, employment, ...(employment === 'temporary' ? { avatar: null } : {}) })
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
       setBusy(false)
     }
   }
+  const selectAgent = (agent) => {
+    setSelectedAgent(agent)
+    setImage(agent.poster)
+    setAgentTrigger(prev => prev + 1)
+  }
   const upload = (file) => {
     if (!file) return
     setError('')
+    setSelectedAgent(null)
     avatarImage(file).then(setImage, failure => setError(failure?.message ?? String(failure)))
   }
   const previewLook = image ? { ...look, image } : look
   const card = h('div', { className: 'bt-create-card' },
     h('div', { className: 'bt-create-preview' },
-      // The key remounts the mark, so every new pick plays the pop.
-      h('span', { key: `${look.shape}:${look.color}:${image ? 'photo' : ''}`, className: 'bt-create-pop' },
-        h(BotMark, { look: previewLook, bot: { id: 'new-bot' }, size: 88, live: true, gaze: true, pokeable: true })),
+      // Keep temporary role icons; permanent employees can preview the selected portrait.
+      h('span', { key: employment === 'temporary' ? 'temporary' : selectedAgent ? `${selectedAgent.id}:${agentTrigger}` : `${look.shape}:${look.color}:${image ? 'photo' : ''}`, className: 'bt-create-pop' },
+        employment !== 'temporary' && selectedAgent
+          ? h(AgentAvatarPreview, { agent: selectedAgent, size: 88, triggerKey: agentTrigger, onReplay: () => setAgentTrigger(prev => prev + 1) })
+          : h(BotMark, { look: employment === 'temporary' ? undefined : previewLook, bot: { id: 'new-bot', employment, name: finalName }, size: 88, live: true, gaze: true, pokeable: true })),
       h('span', { className: 'bt-create-name' }, finalName)),
     h('div', { className: 'bt-create-step' }, t('Look')),
-    h('div', { className: 'bt-create-looks' },
-      h('div', { className: 'bt-create-looktabs', role: 'tablist', 'aria-label': t('Avatar source') },
-        [['portraits', 'Role portraits'], ['characters', 'Characters']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', 'aria-selected': lookTab === id, onClick: () => setLookTab(id) }, t(label)))),
-      lookTab === 'portraits' ? h(PortraitGrid, { image, onPick: setImage }) : h(CharacterGrid, {
+    employment === 'temporary' ? h('p', { className: 'bt-note' }, t('Temporary employees start with a role icon.')) : h('div', { className: 'bt-create-looks' },
+      h('div', { className: 'bt-create-presets', style: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', marginBottom: '10px' } },
+        AGENT_AVATARS.map((agent, idx) => {
+          const isSelected = selectedAgent?.id === agent.id
+          return h('button', {
+            key: agent.id || idx,
+            type: 'button',
+            className: `bt-create-preset-btn${isSelected ? ' is-selected' : ''}`,
+            title: agent.name,
+            'aria-label': agent.name,
+            style: {
+              position: 'relative',
+              boxSizing: 'border-box',
+              border: isSelected ? '2px solid var(--bt-accent, #3b82f6)' : '1px solid var(--bt-line-2, #e5e7eb)',
+              borderRadius: '10px',
+              padding: 0,
+              background: 'var(--bt-card, #ffffff)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              aspectRatio: '1',
+              outline: 'none',
+              overflow: 'hidden',
+              boxShadow: isSelected ? '0 0 0 2px rgba(59, 130, 246, 0.2)' : 'none',
+              transition: 'transform .1s ease, border-color .15s ease, box-shadow .15s ease',
+            },
+            onClick: () => selectAgent(agent),
+          },
+            h('img', {
+              src: agent.poster,
+              alt: agent.name,
+              style: {
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center top',
+                display: 'block',
+                pointerEvents: 'none',
+              },
+            })
+          )
+        })),
+      h(CharacterGrid, {
         look, hasPhoto: Boolean(image),
-        onShape: (shape) => { setImage(null); setLook(current => ({ ...current, shape })) },
-        onColor: (color) => { setImage(null); setLook(current => ({ ...current, color })) },
+        onShape: (shape) => { setImage(null); setSelectedAgent(null); setLook(current => ({ ...current, shape })) },
+        onColor: (color) => { setImage(null); setSelectedAgent(null); setLook(current => ({ ...current, color })) },
       }),
       h('div', { className: 'bt-actions bt-create-lookbar' },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { if (lookTab === 'portraits') setImage(pick(PORTRAITS.filter(portrait => portrait.image !== image)).image); else { setImage(null); setLook(current => randomLook(current)) } } }, t('Shuffle')),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setImage(null); setSelectedAgent(null); setLook(current => randomLook(current)) } }, t('Shuffle')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => fileRef.current?.click() }, image ? t('Replace photo') : t('Upload photo')),
-        image ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setImage(null) }, t('Remove photo')) : null,
+        image ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setImage(null); setSelectedAgent(null) } }, t('Remove photo')) : null,
         h('input', { ref: fileRef, type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; upload(file) } }))),
     h('label', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Name')),
@@ -93,10 +143,15 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
         ? t('The Bot runs on this model. You can change it later in its details.')
         : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))),
     h('label', { className: 'bt-field' }, h('span', { className: 'bt-field-label' }, t('Team membership')),
-      h('select', { className: 'bt-input', value: teamId, onChange: event => setTeamId(event.target.value) },
+      h('select', { className: 'bt-input', value: teamId, disabled: employment === 'temporary', onChange: event => setTeamId(event.target.value) },
         h('option', { value: '' }, t('Independent employee')),
         (roster.teams ?? []).map(team => h('option', { key: team.id, value: team.id }, team.name))),
       h('span', { className: 'bt-note' }, t('Optional. Groups do not change team membership.'))),
+    h('label', { className: 'bt-field' }, h('span', { className: 'bt-field-label' }, t('Employee duration')),
+      h('select', { className: 'bt-input', value: employment, onChange: event => { setEmployment(event.target.value); if (event.target.value === 'temporary') setTeamId('') } },
+        h('option', { value: 'long-term' }, t('Long-term employee')),
+        h('option', { value: 'temporary' }, t('Temporary employee'))),
+      h('span', { className: 'bt-note' }, employment === 'temporary' ? t('Removed from the active roster after its task.') : t('Keeps a compact experience summary for future tasks.'))),
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     h('div', { className: 'bt-create-foot' },
       h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),

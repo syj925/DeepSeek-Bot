@@ -1,4 +1,3 @@
-import { isPortrait, PortraitGrid, PORTRAIT_CSS } from './portrait-presets.js'
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { paintCss } from './inks.js'
 import { CHARACTERS, PICKER_SHAPES, PICKER_COLUMNS, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
@@ -7,10 +6,11 @@ import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
-import { BotSchedules } from './schedules.js'
+import { useSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide } from './motion.js'
+import { IP_AVATARS } from './ip-avatars.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -123,12 +123,12 @@ export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
 // Upload tab takes a photo, and Reset returns to the look the Bot id gives.
 function AvatarEditor({ bot, actions, run, onClose }) {
   const look = lookOf(bot)
-  const [tab, setTab] = useState(isPortrait(look.image) ? 'portraits' : look.image ? 'upload' : 'bot')
+  const [tab, setTab] = useState(look.image ? 'upload' : 'bot')
   const [over, setOver] = useState(false)
   const ref = useRef(null)
   const fileRef = useRef(null)
   const upload = (file) => {
-    if (file) void run(avatarImage(file).then(image => actions.updateBot(bot.id, { avatar: { ...bot.avatar, image } })))
+    if (file) void run(avatarImage(file).then(image => actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image } })))
   }
   useEffect(() => {
     const onDown = (event) => {
@@ -155,12 +155,24 @@ function AvatarEditor({ bot, actions, run, onClose }) {
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-        [['portraits', 'Portraits'], ['bot', 'Bot'], ['upload', 'Upload']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
+        [['preset', 'Preset'], ['bot', 'Bot'], ['upload', 'Upload']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
       h('button', {
         type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: t('Reset character to default'),
         onClick: () => run(actions.updateBot(bot.id, { avatar: null, color: null })),
       }, t('Reset'))),
-    tab === 'portraits' ? h(PortraitGrid, { image: look.image, generalAssistant: bot.generalAssistant === true, onPick: image => run(actions.updateBot(bot.id, { avatar: { ...bot.avatar, image } })) }) : null,
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: ['queued', 'generating'].includes(bot.portraitGeneration?.status), onClick: () => run(actions.updateBot(bot.id, { formalAvatar: true })) }, t(['queued', 'generating'].includes(bot.portraitGeneration?.status) ? 'Creating portrait…' : 'Create QiBit portrait')),
+    h('span', { className: 'bt-note', role: 'status' }, t(({ unavailable: 'Portrait service is not configured. You can upload an image.', failed: 'Portrait creation failed. Keep working and retry when ready.', interrupted: 'Portrait creation was interrupted. You can retry.', generated: 'QiBit portrait saved.' })[bot.portraitGeneration?.status] ?? 'Uses the QiBit style reference. Work continues during creation.')),
+    tab === 'preset' ? h('div', { className: 'bt-avedit-presets', style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', padding: '4px 0' } },
+      IP_AVATARS.map((src, idx) => h('button', {
+        key: idx, type: 'button', className: 'bt-avedit-preset-btn',
+        style: {
+          border: look.image === src ? '2px solid var(--bt-accent, #3b82f6)' : '1px solid var(--bt-line-2, #e5e7eb)',
+          borderRadius: '12px', padding: '3px', background: 'var(--bt-card, #fff)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', aspectRatio: '1',
+          outline: 'none', transition: 'transform .1s ease'
+        },
+        onClick: () => run(actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image: src } })),
+      }, h('img', { src, alt: '', style: { width: '100%', height: '100%', borderRadius: '8px', objectFit: 'cover' } })))) : null,
     tab === 'bot' ? h(CharacterGrid, {
       look, hasPhoto,
       onShape: shape => run(actions.updateBot(bot.id, { avatar: { shape } })),
@@ -189,13 +201,46 @@ function MemoryCard({ bot, actions }) {
       h('span', { className: 'bt-mem-row-go' }, t('Manage'), h(ChevronRightIcon))))
 }
 
+function AccessCard({ bot, roster, actions, run }) {
+  const [pending, setPending] = useState(null)
+  const catalog = roster.permissions
+  if (!catalog?.options?.length) return null
+  const value = pending ?? bot.permission ?? catalog.defaultPreset ?? ''
+  const labels = { 'read-only': 'Read only', 'workspace-write': 'Workspace', 'danger-full-access': 'Full access' }
+  return h(Card, { title: t('Access permissions') },
+    h(Row, { label: t('File and tool access'), hint: t('Applies to this employee only.') },
+      h('select', {
+        className: 'bt-input', 'aria-label': t('Access permissions'), value, disabled: pending !== null,
+        onChange: async (event) => {
+          const permission = event.target.value
+          if (permission === bot.permission) return
+          setPending(permission)
+          try { await run(actions.updateBot(bot.id, { permission })) } finally { setPending(null) }
+        },
+      }, !value ? h('option', { value: '', disabled: true }, t('Choose permissions')) : null,
+      catalog.options.map(option => h('option', { key: option.value, value: option.value, title: option.description }, labels[option.value] ? t(labels[option.value]) : option.name)))))
+}
+
+function TaskSettingsLink({ bot, actions }) {
+  const view = useSchedules(actions)
+  if (!view?.available) return null
+  return h(Card, { title: t('Scheduled tasks') },
+    h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: () => actions.openSettings('schedules', bot.id) },
+      h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Manage scheduled tasks')), h('span', { className: 'bt-set-hint' }, t('Create and manage tasks in one place.'))),
+      h('span', { className: 'bt-chevron' }, h(ChevronRightIcon))))
+}
+
 // A Bot's settings as grouped cards: who it is (avatar, name, label), what it runs on
 // (model), what it does (instructions), its memory and tasks, its Main Bot role, its
 // sidebar place, and copies.
-export function BotSettingsForm({ bot, roster, actions, run }) {
+export function BotSettingsForm({ bot, roster, actions, run, focusName }) {
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const closeEditor = useCallback(() => setEditing(false), [])
+  const root = useRef(null)
+  useEffect(() => {
+    if (focusName) { const input = root.current?.querySelector('input'); input?.focus(); input?.select() }
+  }, [focusName])
   useEffect(() => {
     if (!confirming) return undefined
     const timer = setTimeout(() => setConfirming(false), 4000)
@@ -209,7 +254,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
-  return h('div', { className: 'bt-bs' },
+  return h('div', { ref: root, className: 'bt-bs' },
     h('div', { className: 'bt-bs-hero' },
       h('div', { className: 'bt-avatar-anchor' },
         h('button', { type: 'button', className: 'bt-avatar-trigger', 'aria-label': t('Edit Bot avatar'), 'aria-expanded': editing, onClick: () => setEditing(value => !value) },
@@ -218,13 +263,16 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         editing ? h(AvatarEditor, { bot, actions, run, onClose: closeEditor }) : null),
       h('div', { className: 'bt-bs-who' },
         h('span', { className: 'bt-bs-name' }, bot.name),
-        h('span', { className: 'bt-bs-sub' }, [bot.role, isMainBot ? t('Main Bot') : ''].filter(Boolean).join(' · ') || t('Bot')))),
+        h('span', { className: 'bt-bs-sub' }, bot.generalAssistant ? t('General Assistant') : [bot.role, isMainBot ? t('Management rights') : ''].filter(Boolean).join(' · ') || t('Bot')))),
     h(Card, { title: t('Profile') },
       h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
       h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
+    bot.employment === 'temporary' ? h(Card, { title: t('Temporary employee') },
+      h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: () => save({ employment: 'long-term' }) }, t('Keep as a long-term employee')),
+      h('span', { className: 'bt-note' }, t('Keeps task experience and requests a formal portrait.'))) : null,
     bot.generalAssistant ? null : h(Card, { title: t('Team membership') },
       h(Row, { label: t('Lasting team'), hint: t('Groups do not change affiliation, conversations or permissions.') },
-        h('select', { className: 'bt-input', 'aria-label': t('Team membership'), value: bot.teamId ?? '', onChange: event => save({ teamId: event.target.value || null }) },
+        !(roster.teams ?? []).length && !bot.teamId ? h('span', { className: 'bt-set-hint' }, t('No team assigned yet. You can still chat and work together.')) : h('select', { className: 'bt-input', 'aria-label': t('Team membership'), value: bot.teamId ?? '', onChange: event => save({ teamId: event.target.value || null }) },
           h('option', { value: '' }, t('Independent employee')),
           (roster.teams ?? []).map(team => h('option', { key: team.id, value: team.id }, `${team.name}${team.leaderId === bot.id ? ` · ${t('Team leader')}` : ''}`))))),
     h(Card, { title: t('Model') },
@@ -239,20 +287,25 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
+    h(AccessCard, { bot, roster, actions, run }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
-    h(BotSchedules, { bot, roster, actions }),
+    h(TaskSettingsLink, { bot, actions }),
+    h('details', { className: 'bt-settings-advanced-card' }, h('summary', null, t('Advanced information')),
+      h(Card, { title: t('Usage') }, h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: () => actions.openSettings('usage', bot.id) },
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Tokens and cache usage'))),
+        h('span', { className: 'bt-chevron' }, h(ChevronRightIcon))))),
+    bot.generalAssistant ? null : h('details', { className: 'bt-settings-advanced-card' }, h('summary', null, t('Permissions and list display')),
     h(Card, { title: t('Management rights') },
       onlyMain
         ? h('div', { className: 'bt-set-row bt-bs-row' },
             h('span', { className: 'bt-set-copy' },
               h('span', { className: 'bt-bs-label' }, t('Main Bot')),
-              h('span', { className: 'bt-set-hint' }, t('The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.'))),
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('bots') }, t('Change')))
+              h('span', { className: 'bt-set-hint' }, t('Keep at least one employee with management rights.'))))
         : h(SwitchRow, { label: t('Management rights'), hint: t('Separate from team membership. Allows employee management within its existing boundaries.'), on: isMainBot, onChange: on => run(actions.setMain(bot.id, on)) })),
     // The Main Bot tile is always first and always shown, like in the context menu.
     isTile ? null : h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
-      isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),
+      isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) }))),
     bot.generalAssistant ? null : h(Card, { title: t('Manage') },
       h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: duplicate },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Duplicate')), h('span', { className: 'bt-set-hint' }, t('A copy with the same job and model, and fresh memory.'))),
@@ -265,7 +318,6 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
 }
 
 export const BOT_SETTINGS_CSS = `
-${PORTRAIT_CSS}
 .bt-bs{display:flex;flex-direction:column;gap:18px}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}

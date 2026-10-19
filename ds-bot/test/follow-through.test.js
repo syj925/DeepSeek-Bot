@@ -41,7 +41,7 @@ async function start(home) {
     return agents.get(sessionId)
   }
   Object.assign(ctx, {
-    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    llm: { listProviders: () => [{ id: 'mock' }], listModels: async () => [{ id: 'default', inputModalities: ['text', 'image'] }], resolveModelInfo: async () => ({}) },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
     sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }), selectModel: async () => {} },
     sessionTitle: { rename: async () => {} },

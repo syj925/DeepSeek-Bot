@@ -29,6 +29,7 @@ class Element {
     this.focused = 0
   }
   closest(selector) {
+    if (selector === '.bt-room-questions') return this.questions ?? null
     if (selector === '.bt-canvas-window') return this.canvas
     if (selector === '[data-conversation-content]') return this.content
     throw new Error(`unexpected ancestor selector: ${selector}`)
@@ -57,7 +58,7 @@ function runtime() {
     removeEventListener(type, listener) { listeners.get(type)?.delete(listener) },
   }
   const react = {
-    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
     useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
     useRef: current => ({ current }), useId: () => 'question',
@@ -185,6 +186,17 @@ test('classic questions retain their existing letter shortcut behavior', () => {
   assert.equal(answers[0][0], 'classic')
   assert.equal(page.key('c').defaultPrevented, true)
   assert.equal(card.own.focused, 1)
+})
+
+test('a shortcut answers only the first pending question in a group', () => {
+  const page = runtime(), answers = [], group = new Element()
+  const first = question(page, 'writer', null, answers), second = question(page, 'tester', null, answers)
+  first.form.props.ref.current.questions = group
+  second.form.props.ref.current.questions = group
+  group.matches.set('form', first.form.props.ref.current)
+  page.key('a')
+  assert.equal(answers.length, 1)
+  assert.equal(answers[0][0], 'writer')
 })
 
 function memberDock(page, node) {

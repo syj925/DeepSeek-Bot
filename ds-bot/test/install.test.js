@@ -29,6 +29,17 @@ function start(state, { config = {}, services } = {}) {
 }
 
 // Listeners run, and tools are listed, in the order they are registered.
+test('bundled font is served through the authenticated route with no arbitrary path access', async t => {
+  const app = start()
+  t.after(app.stop)
+  const font = await app.get('asset=qibit-font-v1')
+  assert.equal(font.status, 200)
+  assert.equal(font.headers.get('content-type'), 'font/ttf')
+  assert.ok((await font.arrayBuffer()).byteLength > 100000)
+  assert.equal((await app.get('asset=../../state.json')).status, 400)
+  assert.equal((await app.get('asset=qibit-font-v1&path=state.json')).status, 400)
+})
+
 test('apply registers listeners, tools, and effects in a fixed order', (t) => {
   const { ctx, stop, applyResult } = start()
   t.after(stop)
@@ -36,6 +47,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
   assert.deepEqual(ctx.calls, [
     'effect ds-bot: state lock',
     'on llm/adapters-updated',
+    'on agent/assistant-stream',
     'on session/event',
     'tool organize_team',
     'tool assign_employee',
@@ -63,7 +75,9 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool delete_capability',
     'tool attach_capability',
     'tool detach_capability',
+    'tool complete_task',
     'effect ds-bot: chat index',
+    'on agent/assistant-stream',
     'tool group_relay',
     'tool read_own_chat',
     'tool read_group_chat',
@@ -86,6 +100,9 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on agent/request-error (prepend)',
     'on agent/status',
     'on llm/stream',
+    'on agent/pre-step (prepend)',
+    'on agent/request',
+    'on session/event',
     'on llm/stream',
     'on agent/status',
     'tool request_secret',
@@ -102,6 +119,9 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: api route',
     'route GET,POST /api/bot',
     'effect ds-bot: load state',
+    'tool read_task_history',
+    'effect ds-bot: task context cleanup',
+    'effect ds-bot: portrait jobs',
   ])
 })
 
@@ -134,7 +154,7 @@ test('the client channel answers from the saved state', async (t) => {
   assert.deepEqual(await call('room-progress', { roomId: 'r' }), { ok: true, value: [] })
   assert.deepEqual(await call('send', { text: ' ' }), { ok: false, error: { code: 'bot/invalid', message: 'Nothing to send', details: {} } })
   assert.deepEqual(await call('nope'), { ok: false, error: { code: 'bot/not-found', message: 'Unknown endpoint nope', details: {} } })
-  assert.deepEqual(await call('set-prefs', { accent: 'red' }), { ok: false, error: { code: 'bot/invalid', message: 'Accent must be a #rrggbb color', details: {} } })
+  assert.deepEqual(await call('set-prefs', { accent: 'red' }), { ok: false, error: { code: 'bot/invalid', message: 'Theme and accent customization is no longer supported', details: {} } })
   // The motion level is kept unless it is the default, and only the three levels pass.
   assert.equal((await call('set-prefs', { motion: 'lively' })).value.motion, 'lively')
   assert.equal('motion' in (await call('set-prefs', { motion: 'normal' })).value, false)
@@ -159,11 +179,11 @@ const TEAM = {
   questions: {},
 }
 
-test('in the Desktop profile read_browser is the last tool and reads through the window', async (t) => {
+test('in the Desktop profile read_browser is available and reads through the window', async (t) => {
   const { ctx, call, stop } = start(TEAM, { services: { profileContext: { name: 'desktop' } } })
   t.after(stop)
   const tools = ctx.calls.filter(entry => entry.startsWith('tool '))
-  assert.equal(tools.at(-1), 'tool read_browser')
+  assert.ok(tools.includes('tool read_browser'))
   assert.ok(ctx.calls.indexOf('effect ds-bot: browser channel') < ctx.calls.indexOf('effect ds-bot: api route'))
   const read = args => ctx.registeredTools.get('read_browser').execute(args, { agent: { id: 'b2' } })
 

@@ -10,6 +10,21 @@ import { install as installTurns } from '../src/host/turns.js'
 import { install as installParts } from '../src/host/parts.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
 
+test('Chief can hand a deliverable to one specialist as coordinator and reuse that task group', async t => {
+  const app = await start(team())
+  t.after(app.stop)
+  const args = { members: ['Writer'], admin: 'Writer', name: 'Quarterly report', task_objective: 'Produce quarterly report' }
+  const first = await app.tool('create_group', args, 'a')
+  assert.match(first, /Writer is its admin/)
+  await app.tool('create_group', args, 'a')
+  const view = (await app.call('state', {})).value
+  assert.equal(view.rooms.length, 1)
+  assert.equal(view.rooms[0].admin, 'b')
+  assert.equal(view.rooms[0].task.originBotId, 'a')
+  assert.equal(view.rooms[0].task.objective, args.task_objective)
+  assert.deepEqual(view.rooms[0].members.sort(), ['a', 'b'])
+})
+
 // A two-Bot team, optionally with b in a group Session 'gb' of room 'Ops'.
 function team({ group = false } = {}) {
   return {
@@ -56,7 +71,7 @@ async function start(seed) {
     return agents.get(sessionId)
   }
   Object.assign(ctx, {
-    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    llm: { listProviders: () => [{ id: 'mock' }], listModels: async () => [{ id: 'default', inputModalities: ['text', 'image'] }], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
       get: () => undefined,
       resolveByPath: async () => undefined,
@@ -102,6 +117,58 @@ async function start(seed) {
 }
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
+
+test('supervisor routing is durable before delivery and invalid explicit choices send nothing', async t => {
+  const app = await start(team())
+  t.after(app.stop)
+  const result = await app.tool('message_bot', { to: 'Writer', message: 'Draft a report', model: 'mock/default', task_kind: 'writing' }, 'a')
+  assert.match(result, /Task model: mock\/default/)
+  const delivered = app.agentOf('b').calls[0][1]
+  assert.equal(delivered.source.taskModel.ref, 'mock/default')
+  assert.equal(delivered.source.taskModel.explicit, true)
+  assert.equal((await app.exchanges())[0].taskModel.ref, 'mock/default')
+  await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Other task', model: 'missing' }, 'a'), /not available/)
+  await assert.rejects(app.tool('message_bot', { to: 'Writer', message: 'Correction', model: 'mock/default', when: 'now' }, 'a'), /cannot switch/)
+  assert.equal(app.agentOf('b').calls.length, 1)
+  assert.equal((await app.call('state')).value.bots.find(bot => bot.id === 'b').model, undefined)
+})
+
+test('completion tool connects turn success to persistent notification state', async t => {
+  const app = await start(team())
+  t.after(app.stop)
+  app.emit('b', 'turn/start', { turn: 1 })
+  app.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.deepEqual((await app.call('state')).value.taskNotices, [])
+  app.emit('b', 'turn/start', { turn: 2 })
+  await app.tool('complete_task', { title: 'Report', summary: 'Delivered.' }, 'b')
+  assert.deepEqual((await app.call('state')).value.taskNotices, [])
+  app.emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  const state = (await app.call('state')).value
+  assert.equal(state.taskNotices.length, 1)
+  assert.equal(state.taskNotices[0].botId, 'b')
+  app.emit('b', 'turn/start', { turn: 3 })
+  await app.tool('complete_task', { title: 'Aborted', summary: 'Must not display.' }, 'b')
+  app.emit('b', 'turn/end', { turn: 3, reason: { kind: 'aborted' } })
+  assert.equal((await app.call('state', { since: state.revision })).value.taskNotices.length, 1)
+})
+
+test('ordinary user replies publish a message only after the final turn ends', async t => {
+  const app = await start(team())
+  t.after(app.stop)
+  app.emit('b', 'turn/start', { turn: 1 })
+  app.emit('b', 'user/message', { content: [{ type: 'text', text: 'Hello' }], source: { kind: 'user' } })
+  app.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Hello back' }] } })
+  assert.deepEqual((await app.call('state')).value.taskNotices, [])
+  app.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  const state = (await app.call('state')).value
+  assert.equal(state.taskNotices.length, 1)
+  assert.equal(state.taskNotices[0].kind, 'message')
+  assert.equal(state.taskNotices[0].summary, 'Hello back')
+  const incremental = (await app.call('state', { since: state.revision })).value
+  assert.equal(incremental.taskNotices[0].id, state.taskNotices[0].id)
+  app.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.equal((await app.call('state')).value.taskNotices.length, 1)
+})
 
 test('independent Main Bots collaborate without changing children or interrupting their tasks', async t => {
   const seed = team()
@@ -152,11 +219,11 @@ test('message_bot when "queue" waits for the current work, and reply_to "user" a
 
   emit('b', 'turn/start', { turn: 1 })
   const queued = await tool('message_bot', { to: 'Writer', message: 'later', when: 'queue' }, 'a')
-  assert.equal(queued, 'Queued for Writer: it reads your message after its current work. Its reply will arrive later as a new message; do not wait for it.')
+  assert.match(queued, /^Queued for Writer:.*Task model: mock\/default\./)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
 
   const toUser = await tool('message_bot', { to: 'Writer', message: 'tell them', reply_to: 'user', when: 'now' }, 'a')
-  assert.equal(toUser, 'Delivered to Writer. It will answer the user in its own chat; nothing comes back to you, so point the user to Writer\'s chat instead of relaying.')
+  assert.match(toUser, /^Delivered to Writer\. It will answer the user in its own chat;.*Task model: mock\/default\./)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup', 'followup'])
   assert.equal(agents.get('b').calls[1][1].source.audience, 'user')
 })

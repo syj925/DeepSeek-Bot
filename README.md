@@ -1,3 +1,13 @@
+The QibitAI 0.1.51 source integrates Chief routing, task collaboration and desktop UI updates. Source integration is separate from publication; the stable install address serves the latest published release.
+
+QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
+
+QibitAI canvas plugin 0.1.46: includes task-scoped collaboration, recovery and chat improvements, temporary employee role icons, and the bundled QiBit portrait design kit. [Portrait integration and service requirements](docs/qibitai-employee-portraits.zh.md). Portrait generation requires a separately configured service.
+
+Earlier snapshot 0.1.31: [source handoff, build steps and known limits](docs/qibitai-0.1.31-handoff.md).
+
+QibitAI 0.1.32 adds task-scoped model routing before supervisor delegation, with explicit model priority and unchanged employee defaults. [Routing and integration notes](docs/qibitai-task-model-routing.zh.md).
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
@@ -14,6 +24,12 @@ English | [中文](README.zh.md)
 DeepSeek Bot (DS Bot) is a bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns DSH into bots. You create your own bots, then talk and work with them.
 
 ![Say one sentence to Chief, and it sets up the bots and the group chat](docs/images/team.png)
+
+## Task completion notifications
+
+Employees declare verified final deliveries with `complete_task`. After that turn succeeds, a quiet card appears at the bottom right with the employee, task and result links. Ordinary replies, failed/stopped turns, pending approvals and internal member work do not announce completion; a group coordinator declares its final combined delivery. This is an explicit agent declaration, not an independent assessment of result quality.
+
+The team bell retains the latest 100 deliveries and unread markers. Cards dismiss after six visible seconds, pause on hover/focus, and merge bursts into at most three cards. Opening a conversation uses the existing canvas window without recentering; opening a file uses the classic conversation's built-in file viewer. Notifications for the conversation currently being read are quietly recorded as read. Popup and optional sound settings are local to this browser profile. Background system notifications require permission, enabled explicitly in the notification center; the app/host must remain running. Restarting the window preserves history without replaying old popups.
 
 ## Install
 
@@ -32,7 +48,7 @@ This is the [QibitAI canvas fork](https://github.com/syj925/DeepSeek-Bot), maint
 
 This URL always installs the latest **published stable release**. The source on `main` can be newer. To try that source directly, use `github:syj925/DeepSeek-Bot#main&path:/ds-bot` (needs Git), or link a local checkout.
 
-The package remains `ds-bot`, so an existing installation is replaced in place and keeps its team data. Use **Settings → About DS Bot → Check for updates**, or the desktop plugin manager, to check manually. Confirm **Update** to install the selected release, and restart when requested. Older Desktop builds without the hosted-plugin API show an unsupported message; upgrade Desktop first. Linked development folders are updated locally.
+The package remains `ds-bot`, so an existing installation is replaced in place and keeps its team data. Use **Settings → Help and about → About QibitAI → Check for updates**, or the desktop plugin manager, to check manually. Confirm **Update** to install the selected release, and restart when requested. Older Desktop builds without the hosted-plugin API show an unsupported message; upgrade Desktop first. Linked development folders are updated locally.
 
 This fork declares `https://desktop.qibitai.ai` as its update source. It does not fall back to upstream npm/GitHub releases. The npm package `ds-bot` installs the original upstream plugin.
 
@@ -61,7 +77,7 @@ Group membership and canvas arrangement never change team affiliation, private c
 
 Floating components leave desktop Agent positions unchanged. Team-list drags follow a compact avatar and name; selected Agents show only a soft highlight and expose their management menu on right-click. Widgets expand toward the canvas interior and temporarily avoid overlap, returning to their saved position when collapsed. Manual placement remains free; click a widget to bring it forward. Conversations open in a consistent area beside the left team rail and can still be moved manually.
 
-This fork adds a canvas for persistent employees and group chats. The background fills the workspace, with a light gray gradient, milky translucent panels, a movable, collapsible team list and a centered avatar dock, following the supplied Starbots visual design. A slate variant follows the host dark theme. This theme is local to the canvas. Use **Create employee** to configure a new Bot, or open an existing one from **Employee directory**, the team list or the dock. Expanded conversations can move and resize; compacting or closing them preserves the employee, memory and conversation.
+This development branch adds a canvas for persistent employees and group chats. The background fills the workspace, with a light gray gradient, milky translucent panels, a movable, collapsible team list and a centered avatar dock, following the supplied Starbots visual design. A slate variant follows the host dark theme. This theme is local to the canvas. Use **Create employee** to configure a new Bot, or open an existing one from **Employee directory**, the team list or the dock. Expanded conversations can move and resize; compacting or closing them preserves the employee, memory and conversation.
 
 Employees start as draggable 120×112 avatar entries; Rooms remain 320×200 summaries with their real members. Click an employee avatar or a Room's **Open conversation** to load its conversation. Several manually opened conversations can stay visible together. Reloading restores compact entries and positions without loading all histories. **Arrange cards** packs entries by their actual sizes and visual groups; **Collapse conversations** keeps their positions. Moving and grouping entries never loads a conversation or stops background work.
 
@@ -144,3 +160,11 @@ The plugin source is in [`ds-bot/`](ds-bot/). For options and internals, see [`d
 DS Bot is an independent community project. **It is not an official DeepSeek product**, and it is not affiliated with, endorsed by or sponsored by DeepSeek. "DeepSeek", "DeepSeek Harness" and the other names are trademarks of their owners. They are used here only to say what this plugin works with.
 
 Bots use your own model quota, and they read and write files and run commands when you ask them to. Check important actions yourself.
+
+### Streaming group replies
+
+Group chats display replies as employees generate them, with one employee finishing before the next starts. Tool execution no longer skips a speaker after 15 seconds. Task discussions with useful replies from at least two employees end with one administrator summary; ordinary chats do not add a summary. Busy work, permission waits and long pauses retain status updates and later reporting.
+
+### Task-scoped execution contexts
+
+Verified task completion now moves long-term employees (including Chief) to a fresh conversation part while retaining searchable history. Each group has its own employee execution sessions; group delegation stays in that group. Successful Chief handoffs release its private task context, and completed group reports stay in the group with an on-demand task index. Reusable lessons are extracted into bounded memory topics, separately from results. Temporary employees retire only when no other work, questions, approvals, queued input or schedules remain; historical identities and deliverables are retained. See [lifecycle details](docs/qibitai-task-context-lifecycle.zh.md).

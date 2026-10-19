@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { fixedDesktop, moveDesktop, desktopBounds } from '../src/client/canvas-desktop.js'
-import { createCanvasState, openWindow, createEmptyGroup } from '../src/client/canvas-state.js'
+import { fixedDesktop, moveDesktop, desktopBounds, arrangeDesktop } from '../src/client/canvas-desktop.js'
+import { createCanvasState, openWindow, createEmptyGroup, windowWidth, windowHeight } from '../src/client/canvas-state.js'
 
 const size = { width: 1000, height: 700, insets: { left: 220, top: 80, right: 20, bottom: 90 } }
 const seed = () => openWindow(openWindow(createCanvasState(), { id: 'one' }, { x: 240, y: 100 }), { id: 'two' }, { x: 400, y: 100 })
@@ -52,4 +52,34 @@ test('resizing the desktop rescues cards while expanding leaves healthy position
   state = fixedDesktop(state, { width: 800, height: 600 })
   assert.ok(state.windows[0].x + 120 <= 784)
   assert.deepEqual(fixedDesktop(state, size.width > 800 ? { width: 1400, height: 900 } : size), state)
+})
+
+test('explicit arrangement avoids widgets, other employees, rooms and drafts, and repeats deterministically', () => {
+  let original = seed()
+  for (let i = 0; i < 5; i++) original = openWindow(original, { id: `employee-${i}` })
+  original = openWindow(original, { id: 'room', kind: 'room' })
+  original = createEmptyGroup(original, { x: 400, y: 400 })
+  const viewport = { width: 1440, height: 960, insets: { left: 24, top: 70, right: 24, bottom: 100 } }
+  const obstacles = [{ x: 1100, y: 80, width: 300, height: 420 }, { x: 24, y: 70, width: 260, height: 250 }]
+  const { state, fits } = arrangeDesktop(original, viewport, obstacles, ['two', 'one'])
+  assert.equal(fits, true)
+  const boxes = [...obstacles]
+  const bounds = desktopBounds(viewport)
+  for (const item of [...state.windows.map(w => ({ ...w, width: windowWidth(w), height: windowHeight(w) })), ...state.groups.filter(g => g.draft).map(g => ({ ...g, width: 280, height: 180 }))]) {
+    assert.ok(item.x >= bounds.left && item.y >= bounds.top)
+    assert.ok(item.x + item.width <= bounds.right && item.y + item.height <= bounds.bottom)
+    for (const box of boxes) assert.ok(item.x >= box.x + box.width + 12 || item.x + item.width + 12 <= box.x || item.y >= box.y + box.height + 12 || item.y + item.height + 12 <= box.y)
+    boxes.push(item)
+  }
+  assert.deepEqual(arrangeDesktop(state, viewport, obstacles, ['two', 'one']).state, state)
+  assert.deepEqual(fixedDesktop(state, viewport), state)
+  assert.equal(original.windows[0].x, 240)
+})
+
+test('crowded arrangement preserves the entire layout rather than hiding overflow', () => {
+  const original = seed()
+  const result = arrangeDesktop(original, size, [{ x: 0, y: 0, width: 1000, height: 700 }])
+  assert.equal(result.fits, false)
+  assert.equal(result.state, original)
+  assert.equal(arrangeDesktop(original, size, []).fits, true)
 })

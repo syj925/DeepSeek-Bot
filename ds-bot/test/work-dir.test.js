@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
 import { fakeContext } from './fake-ctx.js'
@@ -94,13 +94,13 @@ async function start({ services = {}, workspaces = [] } = {}) {
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
   const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
   // Runs the parts check, registered last; 'next' means the step goes on.
-  const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').at(-1)(
+  const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').find(listener => /folderMove/.test(String(listener)))(
     { agent: agentOf(sessionId), messages, step, signal: AbortSignal.timeout(60_000) }, async () => 'next')
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   // Waits until the Bot's own chat runs in `dir` and its move has finished.
@@ -116,7 +116,7 @@ async function start({ services = {}, workspaces = [] } = {}) {
   }
   // Loading once fills the Session-owner indexes.
   await tool('list_bots', {}, 'a')
-  return { ctx, root, dsh, home, team, project, created, agentOf, call, tool, preStep, state, workingIn, stop }
+  return { rt, ctx, root, dsh, home, team, project, created, agentOf, call, tool, preStep, state, workingIn, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -379,3 +379,85 @@ test('the folder menu browses through the DSH folder picker', async (t) => {
 function rootless() {
   return join(tmpdir(), `ds-bot-work-dir-none-${process.pid}`)
 }
+
+test('completed task switch keeps searchable segments and forwards queued input without resuming old work', async t => {
+  const h = await start()
+  t.after(h.stop)
+  const archived = []
+  h.ctx.workspaceRegistry.archiveSession = async id => archived.push(id)
+  let modelCalls = 0
+  h.ctx.llm.stream = () => { modelCalls += 1; throw new Error('Completion reset must not call a model') }
+  h.agentOf('b').inbox.nextTurn.push({ id: 'next', content: [{ type: 'text', text: 'Next independent task' }], source: { kind: 'user' } })
+  assert.equal(await h.rt.resetTaskSession('b'), true)
+  const bot = h.state().bots.b
+  assert.notEqual(bot.sessionId, 'b')
+  assert.equal(bot.segments[0].sessionId, 'b')
+  assert.equal(bot.segments[0].taskCompleted, true)
+  assert.equal(bot.segments[0].archivePending, undefined)
+  assert.deepEqual(archived, ['b'])
+  const calls = h.agentOf(bot.sessionId).calls
+  assert.equal(calls[0][1].source.resume, undefined)
+  assert.match(textOf(calls[0][1]), /previous task is complete/)
+  assert.doesNotMatch(textOf(calls[0][1]), /overflowed|kept failing|Go on with/)
+  assert.equal(textOf(calls[1][1]), 'Next independent task')
+  assert.equal(modelCalls, 0)
+  assert.equal(h.rt.pastOwners.get('b').botId, 'b')
+})
+
+test('group completion resets only the target context and failed archive remains retryable', async t => {
+  const h = await start()
+  t.after(h.stop)
+  const room = h.rt.roomOf('r1')
+  room.task = { status: 'completed' }
+  h.ctx.workspaceRegistry.archiveSession = async () => { throw new Error('archive temporarily unavailable') }
+  assert.equal(await h.rt.resetTaskSession('gb'), true)
+  assert.equal(h.rt.chatOf('b'), 'b')
+  assert.notEqual(room.sessions.b, 'gb')
+  assert.equal(room.segments.b[0].archivePending, true)
+  const archived = []
+  h.ctx.workspaceRegistry.archiveSession = async id => archived.push(id)
+  room.task.status = 'active'
+  await h.rt.flushTaskContexts()
+  assert.deepEqual(archived, ['gb'])
+  assert.equal(room.segments.b[0].archivePending, undefined)
+})
+
+test('/clear performs a real context switch without sending the command or old messages to a model', async t => {
+  const h = await start()
+  t.after(h.stop)
+  let modelCalls = 0
+  h.ctx.llm.stream = () => { modelCalls += 1; throw new Error('Unexpected model call') }
+  const command = { id: 'clear', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '/clear' }] }
+  const next = { id: 'next', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'A new task' }] }
+  assert.deepEqual(await h.preStep('b', [command, next]), { kind: 'reject' })
+  await until(() => h.state().bots.b.sessionId !== undefined)
+  await until(() => h.agentOf(h.state().bots.b.sessionId).calls.length >= 2)
+  const bot = h.state().bots.b
+  assert.equal(bot.segments[0].contextCleared, true)
+  assert.equal(bot.segments[0].taskCompleted, undefined)
+  assert.ok(bot.contextClearedAt)
+  assert.equal(h.state().bots.a.sessionId, 'a')
+  const messages = h.agentOf(bot.sessionId).calls.map(([, message]) => textOf(message))
+  assert.match(messages[0], /Context cleared/)
+  assert.doesNotMatch(messages[0], /previous task is complete|overflowed|kept failing/)
+  assert.equal(messages[1], 'A new task')
+  assert.equal(messages.some(text => text === '/clear'), false)
+  assert.equal(modelCalls, 0)
+})
+
+test('/clear is exact user input only; pending questions get a local refusal', async t => {
+  const h = await start()
+  t.after(h.stop)
+  const message = text => ({ id: 'm', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] })
+  assert.equal(await h.preStep('b', [message('Explain /clear')]), 'next')
+  assert.equal(await h.preStep('b', [{ ...message('/clear'), source: { kind: 'bot', role: 'request' } }]), 'next')
+  h.rt.state.questions.b = { question: 'Choose' }
+  assert.equal(await h.preStep('b', [message('/clear')]), 'next')
+  const middleware = h.ctx.listeners.get('llm/stream').find(fn => /refusedClear/.test(String(fn)))
+  let modelCalled = false
+  const chunks = []
+  for await (const chunk of middleware({ sessionId: 'b', messages: [] }, () => { modelCalled = true; throw Error('Should not call model') })) chunks.push(chunk)
+  assert.equal(modelCalled, false)
+  assert.match(chunks.find(chunk => chunk.type === 'text-delta').text, /尚未清理|not cleared/)
+  assert.equal(h.rt.chatOf('b'), 'b')
+})

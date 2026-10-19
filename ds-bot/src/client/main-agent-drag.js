@@ -66,6 +66,7 @@ export function useMainAgentDrag(enabled, id) {
     onDragStart: event => event.preventDefault(),
     onPointerDown: event => {
       if (!enabled || event.button !== 0) return
+      event.preventDefault()
       cleanup.current?.()
       suppress.current = 0
       cleanup.current = beginMainAgentDrag(event, id, () => { suppress.current = Date.now() + 500 })

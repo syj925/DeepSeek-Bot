@@ -1,0 +1,7 @@
+interface:
+  display_name: "QiBit 3D Human Agents"
+  short_description: "Create images with the QiBit 3D Human Agents template"
+  icon_large: "./assets/preview.png"
+  default_prompt: "Use $artifact-template-qibit-3d-human-agents to create an image with this template."
+policy:
+  allow_implicit_invocation: true

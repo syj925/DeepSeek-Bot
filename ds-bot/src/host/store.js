@@ -100,6 +100,7 @@ export function install(rt) {
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
+    state.taskNotices = (Array.isArray(state.taskNotices) ? state.taskNotices : []).filter(item => item && typeof item.id === 'string' && Number.isFinite(item.at)).slice(-100)
     state.prefs ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
@@ -112,6 +113,7 @@ export function install(rt) {
       migrated = true
     }
     for (const bot of Object.values(state.bots)) {
+      if (bot.employment !== 'temporary' && bot.employment !== 'long-term') { bot.employment = 'long-term'; migrated = true }
       if (!Array.isArray(bot.capabilities)) {
         bot.capabilities = []
         migrated = true
@@ -156,6 +158,8 @@ export function install(rt) {
     }
     // Groups from before group settings existed reply in turn, led by a Main Bot member.
     for (const room of Object.values(state.rooms)) {
+      // A completion declaration from a cut-off round is not evidence of delivery.
+      if (room.task?.pendingCompletion) { delete room.task.pendingCompletion; migrated = true }
       if (room.admin !== undefined && ROOM_MODES.includes(room.mode)) continue
       if (room.admin === undefined) room.admin = room.members.find(id => state.mainBotIds.includes(id)) ?? null
       if (!ROOM_MODES.includes(room.mode)) room.mode = 'everyone'
@@ -307,13 +311,17 @@ export function install(rt) {
     pastOwners.clear()
     for (const bot of Object.values(state.bots)) {
       for (const segment of bot.segments ?? []) pastOwners.set(segment.sessionId, { botId: bot.id })
-      chatOwners.set(chatOf(bot.id), bot.id)
+      if (!bot.retiredAt) chatOwners.set(chatOf(bot.id), bot.id)
+      else pastOwners.set(chatOf(bot.id), { botId: bot.id })
     }
     for (const room of Object.values(state.rooms)) {
       for (const [botId, segments] of Object.entries(room.segments ?? {})) {
         for (const segment of segments) pastOwners.set(segment.sessionId, { botId, roomId: room.id })
       }
-      for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) groupOwners.set(sessionId, { botId, roomId: room.id })
+      for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) {
+        if (!state.bots[botId]?.retiredAt) groupOwners.set(sessionId, { botId, roomId: room.id })
+        else pastOwners.set(sessionId, { botId, roomId: room.id })
+      }
     }
     // The agents module owns the DSH Agent session index; it installs after this.
     rt.indexAgents?.()
@@ -327,6 +335,7 @@ export function install(rt) {
   const dropGroupSession = (room, botId) => {
     const sessionId = room.sessions?.[botId]
     if (sessionId === undefined) return
+    delete state.questions[sessionId]
     delete room.sessions[botId]
     if (room.segments !== undefined) delete room.segments[botId]
     groupOwners.delete(sessionId)
@@ -337,9 +346,9 @@ export function install(rt) {
   }
   const findBot = (ref) => {
     if (ref === undefined) return undefined
-    if (state.bots[ref]) return state.bots[ref]
+    if (state.bots[ref]) return state.bots[ref].retiredAt ? undefined : state.bots[ref]
     const wanted = normalize(ref).replace(/^@/, '')
-    return Object.values(state.bots).find(bot => normalize(bot.name) === wanted)
+    return Object.values(state.bots).find(bot => !bot.retiredAt && normalize(bot.name) === wanted)
   }
   // Every group chat whose id or name matches; callers refuse an ambiguous name.
   const findRooms = (ref) => {

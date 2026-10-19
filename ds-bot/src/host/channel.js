@@ -1,5 +1,6 @@
 // Client channel: the team view, POST actions, and the GET browser read poll.
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { questionReply } from './parts.js'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
@@ -36,9 +37,11 @@ export function install(rt) {
     mainBotIds: state.mainBotIds,
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model.
-    bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => ({
-      ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
+    bots: Object.values(state.bots).filter(bot => !bot.retiredAt).map(({ segments, kickoff, ...bot }) => ({
+      ...bot, portraitGeneration: rt.portraitStatus?.(bot), sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
     })),
+    retiredBots: Object.values(state.bots).filter(bot => bot.retiredAt).map(({ id, name, role, color, employment, avatar }) => ({ id, name, role, color, employment, avatar })),
+    portraitServiceAvailable: rt.portraitServiceAvailable?.() ?? false,
     // `parts`: the members' hidden group Sessions and their earlier segments, for usage.
     teams: Object.values(state.teams),
     rooms: Object.values(state.rooms).map(({ log, seen, botRounds, lateRounds, sessions, segments, ...room }) => {
@@ -78,21 +81,20 @@ export function install(rt) {
     memoryReviews: rt.memoryReviews(),
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
+    taskNotices: state.taskNotices ?? [],
+    modelFailures: rt.failuresView(),
+    taskProgress: Object.fromEntries(Object.values(state.rooms).filter(room => room.task).map(room => {
+      const rounds = [...rt.roomProgress.values()].filter(round => round.roomId === room.id)
+      return [room.id, { slots: rounds.flatMap(round => round.slots.map(({ id, status }) => ({ id, status }))),
+        working: rt.roomWorkView()[room.id] ?? [] }]
+    })),
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'execution', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
-    if (body.theme !== undefined) {
-      if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
-      state.prefs.theme = body.theme
-    }
-    if (body.accent !== undefined) {
-      if (body.accent === null || body.accent === '') delete state.prefs.accent
-      else if (/^#[0-9a-f]{6}$/i.test(body.accent)) state.prefs.accent = body.accent
-      else throw invalid('Accent must be a #rrggbb color')
-    }
+    if (body.theme !== undefined || body.accent !== undefined) throw invalid('Theme and accent customization is no longer supported')
     if (body.motion !== undefined) {
       if (body.motion === null || body.motion === 'normal') delete state.prefs.motion
       else if (body.motion === 'quiet' || body.motion === 'lively') state.prefs.motion = body.motion
@@ -138,8 +140,11 @@ export function install(rt) {
         case 'usage':
           await rt.load()
           return ok(await rt.usageView({ timeZone: typeof body.timeZone === 'string' ? body.timeZone.slice(0, 64) : undefined }))
+        case 'execution':
+          await rt.load()
+          return ok(rt.executionView(body.sessionId, body.botId))
         case 'room-progress':
-          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null })))
+          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null, ...(entry.streaming?.text && !/^\s*\[(?:P(?:A(?:S(?:S\]?)?)?)?)?\s*$/i.test(entry.streaming.text) ? { streaming: entry.streaming } : {}) })))
         case 'ensure-general-assistant':
           await rt.bootstrap()
           return ok(await rt.ensureGeneralAssistant())
@@ -154,7 +159,7 @@ export function install(rt) {
           return ok(await rt.setTeam(body.id, body.teamId ?? null))
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, teamId: body.teamId ?? null, main: body.main === true })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, teamId: body.teamId ?? null, main: body.main === true, employment: body.employment })
           return ok(bot)
         }
         case 'update-bot':
@@ -273,12 +278,16 @@ export function install(rt) {
           if (question === undefined || question.id !== body.questionId) return fail('This question is no longer open', 'bot/stale')
           const reply = questionReply(question, body.answer)
           if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
+          const room = question.roomId ? rt.roomOf(question.roomId) : undefined
+          if (question.roomId && (!room || !room.members.includes(question.botId))) return fail('This member has left the group', 'bot/stale')
           // Claim the question before queueing so a second answer is refused.
           delete state.questions[sessionId]
           try {
-            await rt.ensureCapabilities(sessionId)
-            const agent = await rt.resolveAgent(sessionId)
-            agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
+            const target = room?.id ?? sessionId
+            await rt.ensureCapabilities(target)
+            const agent = await rt.resolveAgent(target)
+            agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: { ...reply.source,
+              ...(room ? { questionBotId: question.botId } : {}) } }))
             await ctx.sessions.flush(agent.session)
           } catch (error) {
             state.questions[sessionId] ??= question
@@ -287,12 +296,16 @@ export function install(rt) {
           await rt.save()
           return ok(true)
         }
+        case 'recover-failure':
+          return ok(await rt.recoverFailure(body))
         case 'send': {
           const text = String(body.text ?? '').trim()
           if (text === '' || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
           // A Bot id or an earlier part of its own chat means the current part.
           const past = rt.pastOwners.get(body.sessionId)
+          const owner = rt.botOf(body.sessionId) ?? rt.botOf(rt.selfOf(body.sessionId))
+          if (owner?.retiredAt) return fail('This temporary employee has retired. Assign an active employee instead.', 'bot/refused')
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
           await rt.ensureCapabilities(sessionId)
           await ctx.sessionController.prompt({
@@ -357,6 +370,14 @@ export function install(rt) {
       let body
       if (request.method === 'GET') {
         const params = new URL(request.url).searchParams
+        if (params.size === 1 && params.get('asset') === 'qibit-font-v1') {
+          try {
+            const font = await readFile(new URL('../../assets/fonts/NotoSansSC-VF.ttf', import.meta.url))
+            return new Response(font, { headers: { 'content-type': 'font/ttf', 'cache-control': 'private, max-age=31536000, immutable' } })
+          } catch {
+            return new Response('Font unavailable', { status: 404, headers: { 'cache-control': 'no-store' } })
+          }
+        }
         // Only the read poll can use GET. Page metadata stays in a short POST,
         // so long polling cannot block Desktop's admitted-write drain at update.
         if (params.get('endpoint') !== 'browser-wait' || [...params.keys()].some(key => key !== 'endpoint' && key !== 'clientId')

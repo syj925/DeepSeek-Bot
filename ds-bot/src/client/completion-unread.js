@@ -1,6 +1,6 @@
 import { currentPart } from './text.js'
 
-function canvasReading(state, size) {
+export function canvasReading(state, size) {
   const window = state.windows.find(value => value.id === state.active && value.open && !value.compact)
   if (!window) return undefined
   if (size && size.width > 0 && size.height > 0) {
@@ -16,7 +16,7 @@ function canvasReading(state, size) {
 // DSH acknowledges completion through mainView, even when a canvas hides it.
 // Keep this observer with the plugin, so withdrawing the sidebar in Agent mode
 // cannot discard acknowledgements or miss a background completion.
-export function watchCompletions({ sessions, roster, canvas, panels, completions, canvasSize = () => undefined, page = globalThis.document }) {
+export function watchCompletions({ sessions, roster, canvas, panels, completions, readingChats, canvasSize = () => undefined, page = globalThis.document }) {
   const running = new Map()
   const sync = () => {
     const team = roster.getSnapshot()
@@ -36,9 +36,13 @@ export function watchCompletions({ sessions, roster, canvas, panels, completions
       const panel = panels.getSnapshot().activePanelId
       let shown
       if (panel === 'ds-bot-canvas') {
-        const window = canvasReading(canvas.getSnapshot(), canvasSize())
-        const entity = window && (window.kind === 'room' ? team.roomsById[window.entityId] : team.byId[window.entityId])
-        shown = entity && (window.kind === 'room' ? entity.id : currentPart(entity))
+        if (readingChats) {
+          for (const [id, count] of Object.entries(readingChats.getSnapshot())) if (count > 0) delete next[id]
+        } else {
+          const window = canvasReading(canvas.getSnapshot(), canvasSize())
+          const entity = window && (window.kind === 'room' ? team.roomsById[window.entityId] : team.byId[window.entityId])
+          shown = entity && (window.kind === 'room' ? entity.id : currentPart(entity))
+        }
       } else if (panel === null || panel === undefined) {
         shown = Object.values(list.byId).find(value => (value.retainedBy?.mainView ?? 0) > 0)?.id
       }
@@ -47,7 +51,7 @@ export function watchCompletions({ sessions, roster, canvas, panels, completions
     const previous = completions.getSnapshot()
     if (Object.keys(previous).length !== Object.keys(next).length || Object.keys(next).some(id => previous[id] !== next[id])) completions.set(next)
   }
-  const offs = [sessions, roster, canvas, panels].map(source => source.subscribe(sync))
+  const offs = [sessions, roster, canvas, panels, readingChats].filter(Boolean).map(source => source.subscribe(sync))
   page?.addEventListener('visibilitychange', sync)
   sync()
   return () => { offs.forEach(off => off()); page?.removeEventListener('visibilitychange', sync) }

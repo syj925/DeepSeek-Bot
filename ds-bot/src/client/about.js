@@ -1,124 +1,61 @@
-// Settings → About DS Bot: the version, updates for DS Bot and DSH, and the links to
-// the repository. The sidebar's cloud button shows the same update state.
-import { createElement as h, useEffect, useState } from 'react'
-import { GitHubMark } from './connectors.js'
-import { dateLocale, hostText, t } from './i18n.js'
-import { StarLineIcon } from './icons.js'
-import { SPRING_POP } from './motion.js'
-import { BotMark } from './mark.js'
-import { MAIN_LOOK } from './characters.js'
-import { showsDshRow } from './dsh-offer.js'
+import { createElement as h, useState } from 'react'
+import { t } from './i18n.js'
 import { botUpdateHint } from './update-status.js'
-
-// The length of the mark's `done` hop (bt-done in styles.js).
-const CHEER_MS = 1800
-
-const starCount = count => new Intl.NumberFormat(dateLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(count)
-
-function dshHint(dsh, shown) {
-  if (dsh.managed) return t('QibitAI Desktop manages its own updates.')
-  if (dsh.phase === 'installing') return t('Updating DSH…')
-  if (dsh.phase === 'installed') return t('Restart DSH to start using DSH {version}.', { version: dsh.installed ?? dsh.verified })
-  if (dsh.phase === 'failed') return t('The update did not finish: {reason}', { reason: hostText(dsh.error ?? '') })
-  if (dsh.available === false && dsh.blockedBy) return t('Update DS Bot {version} first.', { version: dsh.blockedBy })
-  if (shown) return t('DSH {version} is available', { version: dsh.verified })
-  return t('Version {version}', { version: dsh.current })
-}
+import { QIBITAI_LOGO } from './qibitai-brand.js'
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
 export function AboutPage({ useUpdate, actions, run, Section, Row }) {
   const update = useUpdate(value => value) ?? {}
   const [checking, setChecking] = useState(false)
-  const [stars, setStars] = useState(null)
-  useEffect(() => {
-    let live = true
-    actions.repoStars().then((count) => { if (live && Number.isInteger(count)) setStars(count) }, () => {})
-    return () => { live = false }
-  }, [])
-  // The whale hops when the page opens, after a check, and when an update is in.
-  const [cheer, setCheer] = useState(true)
-  useEffect(() => {
-    if (!cheer) return undefined
-    const timer = setTimeout(() => setCheer(false), CHEER_MS)
-    return () => clearTimeout(timer)
-  }, [cheer])
+  const local = update.source === 'path'
+  const phase = update.phase ?? 'idle'
   const check = () => {
     setChecking(true)
-    void run(actions.checkUpdate()).then((done) => { setChecking(false); if (done) setCheer(true) })
+    void run(actions.checkUpdate()).finally(() => setChecking(false))
   }
-  const phase = update.phase ?? 'idle'
-  const dsh = update.dsh
-  const dshPhase = dsh?.phase ?? 'idle'
-  useEffect(() => { if (phase === 'installed' || dshPhase === 'installed') setCheer(true) }, [phase, dshPhase])
-  const markState = checking ? 'searching' : phase === 'installing' || dshPhase === 'installing' ? 'working' : cheer ? 'done' : 'idle'
-  // Same rule as the sidebar card.
-  const dshNew = showsDshRow(dsh, update.app)
-  const dshShown = dshNew && dsh.available
-  const botControl = phase === 'installed' ? null
+  const hint = botUpdateHint(update) ?? t('Component updates are separate from desktop app updates.')
+  const control = local || phase === 'installed' ? null
     : update.available || phase === 'installing'
-      ? h('button', { type: 'button', className: 'bt-fb-primary', disabled: phase === 'installing', onClick: () => run(actions.installUpdate()) },
-          phase === 'installing' ? t('Updating…') : phase === 'failed' ? t('Try again') : t('Update'))
-      : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: checking || update.enabled === false, onClick: check }, checking ? t('Checking…') : t('Check for updates'))
-  const dshControl = !dshNew || dshPhase === 'installed' ? null
-    : dsh.kind === 'app'
-      ? dsh.available ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openAppUpdates(dsh.verified)) }, t('Open updates')) : null
-      : dsh.available || dshPhase !== 'idle'
-        ? h('button', { type: 'button', className: 'bt-fb-primary', disabled: dshPhase === 'installing', onClick: () => run(actions.installDshUpdate()) },
-            dshPhase === 'installing' ? t('Updating…') : dshPhase === 'failed' ? t('Try again') : t('Update'))
-        : null
-  const repo = update.repoUrl
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: phase === 'installing', onClick: () => run(actions.installUpdate()) }, t(phase === 'installing' ? 'Updating…' : 'Update'))
+      : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: checking || update.enabled === false, onClick: check }, t(checking ? 'Checking…' : 'Check for updates'))
   return [
     h('div', { key: 'hero', className: 'bt-about-hero' },
-      h('span', { className: 'bt-about-mark' }, h(BotMark, { look: MAIN_LOOK, bot: { id: 'about' }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
-      h('div', { className: 'bt-about-copy' },
-        h('span', { className: 'bt-about-name' }, 'DS Bot'),
-        update.current ? h('span', { className: 'bt-about-version' }, t('Version {version}', { version: update.current })) : null),
-      repo ? h('a', {
-        className: 'bt-star', href: repo, target: '_blank', rel: 'noopener noreferrer', title: t('Star DS Bot on GitHub'),
-        'aria-label': stars === null ? t('Star DS Bot on GitHub') : `${t('Star DS Bot on GitHub')} · ${t('{count} stars', { count: stars })}`,
-      },
-      h('span', { className: 'bt-star-main' }, h('span', { className: 'bt-star-icon' }, h(StarLineIcon)), 'Star'),
-      stars === null ? null : h('span', { className: 'bt-star-count' }, starCount(stars))) : null),
-    repo ? h('p', { key: 'ask', className: 'bt-about-ask' }, t('If DS Bot helps you, a star on GitHub helps more people find it.')) : null,
-    h(Section, { key: 'updates', title: t('Updates') },
-      h(Row, { label: 'DS Bot', hint: botUpdateHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
-      update.notes ? h('details', { className: 'bt-about-notes' }, h('summary', null, t('Release notes')), h('p', null, update.notes)) : null,
-      dsh?.current ? h(Row, { label: 'DeepSeek Harness', hint: dshHint(dsh, dshShown) }, dshControl) : null),
-    h(Section, { key: 'links', title: t('Links') },
-      repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
-      update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
-      h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
+      h('img', { src: QIBITAI_LOGO, alt: 'QibitAI', width: 60, height: 60 }),
+      h('div', { className: 'bt-about-copy' }, h('strong', { className: 'bt-about-name' }, 'QibitAI'),
+        h('span', { className: 'bt-about-description' }, t('Your AI team, in one workspace.')),
+        update.current ? h('span', { className: 'bt-about-version' }, t('Canvas component {version}', { version: update.current })) : null)),
+    h(Section, { key: 'update', title: t('Version and updates') }, h(Row, { label: t('Canvas component'), hint }, control)),
+    h(Section, { key: 'help', title: t('Need help?') },
+      h(Row, { label: t('Feedback and support'), hint: t('Describe a problem or suggestion, and export diagnostic information if needed.') },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open'))),
+      h(Row, { label: t('Release notes'), hint: t('Browse the QibitAI project releases.') }, h('a', linkProps('https://github.com/syj925/DeepSeek-Bot/releases'), t('Open')))),
+
   ]
 }
 
 export const ABOUT_CSS = `
-.bt-about-notes{font-size:13px;line-height:1.6;color:var(--bt-ink-2)}
-.bt-about-notes summary{cursor:pointer}
-.bt-about-notes p{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto}
-.bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
-.bt-about-mark{flex:none;display:inline-flex;position:relative}
-.bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle]:not(.bt-mark-poke) .bt-b{rotate:8deg;translate:5% -1%;animation:bt-nuzzle .78s ease-in-out .32s infinite}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye{scale:1 0;animation:none}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye-happy{opacity:1;transition-delay:.1s}
-.bt-about-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.bt-about-name{font-size:16px;line-height:22px;font-weight:600}
-.bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
-.bt-about-ask{margin:-10px 4px 0;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-star{flex:none;display:inline-flex;align-items:stretch;height:30px;border-radius:999px;border:1px solid var(--bt-line-2,var(--bt-line));overflow:hidden;color:var(--bt-ink);text-decoration:none;font-size:12px;line-height:28px;transition:transform .12s ease,border-color .15s ease}
-.bt-star:hover{border-color:color-mix(in srgb,#e3a008 55%,var(--bt-line))}
-.bt-star:active{transform:scale(.96)}
-.bt-star-main{display:inline-flex;align-items:center;gap:6px;padding:0 12px 0 10px;background:var(--bt-hover);font-weight:500}
-.bt-star-icon{display:inline-flex;color:var(--bt-ink-2);transition:color .15s ease}
-.bt-star-icon path{transition:fill .15s ease}
-.bt-star:hover .bt-star-icon{color:#e3a008;animation:bt-star-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-.bt-star:hover .bt-star-icon path{fill:currentColor}
-.bt-star-count{display:inline-flex;align-items:center;padding:0 11px;border-left:1px solid var(--bt-line-2,var(--bt-line));color:var(--bt-ink-2);font-variant-numeric:tabular-nums;animation:bt-star-count-in ${SPRING_POP.duration}ms ${SPRING_POP.easing},bt-veil-in .2s ease-out}
-@keyframes bt-star-pop{from{scale:.6;rotate:-30deg}}
-@keyframes bt-star-count-in{from{translate:-6px 0}}
-.bt-about-link{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
-.bt-about-link svg{width:14px;height:14px}
-.bt-fb-primary:disabled{opacity:.6;cursor:default;filter:none}
-@media (prefers-reduced-motion:reduce){.bt-star:hover .bt-star-icon,.bt-star-count{animation:none}}
+.bt-about-hero{display:flex;align-items:center;gap:18px;padding:26px 22px;border:1px solid var(--bt-line);border-radius:18px;background:linear-gradient(135deg,var(--bt-card),color-mix(in srgb,#4054f4 5%,var(--bt-card)))}
+.bt-about-hero>img{flex:none;border-radius:15px;box-shadow:0 8px 22px #4054f422}
+.bt-about-copy{min-width:0;display:flex;flex-direction:column;gap:6px}
+.bt-about-name{font-size:24px;line-height:30px;letter-spacing:-.6px}
+.bt-about-description{font-size:13px;color:var(--bt-ink-2)}
+.bt-about-version{font-size:11px;line-height:18px;color:var(--bt-ink-3)}
+.bt-about-link{display:inline-flex;align-items:center;gap:6px;text-decoration:none;white-space:nowrap}
+.bt-settings-brand{display:flex;align-items:center;gap:9px;padding:5px 10px 22px;font-size:16px;letter-spacing:-.3px}
+.bt-settings-nav{overflow-y:auto}
+.bt-settings-advanced-nav{margin-top:auto;padding-top:24px;position:relative;z-index:1}
+.bt-settings-advanced-nav>summary{display:flex;align-items:center;gap:8px;padding:8px;color:var(--bt-ink-3);font-size:12px;cursor:pointer;list-style:none}
+.bt-settings-advanced-nav>summary::-webkit-details-marker{display:none}
+.bt-settings-advanced-nav>summary:after{content:'⌄';margin-left:auto}
+.bt-settings-advanced-nav[open]>summary:after{content:'⌃'}
+.bt-settings-advanced-nav .bt-settings-item{width:100%;font-size:12px}
+.bt-settings-tabs{display:flex;align-self:flex-start;gap:3px;padding:4px;border-radius:11px;background:var(--bt-hover)}
+.bt-settings-tabs>button{padding:6px 14px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer}
+.bt-settings-tabs>button[aria-pressed=true]{background:var(--bt-card);color:var(--bt-ink);box-shadow:0 1px 4px #0000000a}
+.bt-settings-overview{display:flex;flex-direction:column;gap:20px}
+.bt-settings-intro{margin:0;color:var(--bt-ink-2);font-size:13px;line-height:1.8}
+.bt-settings-advanced-card{padding:16px;border:1px solid var(--bt-line);border-radius:12px;color:var(--bt-ink-2)}
+.bt-settings-advanced-card>summary{font-size:12px;cursor:pointer;color:var(--bt-ink)}
+.bt-settings-advanced-card>p{font-size:12px;line-height:1.8;margin:14px 0}
 `

@@ -203,7 +203,7 @@ export function SchedulesPage({ roster, actions, start }) {
 // A Bot's tasks in its settings form, with the way to add one.
 export function BotSchedules({ bot, roster, actions }) {
   const view = useSchedules(actions)
-  if (view === null) return null
+  if (!view?.available) return null
   const tasks = view.available ? view.tasks.filter(task => task.botId === bot.id) : []
   return h('section', { className: 'bt-set-section' },
     h('h3', null, t('Scheduled tasks')),

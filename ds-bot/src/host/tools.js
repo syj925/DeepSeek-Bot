@@ -15,6 +15,7 @@ const MODE_PARAM = {
   description: '"everyone": every member answers a plain message in turn, admin first. "admin" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.',
 }
 const WORK_DIR_PARAM = { type: 'string', description: 'Full path of the folder to work in, where commands and file tools start. Only when the user asks for it' }
+const EFFORT_PARAM = { type: 'string', description: 'Thinking level ID from list_models (for example low or high); use an empty string for the model default. Only use levels declared for that model. Thinking level does not change access permissions.' }
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -32,6 +33,7 @@ export function install(rt) {
       `members: ${members.join(', ')}`,
       room.mode === 'admin' && room.admin ? 'plain messages go to the admin first' : 'every member replies in turn',
       room.notice ? `notice: ${room.notice.split('\n')[0].slice(0, 100)}` : '',
+      room.task ? `task ${room.task.status}: ${room.task.objective}; reuse this group for follow-up on the same deliverable` : '',
       room.workDir ? `members work in ${room.workDir} here` : '',
     ].filter(Boolean)
     return `- "${room.name}" — ${parts.join('; ')}`
@@ -47,7 +49,7 @@ export function install(rt) {
     async execute(_args, exec) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
-      const lines = Object.values(state.bots).map(bot => {
+      const lines = Object.values(state.bots).filter(bot => !bot.retiredAt).map(bot => {
         const model = bot.appliedModel ?? bot.model
         const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', bot.generalAssistant ? 'General Assistant' : rt.isMain(bot.id) ? 'management rights' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
         const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
@@ -94,6 +96,11 @@ export function install(rt) {
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       message: { type: 'string', required: true, description: 'Self-contained message; the other Bot cannot see this conversation' },
+      task_kind: { type: 'string', enum: ['general', 'writing', 'coding', 'analysis', 'vision'], description: 'For a new delegated task: the recipient\'s actual work, not their job title. Otherwise inferred from message.' },
+      priority: { type: 'string', enum: ['balanced', 'speed', 'economy', 'quality'], description: 'Task model preference. Default balanced. Speed and economy are rule-based preferences, not measured guarantees.' },
+      model: { type: 'string', description: 'Optional exact available provider/model for THIS task only. Always pass the user\'s explicit model choice; otherwise omit for automatic routing. Never use for an in-progress correction.' },
+      model_reason: { type: 'string', description: 'Short factual reason for the task-specific model choice; no invented price or benchmark claims.' },
+      effort: { ...EFFORT_PARAM, description: `${EFFORT_PARAM.description} Applies to this queued task only; omit to inherit a supported employee level.` },
       reply_to: {
         type: 'string',
         enum: ['me', 'user'],
@@ -116,15 +123,23 @@ export function install(rt) {
       const turn = rt.live.get(exec.agent?.id)
       const hop = Math.max(turn?.info?.hop ?? 0, ...(turn?.joined ?? []).map(joined => joined.info?.hop ?? 0))
       if (hop >= MAX_HOPS) return 'This chain of Bot messages is already long. Stop here and report to the user instead.'
-      const chat = rt.chatOf(target.id)
+      const toUser = args.reply_to === 'user'
+      const origin = callerRoom(exec)
+      const room = origin.fromRoomId && rt.roomOf(origin.fromRoomId)
+      if (!toUser && room && !room.members.includes(target.id)) return 'Add this employee to the task group before delegating work, so its execution stays in this group.'
+      const chat = !toUser && room ? (await rt.ensureGroupSession(room, target)).id : rt.chatOf(target.id)
       const unread = unreadRequests(await rt.resolveAgent(chat))
       if (unread >= MAX_UNREAD_REQUESTS) {
         refuse(`Not sent: ${target.name} has not read the last ${unread} messages from Bots yet, so it is most likely stuck, for example waiting for the user. Do not send it more; tell the user that ${target.name} is not responding.`)
       }
-      const toUser = args.reply_to === 'user'
       const working = rt.live.get(chat)?.turn !== undefined
       const steer = args.when === 'now' && !toUser
-      await rt.deliver({ fromId: sender.id, toId: target.id, text: args.message, role: 'request', hop, steer, ...(toUser ? { audience: 'user' } : callerRoom(exec)) })
+      if ((args.model || args.effort !== undefined) && steer) refuse('A correction cannot switch the running task model or thinking level. Queue a new task instead.')
+      const taskModel = !steer && rt.isMain(sender.id)
+        ? await rt.planTaskModel(target, { text: args.message, kind: args.task_kind, priority: args.priority, model: args.model, reason: args.model_reason, effort: args.effort }) : undefined
+      if (args.model && !rt.isMain(sender.id)) refuse('Only a General Assistant or supervisor can select a delegated task model.')
+      if (args.effort !== undefined && !rt.isMain(sender.id)) refuse('Only a General Assistant or supervisor can select a delegated thinking level.')
+      await rt.deliver({ fromId: sender.id, toId: target.id, sessionId: chat, text: args.message, role: 'request', hop, steer, ...(taskModel ? { taskModel } : {}), ...(toUser ? { audience: 'user' } : origin) })
       const sent = toUser
         ? `Delivered to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
         : working && steer
@@ -134,6 +149,7 @@ export function install(rt) {
             : `Delivered to ${target.name}. Its reply will arrive later as a new message; do not wait for it.`
       // "Delivered" only means it is in the inbox; say so when it may sit there a while.
       const notes = [
+        taskModel ? `Task model: ${taskModel.ref}. Thinking level: ${taskModel.effort ?? 'model default'}. ${taskModel.reason}. Employee defaults are unchanged. Briefly explain this assignment to the user in their language.` : '',
         rt.waitsForApproval?.(chat) ? `${target.name} is waiting for the user's approval, so it reads your message only after the user answers.` : '',
         unread > 0 ? `${target.name} has not read ${unread === 1 ? 'an earlier message' : `${unread} earlier messages`} from Bots yet.` : '',
       ].filter(Boolean)
@@ -186,6 +202,7 @@ export function install(rt) {
       model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the DSH default model.' },
       team: { type: 'string', description: 'Existing lasting team name or id. Omit to create an independent employee; creation does not imply ownership.' },
       work_dir: WORK_DIR_PARAM,
+      employment: { type: 'string', enum: ['long-term', 'temporary'], description: 'Whether this employee remains after the current task. Omit for a long-term employee.' },
     },
     output,
     async execute(args, exec) {
@@ -199,7 +216,7 @@ export function install(rt) {
         const team = args.team ? rt.findTeam(args.team) : null
         if (args.team && !team) throw new Error('Unknown team')
         if (team && !rt.isGeneralAssistant(self) && team.leaderId !== self) throw new Error('Ask that team leader or the General Assistant to add employees')
-        const bot = await rt.createBot({ ...args, workDir, teamId: team?.id ?? null, createdBy: self })
+        const bot = await rt.createBot({ ...args, workDir, teamId: team?.id ?? null, createdBy: self, employment: args.employment })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
         return `Could not create the Bot: ${error.message}`
@@ -209,7 +226,7 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'update_bot',
-    description: 'Change a Bot\'s name, role, color, model, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
+    description: 'Change a Bot\'s name, role, color, model, thinking level, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot. Model and thinking changes apply to subsequent turns, not an already running task.',
     parameters: {
       bot: { type: 'string', description: 'Current name of the Bot to change; leave out to change yourself' },
       name: { type: 'string', description: 'New name' },
@@ -217,7 +234,10 @@ export function install(rt) {
       instructions: { type: 'string', description: 'Replacement instructions' },
       color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
+      effort: EFFORT_PARAM,
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
+      employment: { type: 'string', enum: ['long-term', 'temporary'], description: 'Change whether the employee remains after tasks. Promotion queues a QiBit portrait when no custom image exists.' },
+      formal_avatar: { type: 'boolean', description: 'Request a QiBit portrait asynchronously only when the user explicitly asks. Does not change employment or block task execution.' },
     },
     output,
     async execute(args, exec) {
@@ -231,11 +251,13 @@ export function install(rt) {
       const boundary = manageProblem(state, self, bot.id)
       if (boundary) return boundary
       try {
-        const { name: newName, role, instructions, color, model } = args
+        const { name: newName, role, instructions, color, model, effort, employment } = args
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(model ? { model } : {}), ...(moving ? { workDir: workDir ?? '' } : {}) })
+        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, employment, formalAvatar: args.formal_avatar === true, ...(model ? { model } : {}), ...(effort !== undefined ? { effort } : {}), ...(moving ? { workDir: workDir ?? '' } : {}) })
+        if (args.formal_avatar === true) return `Updated ${next.name}. Portrait: ${next.portraitGeneration?.status ?? 'unavailable'}. Work can continue; do not retry automatically.`
+        if (effort !== undefined && !moving) return `Updated ${next.name}. Thinking level: ${next.effort ?? 'model default'}. Applies to subsequent turns; an already running task keeps its admitted settings. Access permissions are unchanged.`
         if (!moving) return `Updated ${next.name}.`
         const folder = workDir ?? 'the team workspace'
         return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
@@ -247,14 +269,15 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'list_models',
-    description: 'List the models a Bot can run on, as provider/model refs for create_bot and update_bot.',
+    description: 'List configured model refs for task-specific message_bot routing or permanent employee settings. Input capabilities are declared by providers; no live price, speed or quality benchmarks are available.',
     parameters: {},
     output,
     async execute() {
       const models = await rt.catalog()
       if (models.length === 0) return 'No models are configured. Ask the user to add one in Settings → Models.'
       const fallback = rt.defaultRef()
-      return models.map(entry => `- ${entry.ref}${entry.name !== entry.id ? ` (${entry.name})` : ''}${entry.input?.includes('image') ? ', reads images' : ''}${entry.ref === fallback ? ', default' : ''}`).join('\n')
+      await Promise.all(models.map(async entry => { entry.reasoning = await rt.reasoningOf(entry.ref) }))
+      return models.map(entry => `- ${entry.ref}${entry.name !== entry.id ? ` (${entry.name})` : ''}${entry.input?.includes('image') ? ', reads images' : ''}${entry.ref === fallback ? ', default' : ''}; thinking levels: ${entry.reasoning?.efforts?.map(effort => `${effort.id} (${effort.name})`).join(', ') || 'not configurable'}${entry.reasoning?.defaultEffort ? `; default level: ${entry.reasoning.defaultEffort}` : ''}`).join('\n')
     },
   }))
 
@@ -290,6 +313,7 @@ export function install(rt) {
       notice: { type: 'string', description: 'Shared instructions every member reads before speaking in this group' },
       admin: { type: 'string', description: 'Member who leads the group; defaults to you' },
       mode: MODE_PARAM,
+      task_objective: { type: 'string', description: 'Requested deliverable owned by this task group, including a task with just one specialist. Omit for ordinary social groups or simple questions. Reuse an existing task group for revisions.' },
     },
     output,
     async execute(args, exec) {
@@ -302,7 +326,10 @@ export function install(rt) {
       if (admin === undefined) return `No Bot named ${args.admin}. Team: ${teamNames()}`
       const members = [...new Set([self, ...bots.map(bot => bot.id), admin.id])]
       try {
-        const room = await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, createdBy: self })
+        const objective = typeof args.task_objective === 'string' ? args.task_objective.trim().slice(0, 1000) : ''
+        const existing = objective && Object.values(state.rooms).find(room => room.task?.originBotId === self && room.task.objective === objective)
+        const room = existing || await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, createdBy: self,
+          ...(objective ? { task: { objective, originBotId: self, status: 'active', cycle: 1, createdAt: Date.now() } } : {}) })
         return `Created group "${room.name}" with ${room.members.map(id => rt.botOf(id).name).join(', ')}. ${admin.id === self ? 'You are' : `${admin.name} is`} its admin. It is in the user's sidebar; use post_to_group to start a discussion there.`
       } catch (error) {
         return `Could not create the group: ${error.message}`
@@ -413,9 +440,14 @@ export function install(rt) {
       if ((room.botRounds ?? 0) >= ROOM_BOT_ROUNDS) return `Bots already started ${ROOM_BOT_ROUNDS} rounds in "${room.name}" since the user last spoke there. Wait for the user.`
       room.botRounds = (room.botRounds ?? 0) + 1
       await rt.save()
-      const reportBack = args.report_back === true
+      const reportBack = args.report_back === true && !room.task
       try {
+        await rt.reopenTaskGroup?.(room)
         await rt.postToRoom(room, sender, text, { hop: info?.hop ?? 0, ...(reportBack ? { reportBack: true } : {}) })
+        if (room.task && rt.isGeneralAssistant?.(self) && rt.chatOwners.has(exec.agent?.id)) {
+          const entry = rt.live.get(exec.agent.id)
+          if (entry) entry.taskHandoff = { title: room.name, summary: 'Task delegated to the group; results remain in the group.', roomId: room.id, cycle: room.task.cycle }
+        }
       } catch (failure) {
         return `Could not post in "${room.name}": ${failure.message}`
       }
@@ -449,8 +481,11 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const id = exec.agent?.id
-      if (rt.groupOwners.has(id)) return 'Question cards only work in your own chat. In a group, ask in your message instead.'
-      if (!rt.chatOwners.has(id)) return 'Only Bots on the team can use ask_user.'
+      const owner = rt.groupOwners.get(id)
+      if (!owner && !rt.chatOwners.has(id)) return 'Only Bots on the team can use ask_user.'
+      const createdTask = !owner && Object.values(state.rooms).find(room => room.task?.originBotId === rt.selfOf(id)
+        && room.task.status === 'active' && room.task.createdAt >= (rt.live.get(id)?.since ?? Infinity))
+      if (createdTask) return `The task group "${createdTask.name}" is ready. Post the task there now and have each responsible member ask its own domain questions with ask_user in the group. Do not collect their answers here.`
       const options = (Array.isArray(args.options) ? args.options : [])
         .map(option => (typeof option === 'string' ? { label: option } : option ?? {}))
         .map(option => ({
@@ -466,7 +501,8 @@ export function install(rt) {
       const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
       state.questions[id] = {
         id: randomUUID(),
-        ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
+        ...(exec.callId && !hidden && !owner ? { callId: exec.callId } : {}),
+        ...(owner ? { roomId: owner.roomId, botId: owner.botId } : {}),
         question: String(args.question ?? '').trim(),
         ...(args.detail ? { detail: String(args.detail).trim() } : {}),
         options,

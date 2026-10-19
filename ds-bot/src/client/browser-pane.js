@@ -8,7 +8,6 @@ import { createPortal } from 'react-dom'
 import { BotMark } from './mark.js'
 import { STORAGE } from './storage.js'
 import { SPRING_SHAPE, springEasing } from './motion.js'
-import { DetailsDrawer } from './details-drawer.js'
 import { t } from './i18n.js'
 
 export const PANEL_LINGER_MS = 300
@@ -163,8 +162,8 @@ function PanelStrip({ bot, subject, view, ids, active, reading, onView, actions,
   return h('div', { className: 'bt-ptabs', role: 'tablist', 'aria-label': t('Panel tabs') },
     h('div', { className: 'bt-ptabs-in', ref: wrap },
       h('button', {
-        type: 'button', role: 'tab', 'aria-selected': view === 'details', className: 'bt-ptab bt-ptab-bot',
-        title: bot.name, onClick: () => onView('details'),
+        type: 'button', 'aria-haspopup': 'dialog', 'aria-label': t('Employee settings'), className: 'bt-ptab bt-ptab-bot',
+        title: t('Employee settings'), onClick: () => actions.showDetails(subject),
       },
         h(BotMark, { bot, size: 20, state: reading ? 'searching' : 'idle' }),
         view === 'details' ? h('span', { className: 'bt-ptab-name' }, bot.name) : null),
@@ -282,7 +281,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages }) 
  * `{ id, view: 'details'|'browser', renaming, tab }`; `id` is the Session id the
  * panel follows. Without the Desktop bridge the browser view never shows.
  */
-export function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }) {
+export function BotPanel({ pane, leaving, roster, actions, useBrowserTabs, useBrowserPages }) {
   const bot = roster.byId[pane.id]
   const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow)
   const view = pane.view === 'browser' && canBrowse ? 'browser' : 'details'
@@ -348,9 +347,9 @@ export function BotPanel({ pane, leaving, roster, actions, useSessions, useSessi
 
   // A Bot's strip restores as soon as the panel opens for it.
   useEffect(() => { if (canBrowse) actions.browserEnsure(bot.id) }, [bot?.id, canBrowse])
-  // With the last tab closed the browser view folds back into the details view.
+  // Closing the last browser tab dismisses the work window.
   useEffect(() => {
-    if (view === 'browser' && (active === null || !tabState.ids.includes(active))) actions.setPanelView('details')
+    if (view === 'browser' && (active === null || !tabState.ids.includes(active))) actions.closePanel()
   }, [view, active, tabState.ids.length])
   // The guest leaves the screen while the details view is up, and on close.
   useEffect(() => {
@@ -483,11 +482,7 @@ export function BotPanel({ pane, leaving, roster, actions, useSessions, useSessi
     hasStrip ? h(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
     view === 'browser' && bot
       ? h(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages })
-      : h('div', { key: `details:${pane.id}:${pane.renaming ? 'rename' : ''}:${pane.tab ?? ''}`, className: 'bt-panel-view' },
-          h(DetailsDrawer, {
-            sessionId: pane.id, startRenaming: pane.renaming, startTab: pane.tab, hasStrip,
-            roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages,
-          })))
+      : null)
 }
 
 export const BROWSER_CSS = `

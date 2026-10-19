@@ -5,6 +5,7 @@
 import { REFERENCE_KIND, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { textOf } from './text.js'
 import { reminderText } from './schedules.js'
+import { replyText } from './parts.js'
 
 // A failed turn's `LlmFailure`, kept to what can be shown and logged. Like DSH's own
 // error row, an AUTH failure loses its message: providers may echo part of the key.
@@ -66,6 +67,7 @@ export function install(rt) {
       ...(keeps && info.senderRoomId ? { fromRoomId: info.senderRoomId } : {}),
       note: 'your tool call did not run',
       retried: true,
+      ...(info?.taskModel ? { taskModel: info.taskModel } : {}),
       text: RETRY_TEXT,
     })
   }
@@ -133,6 +135,7 @@ export function install(rt) {
     else if (entry.turn !== undefined) setActivity(id, 'thinking')
   }
   const startCall = (id, entry, callId, name, args) => {
+    entry.progress = [...(entry.progress ?? []), { tool: name, at: Date.now() }].slice(-30)
     if (typeof callId === 'string') (entry.calls ??= new Map()).set(callId, { name, args })
     showCall(id, entry)
   }
@@ -256,6 +259,19 @@ export function install(rt) {
     })
   }
 
+  ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    const entry = live.get(agent.id)
+    if (entry?.turn === undefined) return
+    if (frame.type === 'start') entry.reasoningStream = { id: frame.attemptId, index: -1, text: '' }
+    const stream = entry.reasoningStream
+    if (!stream || stream.id !== frame.attemptId) return
+    if (frame.type === 'chunk' && frame.index > stream.index) {
+      stream.index = frame.index
+      if (frame.chunk?.type === 'reasoning-delta') stream.text = (stream.text + (frame.chunk.text ?? '')).slice(-16000)
+    }
+    if (frame.type === 'end' && (frame.outcome?.kind === 'abandoned' || frame.outcome?.eventType === 'assistant/attempt')) delete entry.reasoningStream
+  })
+
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
@@ -283,6 +299,11 @@ export function install(rt) {
         endCall(id, entry, event.data?.callId)
         break
       case 'turn/start':
+        entry.taskEpoch = (entry.taskEpoch ?? 0) + 1
+        entry.progress = []
+        entry.reasoning = ''
+        delete entry.reasoningStream
+        delete entry.completion
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
@@ -300,6 +321,15 @@ export function install(rt) {
         break
       case 'user/message': {
         const source = event.data?.source
+        if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
+          const bot = rt.botOf(rt.chatOwners.get(id))
+          if (bot && textOf(event.data.content).trim().toLowerCase() !== '/clear') {
+            delete bot.contextClearedAt
+            delete bot.contextResetError
+          }
+          if (bot?.pendingTaskReset?.sessionId === id) delete bot.pendingTaskReset
+          if (bot) delete bot.retirePending
+        }
         // A message that shares a step with a bare handoff package is what the turn
         // answers, so the turn is not a hidden acknowledgement.
         const bare = info => info?.handoff === true && info.resume !== true
@@ -360,15 +390,18 @@ export function install(rt) {
         } else if (source?.kind === REFERENCE_KIND && rt.roomOf(id)) {
           attachReference(roomInbox.get(id), source, textOf(event.data.content))
         } else if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
+          if (rt.roomOf(id) && source.kind === REPLY_KIND) {
+            queueRoomMessage(id, { text: replyText(textOf(event.data.content)), questionBotId: source.questionBotId })
+          }
           if (rt.roomOf(id) && source.kind === 'user') {
             const images = (Array.isArray(event.data.content) ? event.data.content : [])
               .filter(block => block?.type === 'image' && !block.offloaded).map(block => block.attachment)
-            queueRoomMessage(id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}) })
+            queueRoomMessage(id, { ...rt.roomUserMessage(rt.roomOf(id), textOf(event.data.content)), ...(images.length > 0 ? { images } : {}) })
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined) rt.dropKickoff(own)
           // Any user message answers or supersedes the open question card.
-          if (state.questions[id] !== undefined) {
+          if (state.questions[id] !== undefined && textOf(event.data.content).trim().toLowerCase() !== '/clear') {
             delete state.questions[id]
             void rt.save().catch(() => {})
           }
@@ -377,6 +410,8 @@ export function install(rt) {
       }
       case 'assistant/message': {
         const content = event.data?.message?.content
+        if (Array.isArray(content)) entry.reasoning = [entry.reasoning, ...content.filter(block => block.type === 'reasoning').map(block => block.text ?? '')].filter(Boolean).join('\n\n').slice(-16000)
+        delete entry.reasoningStream
         const text = textOf(content)
         if (text !== '') entry.texts.push(text)
         entry.lastText = text
@@ -388,7 +423,7 @@ export function install(rt) {
         const info = entry.info
         const joined = entry.joined ?? []
         const texts = entry.texts
-        const { lastText, lastCalled } = entry
+        const { lastText, lastCalled, turn, opened } = entry
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
         entry.turn = undefined
@@ -403,14 +438,17 @@ export function install(rt) {
         entry.lastCalled = undefined
         const reason = event.data?.reason
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
+        if (!switched) rt.finishRecovery?.(id, reason, info)
+        if (failure !== undefined) rt.recordModelFailure?.(id, failure)
         if (failure !== undefined) noteTurnFailure(id, failure)
-        if (switched) break
+        if (switched) { delete entry.completion; break }
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting
         // round or sender gets the real answer; a second time, the text goes on without
         // the call.
         const wroteCall = failure === undefined && reason?.kind === 'completed' && lastCalled !== true && writesToolCall(lastText)
         const retry = wroteCall && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
+        rt.finishTaskNotice?.(entry, { reason, retry: retry || wroteCall || stoppedRoomTurns.has(info?.exchangeId), switched, id, turn, opened, info, lastText, lastCalled })
         if (retry) void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
         const replyText = () => {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()
@@ -489,6 +527,7 @@ export function install(rt) {
             exchangeId: request.info.exchangeId,
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
             deferred: true,
+            ...(request.info.taskModel ? { taskModel: request.info.taskModel } : {}),
           }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }
         break
@@ -496,5 +535,15 @@ export function install(rt) {
     }
   })
 
+  rt.executionView = (sessionId, botId) => {
+    const room = rt.roomOf(sessionId)
+    const ids = room ? room.members.filter(id => !botId || id === botId).map(id => ({ id, session: room.sessions?.[id] }))
+      : [{ id: rt.selfOf(sessionId), session: rt.chatOwners.has(sessionId) ? sessionId : rt.chatOf(sessionId) }]
+    return ids.filter(item => rt.botOf(item.id)).map(item => {
+      const entry = live.get(item.session)
+      return { botId: item.id, running: entry?.turn !== undefined, since: entry?.since, tool: entry?.tool,
+        progress: entry?.progress ?? [], reasoning: [entry?.reasoning, entry?.reasoningStream?.text].filter(Boolean).join('\n\n').slice(-16000), waiting: Boolean(state.questions[item.session]) }
+    })
+  }
   Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, stopRoomTurn })
 }

@@ -38,7 +38,7 @@ function runtime(document) {
     queue.push(() => { previous?.cleanup?.(); cell.cleanup = effect() })
   }
   const react = {
-    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     useState(initial) {
       const index = cursor++, cell = slots[index] ??= { value: typeof initial === 'function' ? initial() : initial }
       return [cell.value, next => {

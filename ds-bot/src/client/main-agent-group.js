@@ -10,12 +10,15 @@ export function MainAgentGroup({ members, roster, actions, onClose, target, onCo
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [name, setName] = useState(target?.name ?? '')
-  const bots = members.map(id => roster.byId[id]).filter(Boolean)
+  const memberIds = [...new Set(members)]
+  const available = new Map((roster.bots ?? []).map(bot => [bot.id, bot]))
+  const bots = memberIds.map(id => available.get(id)).filter(Boolean)
+  const unavailable = bots.length !== memberIds.length
   const room = target?.kind === 'room' ? roster.roomsById[target.id] : null
   const adding = target?.kind === 'room'
-  const staging = target?.kind === 'draft' && members.length < 2
-  const additions = adding ? members.filter(id => !room?.members.includes(id)) : members
-  const valid = bots.length === members.length && new Set(members).size === members.length && members.length >= (target ? 1 : 2) &&
+  const staging = target?.kind === 'draft' && memberIds.length < 2
+  const additions = adding ? memberIds.filter(id => !room?.members.includes(id)) : memberIds
+  const valid = !unavailable && memberIds.length >= (target ? 1 : 2) &&
     (!adding || room && additions.length > 0)
   useEffect(() => { dialog.current.showModal(); return () => dialog.current?.close() }, [])
   const close = () => { if (!pending.current) onClose() }
@@ -25,10 +28,16 @@ export function MainAgentGroup({ members, roster, actions, onClose, target, onCo
     setBusy(true)
     setError('')
     try {
-      if (adding) await actions.updateRoom(target.id, { add: additions })
-      else if (!staging) created.current ??= await actions.createRoom(members, { admin: members[0], name: name.trim() })
-      onComplete?.({ room: adding ? room : created.current, members, name: name.trim() })
-      if (adding || created.current) actions.openCanvasEntity(adding ? room.id : created.current.id)
+      let savedRoom = room
+      if (adding) {
+        const saved = await actions.updateRoom(target.id, { add: additions })
+        if (![...room.members, ...additions].every(id => saved?.room?.members?.includes(id))) {
+          throw new Error(t('The group did not include all selected employees. Check that they are available, then try again.'))
+        }
+        savedRoom = saved.room
+      } else if (!staging) created.current ??= await actions.createRoom(memberIds, { admin: memberIds[0], name: name.trim() })
+      onComplete?.({ room: adding ? savedRoom : created.current, members: memberIds, name: name.trim() })
+      if ((adding && !target.keepSurface) || created.current) actions.openCanvasEntity(adding ? savedRoom.id : created.current.id)
       onClose()
     } catch (failure) { setError(failure?.message ?? String(failure)) }
     finally { pending.current = false; setBusy(false) }
@@ -42,7 +51,7 @@ export function MainAgentGroup({ members, roster, actions, onClose, target, onCo
     staging ? h('p', { className: 'bt-note' }, t('Add another employee to start a group conversation.')) : null,
     adding ? null : h('label', { className: 'bt-field' }, h('span', { className: 'bt-field-label' }, t('Group name')),
       h('input', { className: 'bt-input', value: name, maxLength: 80, disabled: busy, placeholder: bots.map(bot => bot.name).join(' + '), onChange: event => setName(event.target.value) })),
-    !valid ? h('p', { role: 'alert' }, t(adding && !additions.length ? 'These employees are already in this group.' : 'Select available employees to continue.')) : null,
+    !valid ? h('p', { role: 'alert' }, t(unavailable ? 'Some selected employees are not available. Create them before adding them to a group.' : adding && !additions.length ? 'These employees are already in this group.' : 'Select available employees to continue.')) : null,
     error ? h('p', { role: 'alert', className: 'bt-error' }, error) : null,
     h('div', { className: 'bt-actions' },
       h('button', { type: 'button', className: 'bt-soft', disabled: busy, onClick: close }, t('Cancel')),
@@ -51,7 +60,7 @@ export function MainAgentGroup({ members, roster, actions, onClose, target, onCo
 
 export const MAIN_GROUP_CSS = `
 .bt-main-group{border:1px solid var(--bt-line-2);border-radius:24px;padding:28px;width:min(440px,90vw);color:var(--bt-ink);background:var(--bt-card);box-shadow:0 24px 90px #0003}
-.bt-main-group::backdrop{background:#10182855;backdrop-filter:blur(6px)}
+.bt-main-group::backdrop{background:#10182855;-webkit-backdrop-filter:none;backdrop-filter:none}
 .bt-main-group h2{font-size:21px;margin:20px 0 8px}.bt-main-group p{line-height:1.65}.bt-main-group .bt-field{margin:20px 0}.bt-main-group .bt-actions{justify-content:flex-end;gap:12px;margin-top:24px}
 .bt-main-group-avatars{display:flex;gap:18px}.bt-canvas-window[data-drop-target=true]{outline:2px solid #658aff;border-radius:20px;background:#658aff22;box-shadow:0 0 24px #658aff33}
 .bt-main-group-avatars{flex-wrap:wrap;max-height:180px;overflow:auto}

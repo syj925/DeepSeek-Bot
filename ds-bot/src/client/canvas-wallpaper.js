@@ -1,18 +1,21 @@
-import { canvasTheme } from './canvas-theme.js'
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderIcon, CloseIcon } from './icons.js'
 import { loadWallpaper, saveWallpaper, deleteWallpaper, prepareWallpaper } from './wallpaper-image.js'
 import { t } from './i18n.js'
 
-function WallpaperMenu({ anchor, onClose, choose, reset, busy, custom, error, loading }) {
+function WallpaperMenu({ anchor, onClose, choose, reset, busy, custom, preview, error, loading }) {
   const panel = useRef(null)
   const [position, setPosition] = useState({ left: 12, top: 72 })
   useLayoutEffect(() => {
     const place = () => {
-      const box = anchor.current.getBoundingClientRect()
-      const height = panel.current?.getBoundingClientRect().height ?? 220
-      setPosition({ left: Math.max(8, Math.min(box.left, innerWidth - 288)), top: Math.max(8, Math.min(box.bottom + 8, innerHeight - height - 8)) })
+      const box = anchor.current?.getBoundingClientRect()
+      const height = panel.current?.offsetHeight ?? 220
+      const width = panel.current?.offsetWidth ?? 340
+      // The original toolbar is hidden in canvas mode. Its zero-sized button
+      // cannot anchor a popup opened from Settings or the context menu.
+      const visible = box && box.width > 0 && box.height > 0
+      setPosition({ left: Math.max(8, Math.min(visible ? box.left : (innerWidth - width) / 2, innerWidth - width - 8)), top: Math.max(8, Math.min(visible ? box.bottom + 8 : (innerHeight - height) / 2, innerHeight - height - 8)) })
     }
     place()
     panel.current?.querySelector('.bt-wallpaper-choose')?.focus()
@@ -30,7 +33,7 @@ function WallpaperMenu({ anchor, onClose, choose, reset, busy, custom, error, lo
   }, [onClose])
   return createPortal(h('section', { ref: panel, className: 'bt-wallpaper-menu', role: 'dialog', 'aria-label': t('Canvas wallpaper'), style: position },
     h('header', null, h('strong', null, t('Canvas wallpaper')), h('button', { type: 'button', onClick: () => { onClose(); anchor.current?.focus() }, 'aria-label': t('Close') }, h(CloseIcon))),
-    h('p', null, t('Choose a lake, forest or any image you like.')),
+    h('div', { className: 'bt-wallpaper-preview', 'aria-label': t('Wallpaper preview') }, preview ? h('img', { src: preview, alt: t('Current wallpaper') }) : h('span', null, t('Default background'))),
     h('button', { type: 'button', className: 'bt-wallpaper-choose', onClick: choose, disabled: busy || loading }, h(FolderIcon), busy ? t('Saving wallpaper…') : t('Choose local image')),
     h('button', { type: 'button', onClick: reset, disabled: busy || loading || (!custom && !error) }, t('Restore default background')),
     h('small', null, t('Saved on this device only. Images are not uploaded.')),
@@ -66,6 +69,11 @@ export function CanvasWallpaper({ canvasRef }) {
       canvas?.removeAttribute('data-wallpaper')
     }
   }, [])
+  useEffect(() => {
+    const onOpen = () => setOpen(true)
+    window.addEventListener('ds-bot:open-wallpaper', onOpen)
+    return () => window.removeEventListener('ds-bot:open-wallpaper', onOpen)
+  }, [])
   const change = async file => {
     if (!file || busy || loading) return
     const current = ++generation.current
@@ -90,20 +98,23 @@ export function CanvasWallpaper({ canvasRef }) {
     h('style', null, WALLPAPER_CSS),
     h('button', { type: 'button', ref: anchor, className: 'bt-canvas-button', onClick: () => setOpen(value => !value), 'aria-label': t('Canvas wallpaper'), 'aria-haspopup': 'dialog', 'aria-expanded': open }, h(FolderIcon), t('Wallpaper')),
     h('input', { ref: input, type: 'file', accept: 'image/jpeg,image/png,image/webp,image/avif', hidden: true, 'aria-label': t('Choose local image'), onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; void change(file) } }),
-    open ? h(WallpaperMenu, { anchor, onClose: () => setOpen(false), choose: () => input.current?.click(), reset, busy, loading, custom, error }) : null)
+    open ? h(WallpaperMenu, { anchor, onClose: () => setOpen(false), choose: () => input.current?.click(), reset, busy, loading, custom, preview: url.current, error }) : null)
 }
 
 const WALLPAPER_CSS = `
-${canvasTheme('.bt-wallpaper-menu')}
 .bt-wallpaper-control{display:inline-flex}
-.bt-wallpaper-menu{position:fixed;z-index:90;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;width:280px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;overscroll-behavior:contain;padding:14px;border:1px solid var(--bt-canvas-border);border-radius:24px;background:var(--bt-canvas-chat);box-shadow:var(--bt-canvas-shadow);color:var(--bt-ink);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+.bt-wallpaper-menu{position:fixed;z-index:90;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;width:340px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;overscroll-behavior:contain;padding:20px;border:1px solid rgba(255,255,255,.85);border-radius:24px;background:rgba(250,250,250,.97);box-shadow:0 18px 64px rgba(0,0,0,.16),0 2px 8px rgba(0,0,0,.04);color:#262626;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-backdrop-filter:blur(26px);backdrop-filter:blur(26px);animation:bt-wallpaper-enter .18s ease-out}
+.bt-wallpaper-preview{height:144px;flex:none;overflow:hidden;border-radius:14px;background:linear-gradient(180deg,#e7e7e7,#d4d4d4);display:grid;place-items:center;color:#757575;border:1px solid rgba(0,0,0,.06)}
+.bt-wallpaper-preview img{width:100%;height:100%;object-fit:cover;display:block}
+@keyframes bt-wallpaper-enter{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.bt-wallpaper-menu{animation:none}}
 .bt-wallpaper-menu header{display:flex;align-items:center;justify-content:space-between;gap:8px}.bt-wallpaper-menu header button{padding:4px;min-height:30px}
-.bt-wallpaper-menu p{margin:0;color:var(--bt-ink-2)}.bt-wallpaper-menu small{font-size:11px;color:var(--bt-ink-3)}
-.bt-wallpaper-menu button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:7px 10px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-canvas-button);color:inherit;font:inherit;cursor:pointer}
-.bt-wallpaper-menu button:hover:not(:disabled){background:var(--bt-hover)}.bt-wallpaper-menu button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}.bt-wallpaper-menu button:disabled{opacity:.45;cursor:default}
-.bt-wallpaper-menu .bt-wallpaper-choose{background:var(--bt-accent);color:var(--bt-accent-ink)}.bt-wallpaper-menu .bt-wallpaper-choose:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 88%,var(--bt-card))}
-.bt-wallpaper-menu .bt-wallpaper-error{color:var(--bt-canvas-error);overflow-wrap:anywhere}.bt-wallpaper-feedback{font-size:11px;color:var(--bt-accent)}.bt-wallpaper-feedback:empty{display:none}
+.bt-wallpaper-menu p{margin:0;color:#666}.bt-wallpaper-menu small{font-size:11px;color:#757575}
+.bt-wallpaper-menu button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:8px 12px;border:1px solid rgba(0,0,0,.07);border-radius:11px;background:#fff;color:inherit;font:inherit;cursor:pointer}
+.bt-wallpaper-menu button:hover:not(:disabled){background:#f0f2f1}.bt-wallpaper-menu button:focus-visible{outline:2px solid #10a37f;outline-offset:2px}.bt-wallpaper-menu button:disabled{opacity:.45;cursor:default}
+.bt-wallpaper-menu .bt-wallpaper-choose{background:#8de0cc;color:#153b33}.bt-wallpaper-menu .bt-wallpaper-choose:hover:not(:disabled){background:#abeadb}
+.bt-wallpaper-menu .bt-wallpaper-error{color:#b33426;overflow-wrap:anywhere}.bt-wallpaper-feedback{font-size:12px;color:#16765f}.bt-wallpaper-feedback:empty{display:none}
 @media (pointer:coarse){.bt-wallpaper-menu button{min-height:44px}}
-@media (prefers-reduced-transparency:reduce){.bt-wallpaper-menu{background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none}}
+@media (prefers-reduced-transparency:reduce){.bt-wallpaper-menu{background:#fafafa;-webkit-backdrop-filter:none;backdrop-filter:none}}
 @media (forced-colors:active){.bt-wallpaper-menu{background:Canvas;color:CanvasText;border-color:CanvasText}.bt-wallpaper-menu :is(p,small,.bt-wallpaper-error,.bt-wallpaper-feedback){color:CanvasText}.bt-wallpaper-menu button,.bt-wallpaper-menu .bt-wallpaper-choose{background:ButtonFace;color:ButtonText;border-color:ButtonText}}
 `

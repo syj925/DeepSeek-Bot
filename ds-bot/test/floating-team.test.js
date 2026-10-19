@@ -115,25 +115,16 @@ function pointer(values = {}) {
 
 const pixels = (page, name) => Number.parseFloat(page.column.properties.get(`--bt-team-${name}`))
 
-test('every chat uses a stable left rail regardless of team folding or saved panel position', () => {
+test('designer team panel expands to 860px and fits without mutating its home position', () => {
   const page = runtime()
-  for (const area of [{ width: 2560 }, { width: 1000 }, { width: 640 }]) {
-    const left = page.teamChatLayout({ x: 20, folded: false }, area)
-    const right = page.teamChatLayout({ x: area.width - 300, folded: false }, area)
-    assert.equal(left.right, 0)
-    assert.equal(right.right, 0)
-    assert.deepEqual(plain(left), plain(right))
-    assert.ok(left.x + left.width < left.left)
-    assert.ok(area.width - left.left >= area.width * .6 - 40)
+  for (const width of [2560, 1000, 640]) {
+    const home = { x: width - 320, y: 104, folded: false }
+    const expanded = page.fitTeamPanel({ ...home, chatOpen: true }, { width, height: 900 })
+    assert.ok(expanded.x >= 12)
+    assert.ok(expanded.x + Math.min(860, width - 24) <= width - 12)
+    const collapsed = page.fitTeamPanel(home, { width, height: 900 })
+    assert.equal(collapsed.x, home.x)
   }
-  const full = page.teamChatLayout({ x: 20, folded: false }, { width: 1200 })
-  const folded = page.teamChatLayout({ x: 20, folded: true }, { width: 1200 })
-  assert.equal(folded.left, full.left)
-  assert.ok(folded.width < full.width)
-  page.draw()
-  assert.equal(page.frame.properties.get('--bt-chat-left'), '328px')
-  page.unmount()
-  assert.equal(page.frame.properties.has('--bt-chat-left'), false)
 })
 
 test('missing, corrupted and denied team-panel storage recover independently without accepting invalid fields', () => {
@@ -150,10 +141,10 @@ test('missing, corrupted and denied team-panel storage recover independently wit
 test('out-of-bounds positions fit the available area without mutating the saved layout', () => {
   const page = runtime(), area = { width: 1000, height: 800 }
   const far = { x: 1e8, y: 1e8, folded: false }
-  assert.deepEqual(plain(page.fitTeamPanel(far, area)), { x: 700, y: 164, folded: false })
+  assert.deepEqual(plain(page.fitTeamPanel(far, area)), { x: 688, y: 164, folded: false })
   assert.deepEqual(far, { x: 1e8, y: 1e8, folded: false })
   assert.deepEqual(plain(page.fitTeamPanel({ x: -1e8, y: -1e8, folded: false }, area)), { x: 12, y: 12, folded: false })
-  assert.deepEqual(plain(page.fitTeamPanel({ x: 900, y: 700, folded: true }, area)), { x: 824, y: 700, folded: true })
+  assert.deepEqual(plain(page.fitTeamPanel({ x: 900, y: 700, folded: true }, area)), { x: 900, y: 164, folded: true })
 })
 
 test('viewport shrink keeps the header and complete expanded panel reachable below the app title bar', () => {
@@ -186,17 +177,17 @@ test('pointer movement clamps the panel, persists only the settled position and 
   assert.equal(pixels(page, 'y'), 196)
   panel.handle.onPointerMove({ ...event, clientX: 1e6, clientY: -1e6 })
   panel = page.flush()
-  assert.equal(pixels(page, 'x'), 900)
+  assert.equal(pixels(page, 'x'), 888)
   assert.equal(pixels(page, 'y'), 44)
   page.advance(179)
   assert.equal(page.saved.writes.length, 0)
   page.advance(1)
-  assert.deepEqual(plain(page.saved.writes), [{ key: 'ds-bot:team-panel', value: { x: 900, y: 12, folded: false } }])
+  assert.deepEqual(plain(page.saved.writes), [{ key: 'ds-bot:team-panel', value: { x: 888, y: 12, folded: false } }])
   panel.handle.onPointerCancel(event)
   assert.equal(event.currentTarget.hasPointerCapture(1), false)
   panel.handle.onPointerMove({ ...event, clientX: 30, clientY: 30 })
   page.flush()
-  assert.equal(pixels(page, 'x'), 900)
+  assert.equal(pixels(page, 'x'), 888)
   page.unmount()
 })
 
@@ -227,6 +218,23 @@ test('keyboard movement and folding remain usable when pointer dragging is unava
   const ignored = pointer({ key: 'Enter' })
   panel.handle.onKeyDown(ignored)
   assert.equal(ignored.prevented, false)
+  page.unmount()
+})
+
+test('opening a conversation expands the saved folded panel without toggling it closed on repeated selection', () => {
+  const page = runtime(storage('{"x":60,"y":75,"folded":true}'))
+  let panel = page.draw()
+  assert.equal(panel.folded, true)
+  panel.expand()
+  panel.expand()
+  panel = page.flush()
+  assert.equal(panel.folded, false)
+  assert.equal(page.column.dataset.folded, 'false')
+  panel.expand()
+  panel = page.flush()
+  assert.equal(panel.folded, false)
+  page.advance(180)
+  assert.deepEqual(plain(page.saved.writes.at(-1).value), { x: 60, y: 75, folded: false })
   page.unmount()
 })
 

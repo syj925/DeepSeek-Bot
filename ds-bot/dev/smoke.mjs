@@ -310,7 +310,7 @@ await step('make Coder a Main Bot and back', async () => {
 
 await step('duplicate Coder', () => api('duplicate-bot', { id: botNamed('Coder').id }), copy => expect(copy && state().bots[copy.id] && copy.id !== botNamed('Coder').id, 'no copy'))
 
-await step('set prefs', () => api('set-prefs', { theme: 'dark', accent: '#336699' }), () => expect(state().prefs.theme === 'dark' && state().prefs.accent === '#336699', 'prefs not saved'))
+await step('set prefs', () => api('set-prefs', { motion: 'lively' }), () => expect(state().prefs.motion === 'lively', 'prefs not saved'))
 
 await step('delete the group', () => api('delete-room', { id: roomNamed('研发群').id }), () => expect(Object.keys(state().rooms).length === 0, 'group still there'))
 

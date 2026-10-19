@@ -1,4 +1,4 @@
-import { normalizeCanvas, windowWidth, windowHeight, moveWindow, moveDraftGroup } from './canvas-state.js'
+import { normalizeCanvas, compactConversations, windowWidth, windowHeight, moveWindow, moveDraftGroup } from './canvas-state.js'
 
 const clamp = (value, low, high) => Math.max(low, Math.min(Math.max(low, high), value))
 const dimensions = window => ({ width: windowWidth({ ...window, compact: true }), height: windowHeight({ ...window, compact: true }) })
@@ -12,6 +12,37 @@ export function desktopBounds(size = {}) {
 }
 
 const intersects = (a, b) => a.x < b.x + b.width + 12 && a.x + a.width + 12 > b.x && a.y < b.y + b.height + 12 && a.y + a.height + 12 > b.y
+
+// Only explicit arrangement avoids widgets. Folding a widget must not rewrite saved positions.
+export function arrangeDesktop(state, size, obstacles = [], priority = []) {
+  const next = compactConversations(state), bounds = desktopBounds(size)
+  const occupied = obstacles.filter(box => box.width > 0 && box.height > 0)
+    .map(box => ({ ...box }))
+  const rank = item => { const index = priority.indexOf(item.node.entityId); return index < 0 ? priority.length : index }
+  const items = [
+    ...next.windows.filter(window => window.open).map(window => ({ node: window, ...dimensions(window) })),
+    ...next.groups.filter(group => group.draft).map(group => ({ node: group, width: 280, height: 180 })),
+  ].sort((a, b) => b.width - a.width || rank(a) - rank(b))
+  for (const item of items) {
+    const xs = [...new Set([bounds.left, ...occupied.map(box => box.x + box.width + 20)])].sort((a, b) => a - b)
+    const ys = [...new Set([bounds.top, ...occupied.map(box => box.y + box.height + 20)])].sort((a, b) => a - b)
+    let point
+    for (const y of ys) {
+      for (const x of xs) {
+        const candidate = { x, y, width: item.width, height: item.height }
+        if (x < bounds.left || y < bounds.top || x + item.width > bounds.right || y + item.height > bounds.bottom) continue
+        if (!occupied.some(box => intersects(candidate, box))) { point = candidate; break }
+      }
+      if (point) break
+    }
+    // Never save a partial arrangement or hide overflow behind a widget.
+    if (!point) return { state, fits: false }
+    Object.assign(item.node, { x: point.x, y: point.y })
+    occupied.push(point)
+  }
+  next.viewport = { x: 0, y: 0, zoom: 1 }
+  return { state: next, fits: true }
+}
 
 // Recover off-screen layouts without moving healthy cards or changing sessions.
 export function fixedDesktop(state, size) {

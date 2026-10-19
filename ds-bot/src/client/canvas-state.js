@@ -6,8 +6,10 @@ export const CANVAS_LIMITS = Object.freeze({
   minHeight: 280,
   compactWidth: 320,
   compactHeight: 200,
+  roomPreviewHeight: 300,
   avatarWidth: 120,
   avatarHeight: 112,
+  roomAvatarHeight: 132,
   maxSize: 1600,
   minZoom: 0.2,
   maxZoom: 2,
@@ -52,6 +54,7 @@ function normalizeWindow(value, index) {
     z: clamp(value.z, 0, CANVAS_LIMITS.coordinate, index + 1),
     open: value.open !== false,
     compact,
+    ...(value.kind === 'room' ? { roomExpanded: value.roomExpanded === true } : {}),
   }
 }
 
@@ -186,6 +189,7 @@ export function openWindow(state, entity, options = {}) {
   }
   window.open = true
   window.compact = options.compact !== false
+  if (window.kind === 'room' && !window.compact) window.roomExpanded = true
   Object.assign(window, dimensions(window))
   bringForward(next, window)
   next.selected = [window.id]
@@ -204,7 +208,18 @@ export function setWindowCompact(state, id, compact) {
   const window = next.windows.find(item => matching(item, id))
   if (window) {
     window.compact = compact === true
+    if (window.kind === 'room' && !window.compact) window.roomExpanded = true
     Object.assign(window, dimensions(window))
+  }
+  return next
+}
+
+export function setRoomExpanded(state, id, expanded) {
+  const next = normalizeCanvas(state)
+  const window = next.windows.find(item => item.kind === 'room' && matching(item, id))
+  if (window) {
+    window.roomExpanded = expanded === true
+    if (!window.roomExpanded) window.compact = true
   }
   return next
 }
@@ -238,8 +253,9 @@ export function arrangeCards(state) {
   return next
 }
 
-export const windowWidth = window => window.compact ? window.kind === 'bot' ? CANVAS_LIMITS.avatarWidth : CANVAS_LIMITS.compactWidth : window.width
-export const windowHeight = window => window.compact ? window.kind === 'bot' ? CANVAS_LIMITS.avatarHeight : CANVAS_LIMITS.compactHeight : window.height
+// Legacy roomExpanded values must not enlarge an avatar's layout or drop bounds.
+export const windowWidth = window => window.compact ? CANVAS_LIMITS.avatarWidth : window.width
+export const windowHeight = window => window.compact ? window.kind === 'room' ? CANVAS_LIMITS.roomAvatarHeight : CANVAS_LIMITS.avatarHeight : window.height
 
 export function windowBounds(state, ids) {
   const wanted = ids === undefined ? null : new Set(ids)

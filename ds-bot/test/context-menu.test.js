@@ -21,7 +21,7 @@ runInNewContext(outputFiles[0].text, {
   },
   require: name => ({
     react: {
-      createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+      createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
       Fragment: 'fragment', useState: initial => [initial, () => {}],
       useRef: initial => ({ current: initial }), useEffect: effect => effects.push(effect), useLayoutEffect() {},
     },
@@ -64,12 +64,14 @@ function fixture({ room = false, memory, browser, bridge = true, main = false, k
   }
 }
 
-test('Bot management can open details, memory, schedules, and browser without opening its conversation', () => {
+test('Bot management opens employee settings, memory, schedules, and browser without opening its conversation', () => {
   const data = fixture({ browser: true })
   assert.deepEqual(data.calls, [])
-  for (const label of ['Details', 'Memory', 'Scheduled tasks', 'Open browser']) data.click(label)
+  assert.ok(!data.labels.includes('Details'))
+  assert.ok(!data.labels.includes('Edit Bot'))
+  for (const label of ['Employee settings', 'Memory', 'Scheduled tasks', 'Open browser']) data.click(label)
   assert.deepEqual(data.calls, [
-    ['closeMenu'], ['showDetails', 'writer'],
+    ['closeMenu'], ['openSettings', 'bots', 'writer'],
     ['closeMenu'], ['openMemory', 'writer'],
     ['closeMenu'], ['openSettings', 'schedules', 'writer'],
     ['closeMenu'], ['openBrowser', 'writer'],
@@ -96,11 +98,10 @@ test('Room management targets the Room and offers no employee memory or browser'
   assert.ok(data.labels.includes('Group settings'))
   assert.ok(data.labels.includes('Rename group'))
   assert.deepEqual(data.calls, [])
-  data.click('Details')
+  assert.ok(!data.labels.includes('Details'))
   data.click('Scheduled tasks')
   data.click('Group settings')
   assert.deepEqual(data.calls, [
-    ['closeMenu'], ['showDetails', 'planning'],
     ['closeMenu'], ['openSettings', 'schedules', 'planning'],
     ['closeMenu'], ['openSettings', 'groups', 'planning'],
   ])
@@ -115,11 +116,11 @@ test('memory and browser actions follow actual host capabilities', () => {
 
 test('original Bot controls and Main Bot protections remain available', () => {
   const data = fixture()
-  for (const label of ['Pin', 'Mark as Unread', 'Rename Bot', 'Edit Bot', 'Duplicate', 'Make Main Bot', 'Copy conversation ID', 'Hide from sidebar', 'Delete']) {
+  for (const label of ['Pin', 'Mark as Unread', 'Rename Bot', 'Employee settings', 'Duplicate', 'Make Main Bot', 'Copy conversation ID', 'Hide from sidebar', 'Delete']) {
     assert.ok(data.labels.includes(label), label)
   }
   data.click('Make Main Bot')
-  data.click('Edit Bot')
+  data.click('Employee settings')
   assert.deepEqual(data.calls, [
     ['closeMenu'], ['setMain', 'writer', true],
     ['closeMenu'], ['openSettings', 'bots', 'writer'],
