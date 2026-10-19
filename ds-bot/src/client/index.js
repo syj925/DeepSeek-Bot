@@ -693,8 +693,10 @@ export function apply(ctx) {
   actions.refreshCanvasSessions = () => ctx.sessions.refresh()
   actions.compactCanvasConversations = () => updateCanvas(state => compactConversations(state))
   actions.arrangeCanvasCards = () => {
+    const qibit = actions.resetQiBitPlacement?.()
     const layout = actions.canvasArrangementLayout?.()
     if (!layout) return
+    if (qibit) layout.obstacles.push(qibit)
     const snapshot = roster.getSnapshot()
     const priority = [...snapshot.bots].sort((a, b) => Number(Boolean(b.generalAssistant)) - Number(Boolean(a.generalAssistant)) || (a.teamId ?? '').localeCompare(b.teamId ?? '')).map(bot => bot.id)
     // Respect the same outer bounds used by updateCanvas, in addition to live obstacles.

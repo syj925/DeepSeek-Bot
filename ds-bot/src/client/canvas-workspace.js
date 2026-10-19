@@ -1,4 +1,5 @@
 import { QiBitCommandCenter } from './qibit-command-center.js'
+import { dragGeometry } from './canvas-drag.js'
 import { RESTORED_CHAT_CSS } from './restored-chat-styles.js'
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -15,7 +16,7 @@ import { CANVAS_LIMITS, collapseWindow, groupWindows, moveWindow, openWindow, re
 import { t } from './i18n.js'
 import { departmentFor, managerFor, reportsFor } from './designer-data.js'
 import { Dock, DockIcon, DockItem } from './dock.js'
-import { overlapMain, groupDropTarget, selectedMains, canvasPoint, canvasDropPoint, mergeHintPosition } from './canvas-collaboration.js'
+import { overlapMain, groupDropTarget, selectedMains, canvasPoint, canvasDropPoint, mergeHintPosition, MERGE_PREVIEW_DISTANCE, MERGE_COMMIT_DISTANCE } from './canvas-collaboration.js'
 import { addDraftMembers, createEmptyGroup } from './canvas-state.js'
 import { fitChat, resizeChat } from './chat-geometry.js'
 import { MAIN_AGENT_POINTER } from './main-agent-drag.js'
@@ -24,24 +25,30 @@ import { MainAgentGroup, MAIN_GROUP_CSS } from './main-agent-group.js'
 function MergeHint({ pair, viewport, canvasRef }) {
   const badge = useRef(null)
   const [position, setPosition] = useState({ visibility: 'hidden' })
+  const measured = useRef(null)
+  const latest = useRef({ pair, viewport })
+  latest.current = { pair, viewport }
   useLayoutEffect(() => {
     const place = () => {
       if (!badge.current || !canvasRef.current) return
-      setPosition(mergeHintPosition(pair.source, pair.target, viewport,
-        { width: canvasRef.current.clientWidth, height: canvasRef.current.clientHeight },
-        { width: badge.current.offsetWidth, height: badge.current.offsetHeight }))
+      measured.current = { bounds: { width: canvasRef.current.clientWidth, height: canvasRef.current.clientHeight }, badge: { width: badge.current.offsetWidth, height: badge.current.offsetHeight } }
+      const { pair, viewport } = latest.current
+      setPosition(mergeHintPosition(pair.source, pair.target, viewport, measured.current.bounds, measured.current.badge))
     }
     place()
     const observer = new ResizeObserver(place)
     observer.observe(badge.current)
     observer.observe(canvasRef.current)
     return () => observer.disconnect()
-  }, [pair, viewport, canvasRef])
+  }, [canvasRef])
+  useLayoutEffect(() => {
+    if (measured.current) setPosition(mergeHintPosition(pair.source, pair.target, viewport, measured.current.bounds, measured.current.badge))
+  }, [pair.source.x, pair.source.y, pair.target.x, pair.target.y, viewport.x, viewport.y, viewport.zoom])
   return h('div', { ref: badge, className: 'bt-metaball-badge glass-button glass-button--pill', style: position, role: 'status' },
-    `${t('Release to create group chat')} · ${pair.sourceName} ＋ ${pair.targetName}`)
+    `${t(pair.ready ? 'Release to create group chat' : 'Move closer to create group chat')} · ${pair.sourceName} ＋ ${pair.targetName}`)
 }
 
-export const MERGE_DISTANCE_THRESHOLD = 120
+export const MERGE_DISTANCE_THRESHOLD = MERGE_PREVIEW_DISTANCE
 
 function gooeyBridge(p1, p2, r1 = 28, r2 = 28, maxDist = MERGE_DISTANCE_THRESHOLD) {
   const dx = p2.x - p1.x
@@ -98,7 +105,7 @@ function getRoleTintColor(bot) {
   return '#E2EBF2'
 }
 
-function CanvasGlobalSearch({ actions, roster }) {
+function CanvasGlobalSearch({ actions, roster, work }) {
   useEffect(() => {
     const onKey = event => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -110,7 +117,7 @@ function CanvasGlobalSearch({ actions, roster }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [actions])
 
-  return h(QiBitCommandCenter, { actions, roster, searchIcon: SearchIcon })
+  return h(QiBitCommandCenter, { actions, roster, work, searchIcon: SearchIcon })
 }
 
 const button = (label, onClick, icon, extra = {}) => h('button', { type: 'button', className: `bt-canvas-button glass-button${extra.className ? ` ${extra.className}` : ''}`, onClick, ...extra }, icon ? h(icon) : null, label)
@@ -610,12 +617,10 @@ export function CanvasDepartmentDock({ roster, work, useSessions, actions, size,
     cancelPreview()
     const pos = positionFor(tab)
     if (!pos) { closeHover(); return }
-    const sameGroup = hoverRef.current?.deptKey === group.key
     const next = { entity: group.leadEntity, department: group.dept, deptKey: group.key, pos }
     hoverRef.current = next
     setDockHover(next)
-    if (immediate) { setPreviewReady(true); return }
-    if (sameGroup && previewReady) return
+    if (immediate || previewReady) { setPreviewReady(true); return }
     setPreviewReady(false)
     previewTimer.current = safeSetTimeout(() => {
       previewTimer.current = null
@@ -882,6 +887,17 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   latest.current = state
   const root = useRef(null)
   const drag = useRef(null)
+  const dragFrame = useRef(null)
+  const pendingMove = useRef(null)
+  const releaseFrame = useRef(null)
+  const releasedNodes = useRef([])
+  const restoreTransitions = () => {
+    if (releaseFrame.current !== null) cancelAnimationFrame(releaseFrame.current)
+    releaseFrame.current = null
+    for (const node of releasedNodes.current) node.style.transition = ''
+    releasedNodes.current = []
+  }
+  useEffect(() => () => { if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current); restoreTransitions() }, [])
   const suppressContext = useRef(false)
   const [groupMembers, setGroupMembers] = useState(null)
   const [dropTarget, setDropTarget] = useState(null)
@@ -890,6 +906,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   mergePairRef.current = mergePair
   const [marquee, setMarquee] = useState(null)
   const [size, setSize] = useState({ width: 1000, height: 700 })
+  const dragBounds = useRef(null)
   const visible = state.windows.filter(window => window.open && entityOf(window, roster))
   const focused = useRef(null)
   const activeBot = visible.find(window => window.id === state.active && window.kind === 'bot')
@@ -900,8 +917,12 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
 
   useEffect(() => {
     const clearSelection = event => {
-      if (event.button !== 0 || !latest.current.selected.length) return
+      if (event.button !== 0) return
       const target = event.composedPath().find(node => node instanceof Element)
+      if (target?.closest('.bt-canvas-stage,.bt-qibit-home') && !target.closest('input,textarea,[contenteditable=true],.bt-canvas-window,.bt-canvas-group,button,a')) {
+        document.getSelection?.()?.removeAllRanges()
+      }
+      if (!latest.current.selected.length) return
       // Context menu commands act on the selected employees until the command runs.
       if (target?.closest('.bt-canvas-window,.bt-canvas-group,.bt-menu')) return
       update(state => setCanvasSelection(state, []))
@@ -942,8 +963,9 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       const left = isTeamLeft ? Math.max(24, Math.round(panel.right - box.left + (isTeamFolded ? 16 : 24))) : 24
       const right = isTeamRight ? Math.max(24, Math.round(box.right - panel.left + (isTeamFolded ? 16 : 24))) : 24
       const measured = { width: box.width, height: box.height, insets: { top, bottom, left, right } }
-      setSize(measured)
-      actions.setCanvasSize({ width: box.width, height: box.height, insets: { top: toolbarBottom + 20, bottom, left: 24, right: 24 } })
+      setSize(previous => JSON.stringify(previous) === JSON.stringify(measured) ? previous : measured)
+      dragBounds.current = { width: box.width, height: box.height, insets: { top: toolbarBottom + 20, bottom, left: 24, right: 24 } }
+      actions.setCanvasSize(dragBounds.current)
     }
     const observer = new ResizeObserver(measure)
     for (const element of [node, toolbar, dock, controls].filter(Boolean)) observer.observe(element)
@@ -953,7 +975,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     return () => { observer.disconnect(); position.disconnect(); if (actions.canvasArrangementLayout === arrangementLayout) delete actions.canvasArrangementLayout; actions.setCanvasSize(null) }
   }, [])
   const groupTargetAt = (canvas, ids, clientX, clientY) => {
-    const node = root.current, box = node.getBoundingClientRect()
+    const node = root.current, box = drag.current?.box ?? node.getBoundingClientRect()
     const hit = node.ownerDocument?.elementFromPoint(clientX, clientY)?.closest('[data-room-drop-id]')
     const roomId = hit?.dataset.roomDropId
     const rect = hit?.dataset.roomStage === 'preview' ? hit.getBoundingClientRect() : null
@@ -962,11 +984,18 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       const window = canvas.windows.find(window => window.kind === 'room' && window.entityId === roomId && window.open)
       return { kind: 'room', id: roomId, ...(window ? { windowId: window.id } : {}), keepSurface: true }
     }
-    const cards = [...(node.querySelectorAll?.('.bt-canvas-group-card[data-window-id]') ?? [])]
+    const moving = drag.current
+    const now = Date.now()
+    if (!moving?.hitCache || now - moving.hitCache.at > 100) {
+      const cards = [...(node.querySelectorAll?.('.bt-canvas-group-card[data-window-id]') ?? [])]
+      const cache = { at: now, cards: cards.map(card => ({ id: card.dataset.windowId, rect: card.getBoundingClientRect() })) }
+      if (moving) moving.hitCache = cache
+    }
+    const cards = moving?.hitCache?.cards ?? [...(node.querySelectorAll?.('.bt-canvas-group-card[data-window-id]') ?? [])].map(card => ({ id: card.dataset.windowId, rect: card.getBoundingClientRect() }))
     const point = canvasPoint(canvas, box, clientX, clientY)
     const target = groupDropTarget(canvas, roster, ids, point, window => {
-      const bounds = cards.filter(card => card.dataset.windowId === window.id).map(card => {
-        const rect = card.getBoundingClientRect()
+      const bounds = cards.filter(card => card.id === window.id).map(card => {
+        const rect = card.rect
         return { ...canvasPoint(canvas, box, rect.left, rect.top), width: rect.width / canvas.viewport.zoom, height: rect.height / canvas.viewport.zoom }
       }).filter(rect => rect.width > 0 && rect.height > 0)
       // The avatar and its portal are separate drop surfaces; their gap is not a target.
@@ -976,8 +1005,10 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   }
   const start = (event, kind, id, onTap, onDragStart) => {
     if (event.button !== 0 && !(event.button === 2 && kind === 'marquee')) return
+    restoreTransitions()
     event.preventDefault()
     event.stopPropagation()
+    if (event.button === 0) root.current.ownerDocument?.getSelection?.()?.removeAllRanges()
     let current = latest.current
     const box = root.current.getBoundingClientRect()
     let ids = kind === 'group' ? current.groups.find(group => group.id === id)?.members ?? [] : current.selected.includes(id) ? current.selected : [id]
@@ -994,6 +1025,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   }
   const startDockDrag = (event, entity) => {
     if (event.button !== 0) return
+    restoreTransitions()
     event.preventDefault()
     event.stopPropagation()
     const kind = roster.roomsById[entity.id] ? 'room' : 'bot'
@@ -1001,7 +1033,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     drag.current = { kind: 'dock', entity, entityKind: kind, originState: latest.current, startX: event.clientX, startY: event.clientY, moved: false, box }
     root.current.setPointerCapture(event.pointerId)
   }
-  const move = event => {
+  const applyMove = event => {
     const current = drag.current
     if (!current) return
     const dx = event.clientX - current.startX, dy = event.clientY - current.startY, v = current.state?.viewport ?? latest.current.viewport
@@ -1009,7 +1041,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     if (current.kind === 'dock') {
       if (current.moved) {
         const x = (event.clientX - current.box.left - v.x) / v.zoom - (CANVAS_LIMITS.avatarWidth / 2)
-        const y = (event.clientY - current.box.top - v.y) / v.zoom - (CANVAS_LIMITS.avatarHeight / 2)
+        const y = (event.clientY - current.box.top - v.y) / v.zoom - (current.entityKind === 'bot' ? 34 : CANVAS_LIMITS.avatarHeight / 2)
         const nextState = openWindow(latest.current, { id: current.entity.id, kind: current.entityKind }, { x, y, compact: true })
         const win = nextState.windows.find(w => w.entityId === current.entity.id)
         if (win) {
@@ -1028,12 +1060,20 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     }
     if (current.kind === 'pan') update(() => setCanvasViewport(current.state, { ...v, x: v.x + dx, y: v.y + dy }), false)
     if (current.kind === 'window' || current.kind === 'group' || current.kind === 'avatar' && current.moved) {
-      const next = current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids })
-      if (current.kind === 'group') next.groups = next.groups.map(group => group.id === current.id && group.draft ? { ...group, x: group.x + dx / v.zoom, y: group.y + dy / v.zoom } : group)
+      const next = dragGeometry(current.state, current.ids, dx / v.zoom, dy / v.zoom, dragBounds.current ?? current.box, current.kind === 'group' ? current.id : undefined)
       current.latest = next
       current.target = groupTargetAt(next, current.ids, event.clientX, event.clientY)
       setDropTarget(current.target?.windowId ?? current.target?.id ?? null)
-      update(next, false)
+      // Move only selected desktop nodes. Commit the observable layout on release.
+      if (!current.nodes) current.nodes = [...(root.current.querySelectorAll?.('.bt-canvas-world > [data-window-id]') ?? [])].filter(node => current.ids.includes(node.dataset.windowId))
+      for (const node of current.kind === 'group' ? [] : current.nodes) {
+        const from = current.state.windows.find(window => window.id === node.dataset.windowId)
+        const to = next.windows.find(window => window.id === node.dataset.windowId)
+        if (from && to) { node.style.transition = 'none'; node.style.transform = `translate3d(${to.x - from.x}px,${to.y - from.y}px,0)`; node.style.willChange = 'transform' }
+      }
+      // A selected group frame also needs its geometry updated.
+      if (current.kind === 'group') update(next, false)
+      if (root.current.dataset) root.current.dataset.dragging = 'true'
     }
     if (current.kind === 'resize') update(() => resizeWindow(current.state, current.id, dx / v.zoom, dy / v.zoom), false)
     if (current.kind === 'marquee') {
@@ -1048,17 +1088,18 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     if (current.moved && (current.kind === 'avatar' || current.kind === 'window') && current.ids?.length === 1) {
       const draggedWin = (current.latest ?? latest.current).windows.find(w => w.id === current.id)
       if (draggedWin && draggedWin.kind === 'bot' && roster.byId[draggedWin.entityId]) {
-        // Preview and drop use the same displayed avatar geometry and threshold.
+        // Preview is wider than the strict, rechecked release threshold.
         const shown = { ...(current.latest ?? latest.current), windows: (current.latest ?? latest.current).windows.map(window => ({ ...window, compact: true })) }
-        const other = current.target ? undefined : overlapMain(shown, roster, current.id)
+        const other = current.target ? undefined : overlapMain(shown, roster, current.id, [], MERGE_PREVIEW_DISTANCE)
         const closest = other ? {
           sourceId: draggedWin.entityId, targetId: other.entityId,
           sourceWindowId: draggedWin.id, targetWindowId: other.id,
           sourceName: roster.byId[draggedWin.entityId]?.name || '',
           targetName: roster.byId[other.entityId]?.name || '',
-          source: { x: draggedWin.x + 60, y: draggedWin.y + 38 },
-          target: { x: other.x + 60, y: other.y + 38 },
+          source: { x: draggedWin.x + 60, y: draggedWin.y + 34 },
+          target: { x: other.x + 60, y: other.y + 34 },
           dist: Math.hypot(draggedWin.x - other.x, draggedWin.y - other.y),
+          ready: Math.hypot(draggedWin.x - other.x, draggedWin.y - other.y) < MERGE_COMMIT_DISTANCE,
         } : null
         setMergePair(closest)
       } else if (mergePairRef.current) setMergePair(null)
@@ -1066,22 +1107,51 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       setMergePair(null)
     }
   }
+  const move = event => {
+    if (!drag.current) return
+    if (!drag.current.moved && Math.hypot(event.clientX - drag.current.startX, event.clientY - drag.current.startY) > 4) {
+      drag.current.moved = true; drag.current.onDragStart?.()
+    }
+    pendingMove.current = { clientX: event.clientX, clientY: event.clientY }
+    if (dragFrame.current === null) dragFrame.current = requestAnimationFrame(() => {
+      dragFrame.current = null
+      const point = pendingMove.current; pendingMove.current = null
+      if (point) applyMove(point)
+    })
+  }
   const finish = event => {
     if (!drag.current) return
+    if (dragFrame.current !== null) { cancelAnimationFrame(dragFrame.current); dragFrame.current = null }
+    if (event.type !== 'pointercancel' && (pendingMove.current || drag.current.moved)) applyMove(event)
+    pendingMove.current = null
     const current = drag.current
+    for (const node of current.nodes ?? []) { node.style.transform = ''; node.style.willChange = '' }
+    // Keep transitions disabled until React has painted the committed left/top.
+    // Otherwise clearing the temporary transform animates from the old origin.
+    releasedNodes.current = current.nodes ?? []
+    if (releasedNodes.current.length) releaseFrame.current = requestAnimationFrame(() => {
+      releaseFrame.current = requestAnimationFrame(restoreTransitions)
+    })
+    if (root.current.dataset) delete root.current.dataset.dragging
+    if (current.latest && event.type !== 'pointercancel') {
+      current.hitCache = null
+      current.target = groupTargetAt(current.latest, current.ids, event.clientX, event.clientY)
+      update(current.latest, false)
+    }
     drag.current = null
     setMarquee(null)
     setDropTarget(null)
     if (root.current.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId)
+    if (event.type === 'pointercancel') {
+      setMergePair(null)
+      if (current.state) update(current.originState ?? current.state)
+      actions.saveCanvas()
+      return
+    }
     if (current.moved && (current.kind === 'window' || current.kind === 'avatar' || current.kind === 'group')) {
       current.ids?.forEach(id => actions.markCanvasWindowMoved?.(id))
     }
     actions.saveCanvas()
-    if (event.type === 'pointercancel') {
-      setMergePair(null)
-      if (current.state) update(current.state)
-      return
-    }
     setMergePair(null)
     if (current.kind === 'marquee' && !current.right && !current.moved) {
       update(state => setCanvasSelection(state, []))
@@ -1103,12 +1173,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       if (targetWin) {
         const source = next.windows.find(window => window.id === current.id)
         update(current.state)
-        const members = [source.entityId, targetWin.entityId]
-        const bots = members.map(id => roster.byId[id]).filter(Boolean)
-        const autoName = bots.map(bot => bot.name).join(' + ')
-        actions.createRoom?.(members, { admin: members[0], name: autoName }).then(room => {
-          if (room) actions.openCanvasEntity?.(room.id)
-        }).catch(error => actions.reportError?.(error, 'canvas-group'))
+        createMergedGroup(source.entityId, targetWin.entityId)
         return
       }
     }
@@ -1119,6 +1184,18 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       if (window?.kind === 'room') current.onTap?.()
       else actions.openCanvasConversation(current.id)
     }
+  }
+  const createMergedGroup = (sourceId, targetId) => {
+    const members = [sourceId, targetId]
+    const existing = (roster.rooms ?? []).find(room => !room.task && room.members?.length === members.length && members.every(id => room.members.includes(id)))
+    if (existing) { actions.openCanvasEntity?.(existing.id); return }
+    const base = members.map(id => roster.byId[id]?.name).join(' + ')
+    const names = new Set((roster.rooms ?? []).map(room => room.name))
+    let name = base, suffix = 2
+    while (names.has(name)) name = `${base} (${suffix++})`
+    actions.createRoom?.(members, { admin: sourceId, name }).then(room => {
+      if (room) actions.openCanvasEntity?.(room.id)
+    }).catch(error => actions.reportError?.(error, 'canvas-group'))
   }
   const proposeGroup = (members, target) => {
     const group = target?.kind === 'draft' ? latest.current.groups.find(group => group.id === target.id) : null
@@ -1151,11 +1228,19 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     if (!roster.byId[id]) return
     const current = latest.current, box = root.current.getBoundingClientRect()
     const existing = current.windows.find(window => window.kind === 'bot' && window.entityId === id)
-    const probe = { ...current, windows: existing ? current.windows.map(window => window.id === existing.id ? { ...window, open: true, compact: true } : window) : [...current.windows, { id: 'contact-drop', kind: 'bot', entityId: id, open: true, compact: true }] }
+    const point = canvasDropPoint(current, box, x, y)
+    const probe = { ...current, windows: existing ? current.windows.map(window => window.id === existing.id ? { ...window, ...point, open: true, compact: true } : window) : [...current.windows, { id: 'contact-drop', kind: 'bot', entityId: id, ...point, open: true, compact: true }] }
     const target = groupTargetAt(probe, [existing?.id ?? 'contact-drop'], x, y)
+    const other = !target && overlapMain(probe, roster, existing?.id ?? 'contact-drop', [], MERGE_PREVIEW_DISTANCE)
+    const distance = other ? Math.hypot(point.x - other.x, point.y - other.y) : Infinity
+    setMergePair(other ? { sourceId: id, targetId: other.entityId, sourceWindowId: existing?.id, targetWindowId: other.id,
+      sourceName: roster.byId[id]?.name ?? '', targetName: roster.byId[other.entityId]?.name ?? '',
+      source: { x: point.x + 60, y: point.y + 34 }, target: { x: other.x + 60, y: other.y + 34 }, dist: distance, ready: distance < MERGE_COMMIT_DISTANCE } : null)
     setDropTarget(target?.windowId ?? target?.id ?? null)
     if (!commit) return
     setDropTarget(null)
+    setMergePair(null)
+    if (other && distance < MERGE_COMMIT_DISTANCE) { createMergedGroup(id, other.entityId); return }
     if (!target || target.kind === 'draft' && !existing?.open) actions.placeCanvasMain(id, canvasDropPoint(current, box, x, y))
     if (target) proposeGroup([id], target)
   }
@@ -1167,7 +1252,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       const node = root.current
       const hit = node.ownerDocument.elementFromPoint(x, y)
       const roomId = hit?.closest('[data-room-drop-id]')?.dataset.roomDropId
-      if (phase === 'cancel' || !hit || !node.contains(hit) && !roomId) { setDropTarget(null); return }
+      if (phase === 'cancel' || !hit || !node.contains(hit) && !roomId) { setDropTarget(null); setMergePair(null); return }
       contactDropRef.current(id, x, y, phase === 'end')
     }
     window.addEventListener(MAIN_AGENT_POINTER, receive)
@@ -1188,12 +1273,16 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       const box = root.current ? root.current.getBoundingClientRect() : { left: 0, top: 0 }
       const v = latest.current.viewport
       const x = Math.round((event.clientX - box.left - v.x) / v.zoom - (CANVAS_LIMITS.avatarWidth / 2))
-      const y = Math.round((event.clientY - box.top - v.y) / v.zoom - (CANVAS_LIMITS.avatarHeight / 2))
+      const y = Math.round((event.clientY - box.top - v.y) / v.zoom - (kind === 'bot' ? 34 : CANVAS_LIMITS.avatarHeight / 2))
       if (kind !== 'bot' && kind !== 'room' || !(kind === 'bot' ? roster.byId[id] : roster.roomsById[id])) return
       const probe = openWindow(latest.current, { id, kind }, { x, y, compact: true })
+      const placed = probe.windows.find(window => window.entityId === id)
+      if (placed) { placed.x = x; placed.y = y }
       const winId = probe.windows.find(window => window.entityId === id)?.id
       const target = kind === 'bot' ? groupTargetAt(probe, [winId], event.clientX, event.clientY) : null
       if (target?.kind === 'room') { proposeGroup([id], target); return }
+      const other = kind === 'bot' && !target ? overlapMain(probe, roster, winId) : null
+      if (other) { createMergedGroup(id, other.entityId); return }
       update(current => {
         const next = openWindow(current, { id, kind }, { x, y, compact: true })
         const win = next.windows.find(w => w.entityId === id || w.id === id || String(w.entityId) === String(id))
@@ -1250,7 +1339,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       h(CanvasWallpaper, { canvasRef: root }),
       button(t('Settings'), () => actions.openSettings(), GearIcon),
       button(t('Classic view'), () => actions.openClassicSession())),
-    h(CanvasGlobalSearch, { actions, roster }),
+    h(CanvasGlobalSearch, { actions, roster, work }),
     h('main', {
       className: 'bt-canvas-stage',
       onContextMenu: onCanvasContextMenu,
@@ -1275,7 +1364,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
               employeesOf(visible, group.members, roster).length >= 2 ? button(null, () => actions.openNewChat('group', employeesOf(visible, group.members, roster)), ChatsIcon, { title: t('Create group chat'), 'aria-label': t('Create group chat') }) : null,
               button(null, () => update(current => ungroupWindows(current, group.id)), CloseIcon, { title: t('Ungroup'), 'aria-label': t('Ungroup') })))
         }),
-        visible.map(window => h(WindowCard, { key: window.id, window: { ...window, compact: true }, canvasRoot: root, drag, conversationOpen: !window.compact, viewport: state.viewport, roster, selected: state.selected.includes(window.id), active: state.active === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget: dropTarget === window.id, isMergeTarget: mergePair?.targetWindowId === window.id })),
+        visible.map(window => h(WindowCard, { key: window.id, window: { ...window, compact: true }, canvasRoot: root, drag, conversationOpen: !window.compact, viewport: state.viewport, roster, selected: state.selected.includes(window.id), active: state.active === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget: dropTarget === window.id, isMergeTarget: mergePair?.targetWindowId === window.id && mergePair.ready })),
         mergePair ? (() => {
           const sourceBot = roster?.byId?.[mergePair.sourceId]
           const targetBot = roster?.byId?.[mergePair.targetId]
@@ -1345,7 +1434,9 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
               h('circle', { cx: sX, cy: sY, r: 30, fill: 'none', stroke: '#ffffff', strokeWidth: 1.5, opacity: 0.6 }),
               h('circle', { cx: tX, cy: tY, r: 30, fill: 'none', stroke: '#ffffff', strokeWidth: 1.5, opacity: 0.6 }),
               sourceImg ? h('image', { href: sourceImg, x: sX - 28, y: sY - 28, width: 56, height: 56, clipPath: 'url(#clip-source-avatar)' }) : null,
-              targetImg ? h('image', { href: targetImg, x: tX - 28, y: tY - 28, width: 56, height: 56, clipPath: 'url(#clip-target-avatar)' }) : null))
+              targetImg ? h('image', { href: targetImg, x: tX - 28, y: tY - 28, width: 56, height: 56, clipPath: 'url(#clip-target-avatar)' }) : null,
+              !sourceImg ? h('foreignObject', { x: sX - 28, y: sY - 28, width: 56, height: 56 }, h(BotAvatar, { bot: sourceBot, size: 56, badge: false, live: false })) : null,
+              !targetImg ? h('foreignObject', { x: tX - 28, y: tY - 28, width: 56, height: 56 }, h(BotAvatar, { bot: targetBot, size: 56, badge: false, live: false })) : null))
         })() : null),
       visible.length === 0 ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
     visible.filter(window => !window.compact).sort((a, b) => a.z - b.z).map((window, order) => h(CanvasChatWindow, { key: window.id, window, active: state.active === window.id, order, size, roster, actions, useSessions, SessionProvider, renderSlot })),

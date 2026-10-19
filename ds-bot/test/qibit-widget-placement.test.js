@@ -18,6 +18,26 @@ runInNewContext(outputFiles[0].text, { module, exports: module.exports, require:
 const { qibitWidgetLayout } = module.exports
 
 const large = { width: 1800, height: 1200 }
+test('manual placement scales with the viewport and restores on maximizing', () => {
+  const panel = { x: 1100, y: 650, placement: large }
+  const small = qibitWidgetLayout(panel, { width: 1200, height: 800 })
+  assert.equal(small.anchorX, 1100 * 1200 / 1800)
+  assert.equal(small.anchorY, 650 * 800 / 1200)
+  const restored = qibitWidgetLayout(panel, large)
+  assert.equal(restored.anchorX, 1100)
+  assert.equal(restored.anchorY, 650)
+})
+test('automatic placement follows the small-window reference and centers on large screens', () => {
+  const reference = qibitWidgetLayout({}, { width: 1280, height: 780 })
+  assert.equal(reference.anchorX, 708)
+  assert.ok(Math.abs(reference.y - 155) < 1)
+  for (const area of [{ width: 1600, height: 900 }, large]) {
+    const layout = qibitWidgetLayout({ x: null, y: null }, area)
+    assert.equal(layout.anchorX, area.width / 2)
+    assert.ok(layout.y + layout.height / 2 < area.height / 2)
+    assert.ok(layout.y >= 12)
+  }
+})
 const values = layout => [layout.x, layout.y, layout.width, layout.height, layout.anchorX, layout.anchorY, layout.heroHeight]
 const anchored = layout => {
   assert.equal(layout.anchorX, layout.x + layout.width / 2)

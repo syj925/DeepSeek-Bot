@@ -205,7 +205,7 @@ test('hover preserves each original keyed icon while preview and selected depart
   app.render.advance(120); app.draw()
   assert.equal(app.popover()?.props.entity.id, 'real-ops')
   app.leave('ops'); app.enter('design')
-  assert.equal(app.popover(), undefined, 'the old department preview must disappear while the new one waits')
+  assert.equal(app.popover()?.props.entity.id, 'real-designer', 'an open preview switches content without an unmounted blank frame')
   app.render.advance(120); app.draw()
   assert.equal(app.popover()?.props.entity.id, 'real-designer')
   for (const { key, itemKey, type, botId } of original) {

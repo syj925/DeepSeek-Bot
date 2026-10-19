@@ -74,9 +74,13 @@ export function AgentAvatarPreview({ agent, size = 88, triggerKey = 0, onReplay 
           timerRef.current = setTimeout(() => {
             if (tokenRef.current === token) {
               setIsPlaying(false)
-              setAnimSrc(null)
-              URL.revokeObjectURL(objectUrl)
-              currentBlobUrlRef.current = null
+              // Keep the opaque poster underneath while the animation fades out.
+              timerRef.current = setTimeout(() => {
+                if (tokenRef.current !== token) return
+                setAnimSrc(null)
+                URL.revokeObjectURL(objectUrl)
+                currentBlobUrlRef.current = null
+              }, 200)
             }
           }, AGENT_ANIMATION_DURATION_MS)
         }
@@ -141,7 +145,7 @@ export function AgentAvatarPreview({ agent, size = 88, triggerKey = 0, onReplay 
 export const AGENT_AVATAR_CSS = `
 .bt-agent-stage{position:relative;display:inline-flex;align-items:center;justify-content:center;overflow:visible;line-height:0;background:transparent!important;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .bt-agent-stage img{position:absolute;top:0;left:50%;transform:translateX(-50%);height:var(--agent-size,88px);width:auto;max-width:none;object-fit:contain;pointer-events:none}
-.bt-agent-poster{opacity:1;transition:opacity .12s ease}
-.bt-agent-animated{opacity:1}
-.bt-agent-stage.is-playing .bt-agent-poster{opacity:0}
+.bt-agent-poster{opacity:1}
+.bt-agent-animated{opacity:0;transition:opacity .18s ease}
+.bt-agent-stage.is-playing .bt-agent-animated{opacity:1}
 `

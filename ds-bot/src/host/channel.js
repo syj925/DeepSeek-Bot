@@ -1,5 +1,6 @@
 // Client channel: the team view, POST actions, and the GET browser read poll.
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { questionReply } from './parts.js'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
@@ -369,6 +370,14 @@ export function install(rt) {
       let body
       if (request.method === 'GET') {
         const params = new URL(request.url).searchParams
+        if (params.size === 1 && params.get('asset') === 'qibit-font-v1') {
+          try {
+            const font = await readFile(new URL('../../assets/fonts/NotoSansSC-VF.ttf', import.meta.url))
+            return new Response(font, { headers: { 'content-type': 'font/ttf', 'cache-control': 'private, max-age=31536000, immutable' } })
+          } catch {
+            return new Response('Font unavailable', { status: 404, headers: { 'cache-control': 'no-store' } })
+          }
+        }
         // Only the read poll can use GET. Page metadata stays in a short POST,
         // so long polling cannot block Desktop's admitted-write drain at update.
         if (params.get('endpoint') !== 'browser-wait' || [...params.keys()].some(key => key !== 'endpoint' && key !== 'clientId')

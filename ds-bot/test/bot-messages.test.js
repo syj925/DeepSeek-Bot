@@ -10,6 +10,21 @@ import { install as installTurns } from '../src/host/turns.js'
 import { install as installParts } from '../src/host/parts.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
 
+test('Chief can hand a deliverable to one specialist as coordinator and reuse that task group', async t => {
+  const app = await start(team())
+  t.after(app.stop)
+  const args = { members: ['Writer'], admin: 'Writer', name: 'Quarterly report', task_objective: 'Produce quarterly report' }
+  const first = await app.tool('create_group', args, 'a')
+  assert.match(first, /Writer is its admin/)
+  await app.tool('create_group', args, 'a')
+  const view = (await app.call('state', {})).value
+  assert.equal(view.rooms.length, 1)
+  assert.equal(view.rooms[0].admin, 'b')
+  assert.equal(view.rooms[0].task.originBotId, 'a')
+  assert.equal(view.rooms[0].task.objective, args.task_objective)
+  assert.deepEqual(view.rooms[0].members.sort(), ['a', 'b'])
+})
+
 // A two-Bot team, optionally with b in a group Session 'gb' of room 'Ops'.
 function team({ group = false } = {}) {
   return {

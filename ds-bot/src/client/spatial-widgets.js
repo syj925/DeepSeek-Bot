@@ -15,19 +15,20 @@ function readObject(key, storage) {
 }
 const widgetAnchor = value => record(value) ? Object.fromEntries(['right', 'bottom'].filter(edge => Number.isFinite(value[edge]) && value[edge] >= 0).map(edge => [edge, value[edge]])) : null
 const anchorFields = value => { const anchor = widgetAnchor(value?.anchor); return anchor ? { anchor } : {} }
+const placementFields = (id, value) => id === 'qibit-command' && Number.isFinite(value?.placement?.width) && value.placement.width > 0 && Number.isFinite(value?.placement?.height) && value.placement.height > 0 ? { placement: { width: value.placement.width, height: value.placement.height } } : {}
 const widgetHome = value => record(value) && Number.isFinite(value.x) && Number.isFinite(value.y) ? { x: value.x, y: value.y, ...anchorFields(value) } : null
 
 export function readSpatialWidget(id, storage = browserStorage()) {
   const value = readObject(WIDGET_KEY, storage)[id]
   const home = widgetHome(value?.home)
-  return { x: Number.isFinite(value?.x) ? value.x : null, y: Number.isFinite(value?.y) ? value.y : null, folded: typeof value?.folded === 'boolean' ? value.folded : null, ...anchorFields(value), ...(home ? { home } : {}) }
+  return { x: Number.isFinite(value?.x) ? value.x : null, y: Number.isFinite(value?.y) ? value.y : null, folded: typeof value?.folded === 'boolean' ? value.folded : null, ...anchorFields(value), ...placementFields(id, value), ...(home ? { home } : {}) }
 }
 
 export function writeSpatialWidget(id, value, storage = browserStorage()) {
   try {
     const saved = readObject(WIDGET_KEY, storage)
     const home = widgetHome(value.home)
-    saved[id] = { x: Number.isFinite(value.x) ? value.x : null, y: Number.isFinite(value.y) ? value.y : null, folded: value.folded === true, ...anchorFields(value), ...(home ? { home } : {}) }
+    saved[id] = { x: Number.isFinite(value.x) ? value.x : null, y: Number.isFinite(value.y) ? value.y : null, folded: value.folded === true, ...anchorFields(value), ...placementFields(id, value), ...(home ? { home } : {}) }
     storage.setItem(WIDGET_KEY, JSON.stringify(saved))
   } catch { /* browser storage may be unavailable */ }
 }

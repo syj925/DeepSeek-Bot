@@ -135,12 +135,14 @@ export function Dock({
       // Keep hit boxes fixed: magnification must never move the next target.
       const scale = (curIconSize / BASE_ICON_SIZE).toFixed(4)
       if (item.lastScale !== scale) {
-        item.element.style?.setProperty?.('--dock-icon-scale', scale)
+        item.icon ??= item.element.querySelector?.('.bt-dock-icon-wrap') ?? item.element
+        item.icon.style?.setProperty?.('--dock-icon-scale', scale)
         item.lastScale = scale
       }
       const lift = `${-Math.round(item.liftSpring.current * 100) / 100}px`
       if (item.lastLift !== lift) {
-        item.element.style?.setProperty?.('--dock-icon-lift', lift)
+        item.icon ??= item.element.querySelector?.('.bt-dock-icon-wrap') ?? item.element
+        item.icon.style?.setProperty?.('--dock-icon-lift', lift)
         item.lastLift = lift
       }
     })

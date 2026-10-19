@@ -19,7 +19,7 @@ export const canvasStyles = `
   --divider: rgba(0, 0, 0, 0.08);
 
   /* 统一字体排版体系 */
-  --bt-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --bt-font-sans: "Qibit UI", "Noto Sans SC", system-ui, sans-serif;
   --bt-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --bt-fs-xs: 11px;
   --bt-fs-sm: 12px;
@@ -157,7 +157,7 @@ export const canvasStyles = `
   container-type: inline-size;
   container-name: bt-canvas;
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--bt-font-sans);
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -1253,7 +1253,7 @@ export const canvasStyles = `
   box-sizing: border-box;
   isolation: isolate;
   z-index: 25;
-  --dock-hover-scale: 1.09;
+  --dock-hover-scale: 1;
   --dock-motion-duration: 280ms;
   --dock-motion-ease: cubic-bezier(.2,.8,.2,1);
 }
@@ -1412,6 +1412,7 @@ export const canvasStyles = `
   border-color: rgba(255, 255, 255, 0.7);
 }
 .bt-dock-icon-wrap {
+  will-change: transform;
   width: var(--dock-icon-size, 36px);
   height: var(--dock-icon-size, 36px);
   display: flex;
@@ -1478,8 +1479,8 @@ export const canvasStyles = `
   border-radius: 20px;
   padding: 16px;
   background: var(--glass-window, rgba(255, 255, 255, 0.5)) !important;
-  backdrop-filter: blur(var(--glass-blur, 50px)) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur, 50px)) saturate(180%) !important;
+  backdrop-filter: blur(20px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
   border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.45)) !important;
   box-shadow: var(--glass-shadow, 0 4px 20px 0 rgba(0, 0, 0, 0.08)), 0 16px 40px -8px rgba(15, 23, 42, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.95) !important;
   color: var(--text-primary);
@@ -2168,7 +2169,7 @@ export const canvasStyles = `
   border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.45)) !important;
   border-radius: 18px !important;
   box-shadow: var(--glass-shadow, 0 4px 20px 0 rgba(0, 0, 0, 0.08)) !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--bt-font-sans);
   user-select: none;
   z-index: 10000;
   animation: bt-canvas-menu-pop 0.14s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2469,7 +2470,7 @@ body:has(.canvas-viewport) .bt-pane > div {
 }
 
 .bt-canvas-search-kbd {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--bt-font-sans);
   font-size: 11px;
   font-weight: 500;
   padding: 2px 7px;
@@ -2481,6 +2482,8 @@ body:has(.canvas-viewport) .bt-pane > div {
 }
 
 /* 融球建群交互效果 */
+.bt-canvas-stage,.bt-qibit-home,.bt-floating-team{user-select:none;-webkit-user-select:none}
+.bt-qibit-home input,.bt-qibit-home textarea{user-select:text;-webkit-user-select:text}
 .bt-metaball-svg {
   filter: drop-shadow(0 6px 16px rgba(20, 35, 60, 0.08));
 }
@@ -2506,7 +2509,7 @@ body:has(.canvas-viewport) .bt-pane > div {
 @keyframes bt-merge-badge-pop {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(4px) scale(.9);
   }
   to {
     opacity: 1;
@@ -2514,10 +2517,19 @@ body:has(.canvas-viewport) .bt-pane > div {
   }
 }
 
-.bt-canvas-merge-target .bt-mark {
+.bt-canvas-merge-target .bt-canvas-avatar-open > .bt-mark {
   outline: 3px solid #3878fa !important;
   box-shadow: 0 0 32px rgba(56, 120, 250, 0.5) !important;
-  animation: none !important;
+  animation: bt-merge-target-pulse .75s ease-in-out infinite alternate !important;
+}
+
+/* Idle decorative motion yields to pointer interactions. Live work indicators
+   remain available; the hovered employee can still animate independently. */
+.bt-canvas [data-live][data-state=idle] :is(.bt-eye,.bt-eyes,.bt-b,.bt-mark-img) { animation-play-state:paused!important; }
+.bt-canvas :is(.bt-canvas-avatar-open,.bt-canvas-dock-item):hover [data-live][data-state=idle] :is(.bt-eye,.bt-eyes,.bt-b,.bt-mark-img) { animation-play-state:running!important; }
+.bt-canvas[data-dragging=true] [data-live] * { animation-play-state:paused!important; }
+@media(prefers-reduced-motion:reduce) {
+  .bt-canvas-merge-target .bt-canvas-avatar-open > .bt-mark { animation:none!important; }
 }
 
 @keyframes bt-merge-target-pulse {

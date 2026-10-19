@@ -313,7 +313,7 @@ export function install(rt) {
       notice: { type: 'string', description: 'Shared instructions every member reads before speaking in this group' },
       admin: { type: 'string', description: 'Member who leads the group; defaults to you' },
       mode: MODE_PARAM,
-      task_objective: { type: 'string', description: 'Shared deliverable for a task group. Use only when several employees need to collaborate on one outcome. Omit for ordinary social groups. Reuse an existing task group for revisions.' },
+      task_objective: { type: 'string', description: 'Requested deliverable owned by this task group, including a task with just one specialist. Omit for ordinary social groups or simple questions. Reuse an existing task group for revisions.' },
     },
     output,
     async execute(args, exec) {

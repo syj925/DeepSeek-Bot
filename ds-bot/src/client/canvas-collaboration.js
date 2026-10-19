@@ -10,14 +10,18 @@ export function mergeHintPosition(source, target, viewport, bounds, badge) {
   return { left: clamp(centerX - badge.width / 2, bounds.width, badge.width), top: clamp(above >= 8 ? above : below, bounds.height, badge.height) }
 }
 
-export function overlapMain(state, roster, sourceId, excluded = []) {
+export const MERGE_PREVIEW_DISTANCE = 120
+export const MERGE_COMMIT_DISTANCE = 58
+
+export function overlapMain(state, roster, sourceId, excluded = [], distance = MERGE_COMMIT_DISTANCE) {
   const source = state.windows.find(window => window.id === sourceId)
   const eligible = window => window?.open && window.compact && window.kind === 'bot' && roster.byId[window.entityId]
   if (!eligible(source)) return undefined
   // Match avatar centers, not labels or the larger conversation windows.
   return state.windows.filter(window => window.id !== sourceId && !excluded.includes(window.id) && eligible(window))
     .map(window => ({ window, distance: Math.hypot(window.x - source.x, window.y - source.y) }))
-    .filter(entry => entry.distance < 58).sort((a, b) => a.distance - b.distance || b.window.z - a.window.z)[0]?.window
+    .filter(entry => distance === MERGE_COMMIT_DISTANCE ? entry.distance < distance : entry.distance <= distance)
+    .sort((a, b) => a.distance - b.distance || b.window.z - a.window.z)[0]?.window
 }
 
 export function canvasPoint(state, box, clientX, clientY) {
@@ -26,7 +30,7 @@ export function canvasPoint(state, box, clientX, clientY) {
 
 export function canvasDropPoint(state, box, clientX, clientY) {
   const point = canvasPoint(state, box, clientX, clientY)
-  return { x: point.x - 60, y: point.y - 40 }
+  return { x: point.x - 60, y: point.y - 34 }
 }
 
 export function selectedMains(state, roster, ids, includeClosed = false) {

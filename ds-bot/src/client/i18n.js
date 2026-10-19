@@ -5,6 +5,13 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Execution needs attention': '执行遇到问题，请查看恢复选项',
+  'Request submitted · waiting to start': '请求已提交，等待开始',
+  'Writing reply': '正在回复',
+  'Running tool': '正在执行工具',
+  'Waiting for model response': '等待模型返回',
+  'No new progress yet · check execution details': '暂未收到新进展，可查看执行过程；请勿重复提交',
+  'Elapsed time': '已用时间',
   '{name} asks you': '{name} 向你提问',
   'Execution details': '执行过程',
   'Could not load progress. Retrying…': '暂未获取到进度，正在重新连接…',
@@ -239,6 +246,7 @@ const ZH = {
   'Search in all messages “{query}”': '在所有消息中搜索 “{query}”',
   'Close search': '关闭搜索',
   'Release to create group chat': '松开组建协作群',
+  'Move closer to create group chat': '继续靠近以建群',
   'Animation': '动画',
   'Bot animation': 'Bot 动画',
   'Quiet': '安静',

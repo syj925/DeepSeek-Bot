@@ -27,7 +27,7 @@ test('only compact, visible main avatars can form a collision pair', () => {
 })
 
 test('contact drop positions account for canvas origin, pan and zoom', () => {
-  assert.deepEqual(canvasDropPoint({ viewport: { x: 20, y: -40, zoom: .5 } }, { left: 200, top: 100 }, 400, 200), { x: 300, y: 240 })
+  assert.deepEqual(canvasDropPoint({ viewport: { x: 20, y: -40, zoom: .5 } }, { left: 200, top: 100 }, 400, 200), { x: 300, y: 246 })
 })
 
 test('all employees can join real groups or drafts without management rights', () => {
@@ -50,7 +50,7 @@ test('canvas coordinates share one origin, pan and zoom transform for pointer an
   const state = { viewport: { x: 20, y: -40, zoom: .5 } }
   const box = { left: 200, top: 100 }
   assert.deepEqual(canvasPoint(state, box, 400, 200), { x: 360, y: 280 })
-  assert.deepEqual(canvasDropPoint(state, box, 400, 200), { x: 300, y: 240 })
+  assert.deepEqual(canvasDropPoint(state, box, 400, 200), { x: 300, y: 246 })
 })
 
 test('group drops use visible card bounds including the wide right side and exclude space below its auto height', () => {

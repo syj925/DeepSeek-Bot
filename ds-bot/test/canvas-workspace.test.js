@@ -129,7 +129,7 @@ test('dragging Main avatars together proposes a group; cancellation and multi-se
     tree.props.onPointerMove(pointer({ clientX: 100 + other.x - source.x, clientY: 100 + other.y - source.y }))
     tree = app.draw()
     assert.equal(app.card(tree, 'partner').props['data-drop-target'], true)
-    tree.props.onPointerUp(pointer({ type: cancelled ? 'pointercancel' : 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: cancelled ? 'pointercancel' : 'pointerup', clientX: 100 + other.x - source.x, clientY: 100 + other.y - source.y }))
     tree = app.draw()
     const modal = find(tree, value => value.type?.name === 'MainAgentGroup')
     assert.equal(Boolean(modal), false)
@@ -142,6 +142,57 @@ test('dragging Main avatars together proposes a group; cancellation and multi-se
   }
 })
 const textOf = node => typeof node === 'string' ? node : node?.children?.map(textOf).join('') ?? ''
+
+test('native contact drops use the same avatar distance as desktop grouping', async () => {
+  for (const distance of [80, 58, 57]) {
+    const app = fixture()
+    const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
+    const tree = app.draw()
+    tree.props.onDrop(pointer({ clientX: other.x + 60 - distance, clientY: other.y + 34,
+      dataTransfer: { getData: () => JSON.stringify({ id: 'writer', kind: 'bot' }) } }))
+    await Promise.resolve()
+    assert.equal(app.calls.created.length, distance < 58 ? 1 : 0)
+  }
+})
+
+test('repeat avatar grouping reopens the matching ordinary room but preserves task groups', async () => {
+  for (const task of [undefined, { objective: 'Existing work' }]) {
+    const app = fixture()
+    const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
+    app.roster.rooms.push({ id: 'same', name: 'Writer + Partner', members: ['writer', 'partner'], task })
+    app.draw().props.onDrop(pointer({ clientX: other.x + 60, clientY: other.y + 34, dataTransfer: { getData: () => JSON.stringify({ id: 'writer', kind: 'bot' }) } }))
+    await Promise.resolve()
+    if (!task) { assert.equal(app.calls.created.length, 0); assert.deepEqual(app.calls.entities, ['same']) }
+    else { assert.equal(app.calls.created.length, 1); assert.equal(app.calls.created[0][1].name, 'Writer + Partner (2)') }
+  }
+})
+
+test('release rechecks current coordinates, including before the scheduled drag frame', async () => {
+  for (const scenario of ['preview-only', 'rapid-commit', 'leave-target', 'cancel']) {
+    const app = fixture()
+    const other = app.addBot({ id: 'partner', name: 'Partner' }, false)
+    let tree = app.draw()
+    const source = app.state.windows.find(window => window.entityId === 'writer')
+    const at = distance => pointer({ clientX: 100 + other.x - source.x - distance, clientY: 100 + other.y - source.y })
+    button(app.card(tree), 'Open conversation').props.onPointerDown(pointer())
+    const updates = app.calls.updates
+    tree.props.onPointerMove(at(scenario === 'preview-only' ? 80 : 20))
+    if (scenario !== 'rapid-commit') {
+      tree = app.draw()
+      assert.equal(app.calls.updates, updates, 'movement must not publish the whole canvas')
+      const hint = find(tree, value => value.type?.name === 'MergeHint')
+      assert.ok(hint)
+      assert.equal(app.card(tree, 'partner').props['data-drop-target'] === true, scenario !== 'preview-only')
+    }
+    tree.props.onPointerUp({ ...at(scenario === 'leave-target' ? 150 : scenario === 'preview-only' ? 80 : 20), type: scenario === 'cancel' ? 'pointercancel' : 'pointerup' })
+    app.draw()
+    await Promise.resolve()
+    assert.equal(app.calls.created.length, scenario === 'rapid-commit' ? 1 : 0)
+    assert.equal(app.calls.opened.length, 0)
+    assert.equal(app.captures.size, 0)
+    if (scenario === 'cancel') assert.equal(app.state.windows.find(window => window.entityId === 'writer').x, source.x)
+  }
+})
 
 function pointer(options = {}) {
   return {
@@ -219,6 +270,7 @@ function fixture({ rootBox = { left: 0, top: 0, width: 1000, height: 700 }, card
     renderSlot: () => { throw new Error('a lightweight card must not render conversation slots') },
   }
   const draw = () => {
+    render.flushFrames()
     const tree = render.render(render.CanvasWorkspace, props)
     tree.props.ref.current = root
     return tree
@@ -345,7 +397,7 @@ test('a short background right-click creates an empty, movable group without a b
   const title = find(node, value => value.type?.name === 'GroupTitle')
   title.props.start(pointer(), 'group', app.state.groups[0].id)
   tree.props.onPointerMove(pointer({ clientX: 140, clientY: 150 }))
-  tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+  tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 140, clientY: 150 }))
   assert.equal(app.state.groups[0].x, 640)
   assert.equal(app.state.groups[0].y, 350)
 })
@@ -361,7 +413,7 @@ test('a draft stages one Main Agent, then creates a real group with a second eve
     button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
     tree.props.onPointerMove(pointer({ clientX: 530, clientY: 400 }))
     assert.equal(find(app.draw(), value => value.props['data-group-id']).props['data-drop-target'], true)
-    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 530, clientY: 400 }))
   }
   const positions = Array.from(app.state.windows, ({ x, y }) => [x, y])
   drop('writer')
@@ -390,7 +442,7 @@ test('multi-selection can join an existing Main Agent group; cancellation restor
     button(app.card(tree, 'partner'), 'Open conversation').props.onPointerDown(pointer())
     tree.props.onPointerMove(pointer({ clientX: 500, clientY: 140 }))
     assert.equal(app.card(app.draw(), 'planning').props['data-drop-target'], true)
-    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 500, clientY: 140 }))
     assert.deepEqual(Array.from(app.state.windows, ({ x, y }) => [x, y]), positions)
     const modal = app.modal()
     await button(modal, cancelled ? 'Cancel' : 'Add to group').props.onClick()
@@ -407,7 +459,7 @@ test('already-present members and failed invitations leave the group unchanged a
     const tree = app.draw()
     button(app.card(tree, id), 'Open conversation').props.onPointerDown(pointer())
     tree.props.onPointerMove(pointer({ clientX: 500, clientY: 140 }))
-    tree.props.onPointerUp(pointer({ type: 'pointerup' }))
+    tree.props.onPointerUp(pointer({ type: 'pointerup', clientX: 500, clientY: 140 }))
   }
   invite('writer')
   let modal = app.modal()
@@ -551,7 +603,7 @@ test('dragging an avatar moves all selected windows and never opens a conversati
   avatar.props.onPointerDown(pointer())
   tree.props.onPointerMove(pointer({ clientX: 105, clientY: 100 }))
   data.state.windows.forEach((value, index) => {
-    assert.equal(value.x, before[index].x + 5)
+    assert.equal(value.x, before[index].x, 'drag motion does not commit shared layout')
     assert.equal(value.y, before[index].y)
   })
   tree.props.onPointerMove(pointer())
@@ -627,7 +679,7 @@ test('grouping and moving compact cards keeps every conversation unmounted', () 
   const group = data.group(tree)
   button(group, 'Window group').props.onPointerDown(pointer())
   tree.props.onPointerMove(pointer({ clientX: 140, clientY: 120 }))
-  tree.props.onPointerUp(pointer())
+  tree.props.onPointerUp(pointer({ clientX: 140, clientY: 120 }))
   data.state.windows.forEach((value, index) => {
     assert.equal(value.x, before[index].x + 40)
     assert.equal(value.y, before[index].y + 20)

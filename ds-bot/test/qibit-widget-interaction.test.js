@@ -18,15 +18,15 @@ const byClass = (tree, name) => find(tree, node => String(node.props.className ?
 const character = tree => find(tree, node => node.type?.name === 'AgentAvatarPreview')
 const anchor = tree => ({ x: tree.props.style.left + tree.props.style.width / 2, y: tree.props.style.top + (tree.props['data-folded'] ? 212 : 284) })
 
-function fixture(initial = { x: 700, y: 400, folded: false }) {
-  const slots = [], frames = new Map(), writes = [], calls = []
+function fixture(initial = { x: 700, y: 400, folded: false, placement: { width: 1200, height: 800 } }) {
+  const slots = [], frames = new Map(), writes = [], calls = [], layouts = []
   const saved = new Map([['ds-bot:spatial-widgets', JSON.stringify({ 'qibit-command': initial })]])
   const storage = {
     getItem: key => saved.get(key) ?? null,
     setItem: (key, value) => { writes.push({ key, value }); saved.set(key, value) },
   }
   let cursor = 0, serial = 0, updates = 0, renders = 0
-  const root = { style: {}, dataset: {} }
+  const root = { style: {}, dataset: {}, closest: () => null }
   const captured = new Set()
   const grip = {
     setPointerCapture: id => captured.add(id),
@@ -42,7 +42,7 @@ function fixture(initial = { x: 700, y: 400, folded: false }) {
       return [slot.value, next => { slot.value = typeof next === 'function' ? next(slot.value) : next; updates++ }]
     },
     useRef(initialValue) { return slots[cursor++] ??= { current: initialValue } },
-    useEffect() { cursor++ }, useLayoutEffect() { cursor++ },
+    useEffect() { cursor++ }, useLayoutEffect(run) { cursor++; layouts.push(run) },
   }
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
@@ -59,6 +59,7 @@ function fixture(initial = { x: 700, y: 400, folded: false }) {
     tree.props.ref.current = root
     Object.assign(root.style, tree.props.style)
     root.dataset.folded = String(tree.props['data-folded'])
+    layouts.splice(0).forEach(run => run())
     return tree
   }
   const pointer = (type, x, y, extra = {}) => ({
@@ -66,7 +67,7 @@ function fixture(initial = { x: 700, y: 400, folded: false }) {
     currentTarget: grip, preventDefault() {}, stopPropagation() {}, ...extra,
   })
   return {
-    draw, root, writes, calls, frames, captured, pointer,
+    draw, root, writes, calls, frames, captured, pointer, props,
     saved: () => JSON.parse(saved.get('ds-bot:spatial-widgets'))['qibit-command'],
     get updates() { return updates }, get renders() { return renders },
     flushFrames() { const pending = [...frames.values()]; frames.clear(); pending.forEach(run => run()) },
@@ -94,7 +95,8 @@ test('drag motion batches its own DOM update and saves the final character ancho
   app.flushFrames()
   assert.equal(app.root.style.transform, 'translate3d(60px,40px,0)')
   drag.props.onPointerUp(app.pointer('pointerup', 160, 140))
-  assert.deepEqual(app.saved(), { x: 760, y: 440, folded: false })
+  drag.props.onClick()
+  assert.deepEqual(app.saved(), { x: 760, y: 440, folded: false, placement: { width: 1200, height: 800 } })
   assert.equal(app.writes.length, 1)
   assert.equal(app.root.style.transform, 'none')
   assert.equal(app.root.dataset.dragging, undefined)
@@ -104,6 +106,33 @@ test('drag motion batches its own DOM update and saves the final character ancho
   assert.deepEqual(anchor(tree), { x: 760, y: 440 })
   assert.equal(character(tree).props.triggerKey, replay)
   assert.deepEqual(app.calls, [])
+})
+
+test('legacy absolute widget coordinates migrate to automatic placement', () => {
+  const app = fixture({ x: 2000, y: 1100, folded: false })
+  assert.deepEqual(anchor(app.draw()), { x: 663.75, y: 446.35 })
+})
+
+test('arrangement reset clears manual placement and returns the default obstacle immediately', () => {
+  const app = fixture()
+  app.draw()
+  const rect = app.props.actions.resetQiBitPlacement()
+  assert.deepEqual(app.saved(), { x: null, y: null, folded: false })
+  assert.equal(rect.x + rect.width / 2, 663.75)
+  assert.equal(app.root.style.left, `${rect.x}px`)
+  assert.deepEqual(anchor(app.draw()), { x: 663.75, y: 446.35 })
+})
+
+test('a selected overview does not overwrite or prepend instructions to the user request', async () => {
+  const app = fixture()
+  app.props.roster.bots = [{ id: 'chief', generalAssistant: true }]
+  app.props.actions.send = async (...args) => app.calls.push(['send', ...args])
+  let tree = app.draw()
+  byClass(tree, 'bt-qibit-functions').children[0].props.onClick()
+  find(tree, node => node.type === 'input').props.onChange({ target: { value: '帮我写一份产品报告' } })
+  tree = app.draw()
+  await find(tree, node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  assert.deepEqual(app.calls, [['send', 'chief', '帮我写一份产品报告'], ['entity', 'chief']])
 })
 
 test('pointer cancellation rolls back its temporary transform and never saves a new position', () => {
@@ -123,36 +152,36 @@ test('pointer cancellation rolls back its temporary transform and never saves a 
   assert.equal(app.captured.size, 0)
   assert.equal(app.writes.length, 0)
   assert.deepEqual(anchor(app.draw()), original)
-  assert.deepEqual(app.saved(), { x: 700, y: 400, folded: false })
+  assert.deepEqual(app.saved(), { x: 700, y: 400, folded: false, placement: { width: 1200, height: 800 } })
   assert.deepEqual(app.calls, [])
 })
 
 test('folding hides the command body while preserving the query, selected function and character timeline', () => {
   const app = fixture()
   let tree = app.draw()
-  find(tree, node => node.type === 'input' && node.props.type === 'search').props.onChange({ target: { value: 'Quarterly work plan' } })
+  find(tree, node => node.type === 'input' && ['search', 'text'].includes(node.props.type)).props.onChange({ target: { value: 'Quarterly work plan' } })
   byClass(tree, 'bt-qibit-functions').children[0].props.onClick()
   tree = app.draw()
   const original = anchor(tree), replay = character(tree).props.triggerKey
   assert.equal(replay, 1)
   assert.ok(find(tree, node => node.type?.name === 'FeatureCards'))
-  byClass(tree, 'bt-qibit-fold').props.onClick()
+  byClass(tree, 'bt-qibit-drag').props.onClick()
   tree = app.draw()
   assert.equal(tree.props['data-folded'], true)
   assert.equal(find(tree, node => node.props.id === 'bt-qibit-command-body').props.hidden, true)
-  assert.equal(byClass(tree, 'bt-qibit-fold').props['aria-expanded'], false)
+  assert.equal(byClass(tree, 'bt-qibit-drag').props['aria-expanded'], false)
   assert.equal(find(tree, node => node.type?.name === 'FeatureCards'), undefined)
-  assert.equal(find(tree, node => node.type === 'input' && node.props.type === 'search').props.value, 'Quarterly work plan')
+  assert.equal(find(tree, node => node.type === 'input' && ['search', 'text'].includes(node.props.type)).props.value, 'Quarterly work plan')
   assert.equal(byClass(tree, 'bt-qibit-functions').children[0].props['aria-pressed'], true)
   assert.deepEqual(anchor(tree), original)
   assert.equal(character(tree).props.triggerKey, replay)
-  byClass(tree, 'bt-qibit-fold').props.onClick()
+  byClass(tree, 'bt-qibit-drag').props.onClick()
   tree = app.draw()
   assert.equal(tree.props['data-folded'], false)
   assert.equal(find(tree, node => node.props.id === 'bt-qibit-command-body').props.hidden, false)
-  assert.equal(byClass(tree, 'bt-qibit-fold').props['aria-expanded'], true)
+  assert.equal(byClass(tree, 'bt-qibit-drag').props['aria-expanded'], true)
   assert.ok(find(tree, node => node.type?.name === 'FeatureCards'))
-  assert.equal(find(tree, node => node.type === 'input' && node.props.type === 'search').props.value, 'Quarterly work plan')
+  assert.equal(find(tree, node => node.type === 'input' && ['search', 'text'].includes(node.props.type)).props.value, 'Quarterly work plan')
   assert.deepEqual(anchor(tree), original)
   assert.equal(character(tree).props.triggerKey, replay)
   assert.deepEqual(app.calls, [])
@@ -178,7 +207,7 @@ test('keyboard movement uses eight pixel steps, Shift uses twenty four, and Home
   assert.deepEqual(anchor(tree), { x: 684, y: 416 })
   tree = press('Home')
   assert.deepEqual(app.saved(), { x: null, y: null, folded: false })
-  assert.deepEqual(anchor(tree), { x: 700, y: 308 })
+  assert.deepEqual(anchor(tree), { x: 663.75, y: 446.35 })
   assert.equal(character(tree).props.triggerKey, 0)
   assert.deepEqual(app.calls, [])
 })
@@ -194,15 +223,64 @@ test('hovering over the character when folded triggers animation', () => {
   assert.equal(character(tree).props.triggerKey, initialReplay + 1)
 })
 
-test('clicking the search bar retracts the surrounding feature cards', () => {
+test('clicking the active function retracts the surrounding feature cards', () => {
   const app = fixture({ x: 700, y: 400, folded: false })
   let tree = app.draw()
   byClass(tree, 'bt-qibit-functions').children[0].props.onClick()
   tree = app.draw()
   assert.ok(find(tree, node => node.type?.name === 'FeatureCards'))
   assert.equal(byClass(tree, 'bt-qibit-functions').children[0].props['aria-pressed'], true)
-  byClass(tree, 'bt-qibit-search').props.onClickCapture()
+  byClass(tree, 'bt-qibit-functions').children[0].props.onClick()
   tree = app.draw()
   assert.equal(find(tree, node => node.type?.name === 'FeatureCards'), undefined)
   assert.equal(byClass(tree, 'bt-qibit-functions').children[0].props['aria-pressed'], false)
+})
+
+test('the default home input sends once to Chief and search stays separate', async () => {
+  const app = fixture()
+  app.props.roster.bots = [{ id: 'chief', generalAssistant: true }]
+  let finish
+  app.props.actions.send = (id, text) => { app.calls.push(['send', id, text]); return new Promise(resolve => { finish = resolve }) }
+  let tree = app.draw()
+  find(tree, node => node.type === 'input').props.onChange({ target: { value: 'Make a quarterly report' } })
+  tree = app.draw()
+  const submit = find(tree, node => node.type === 'form').props.onSubmit
+  const first = submit({ preventDefault() {} })
+  await submit({ preventDefault() {} })
+  assert.deepEqual(app.calls, [['send', 'chief', 'Make a quarterly report']])
+  finish(); await first
+  tree = app.draw()
+  assert.equal(find(tree, node => node.type === 'input').props.value, '')
+  assert.deepEqual(app.calls[1], ['entity', 'chief'])
+  byClass(tree, 'bt-qibit-search-entry').props.onClick()
+  assert.deepEqual(app.calls[2], ['search', ''])
+})
+
+test('failed home submission preserves the request for retry', async () => {
+  const app = fixture()
+  app.props.roster.bots = [{ id: 'chief', generalAssistant: true }]
+  app.props.actions.send = async () => { throw new Error('offline') }
+  let tree = app.draw()
+  find(tree, node => node.type === 'input').props.onChange({ target: { value: 'Weather today' } })
+  tree = app.draw()
+  await find(tree, node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  tree = app.draw()
+  assert.equal(find(tree, node => node.type === 'input').props.value, 'Weather today')
+  assert.equal(byClass(tree, 'bt-qibit-send-error').children[0], 'offline')
+  assert.deepEqual(app.calls, [])
+})
+
+test('clicking a character without moving never freezes automatic centering', () => {
+  const app = fixture({ x: null, y: null, folded: false })
+  let tree = app.draw()
+  const grip = byClass(tree, 'bt-qibit-drag')
+  grip.props.onPointerDown(app.pointer('pointerdown', 100, 100))
+  grip.props.onPointerUp(app.pointer('pointerup', 100, 100))
+  grip.props.onClick()
+  assert.deepEqual(app.saved(), { x: null, y: null, folded: true })
+  tree = app.draw()
+  byClass(tree, 'bt-qibit-drag').props.onClick()
+  assert.deepEqual(app.saved(), { x: null, y: null, folded: false })
+  assert.equal(byClass(tree, 'bt-qibit-fold'), undefined)
+  assert.equal(byClass(tree, 'bt-qibit-foot'), undefined)
 })
