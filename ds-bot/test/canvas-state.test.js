@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import {
   CANVAS_LIMITS, CANVAS_STORAGE_KEY, DEFAULT_CANVAS, collapseWindow, compactConversations, createCanvasState,
   fitViewport, groupWindows, moveWindow, normalizeCanvas, openWindow, readCanvas,
-  reconcileCanvas, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact,
+  reconcileCanvas, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact, setRoomExpanded,
   ungroupWindows, windowBounds, windowHeight, windowWidth, writeCanvas, arrangeCards, createEmptyGroup, addDraftMembers, moveDraftGroup,
 } from '../src/client/canvas-state.js'
 
@@ -206,17 +206,17 @@ test('compact toggles preserve a window identity and its expanded dimensions', (
   assert.deepEqual(setWindowCompact(compact, 'chief', false), state)
 })
 
-test('compact rooms retain their summary size while employee entries use avatar bounds', () => {
+test('compact rooms and employee entries use their own avatar bounds', () => {
   let state = openWindow(createCanvasState(), employee('chief'), { x: 20, y: 30, width: 620, height: 700 })
   state = openWindow(state, room('planning'), { x: 172, y: 30, width: 540, height: 640 })
-  assert.deepEqual(state.windows.map(window => [windowWidth(window), windowHeight(window)]), [[120, 112], [320, 200]])
-  assert.deepEqual(windowBounds(state), { x: 20, y: 30, width: 472, height: 200, right: 492, bottom: 230 })
+  assert.deepEqual(state.windows.map(window => [windowWidth(window), windowHeight(window)]), [[120, 112], [120, 132]])
+  assert.deepEqual(windowBounds(state), { x: 20, y: 30, width: 272, height: 132, right: 292, bottom: 162 })
   const expanded = setWindowCompact(setWindowCompact(state, 'chief', false), 'planning', false)
   assert.deepEqual(expanded.windows.map(window => [windowWidth(window), windowHeight(window)]), [[620, 700], [540, 640]])
   const fitted = fitViewport(state, { width: 500, height: 300 }, 30)
-  assert.equal(fitted.viewport.zoom, 440 / 472)
-  assert.equal(fitted.viewport.x + 20 * fitted.viewport.zoom, 30)
-  assert.equal(fitted.viewport.x + 492 * fitted.viewport.zoom, 470)
+  assert.equal(fitted.viewport.zoom, 1)
+  assert.equal(fitted.viewport.x + 20 * fitted.viewport.zoom, 114)
+  assert.equal(fitted.viewport.x + 292 * fitted.viewport.zoom, 386)
 })
 
 test('new entries use actual visible bounds to avoid existing avatars, rooms and expanded windows', () => {
@@ -367,12 +367,132 @@ test('arranging mixed groups packs each row by actual widths and advances by its
   state = setWindowCompact(state, 'chief', false)
   const arranged = arrangeCards(state)
   assert.deepEqual(arranged.windows.map(({ x, y }) => ({ x, y })), [
-    { x: 42, y: 115 }, { x: 194, y: 115 }, { x: 546, y: 115 },
-    { x: 42, y: 347 }, { x: 42, y: 539 },
+    { x: 42, y: 115 }, { x: 194, y: 115 }, { x: 346, y: 115 },
+    { x: 42, y: 279 }, { x: 42, y: 471 },
   ])
   assert.deepEqual(arranged.groups, state.groups)
   assert.deepEqual(arranged.windows.map(({ id, entityId, width, height }) => ({ id, entityId, width, height })), state.windows.map(({ id, entityId, width, height }) => ({ id, entityId, width, height })))
-  assert.equal(windowBounds(arranged, arranged.groups[0].members).width, 624)
-  assert.equal(windowBounds(arranged, arranged.groups[0].members).height, 344)
+  assert.equal(windowBounds(arranged, arranged.groups[0].members).width, 424)
+  assert.equal(windowBounds(arranged, arranged.groups[0].members).height, 276)
   assert.deepEqual(arrangeCards(arranged), arranged)
+})
+
+
+test('legacy room flags do not change compact avatar or saved chat geometry', () => {
+  let state = openWindow(createCanvasState(), room('planning'), { x: -80, y: 40, width: 560, height: 650 })
+  const original = state.windows[0]
+  const stage = value => {
+    const window = value.windows[0]
+    return [window.compact, window.roomExpanded, windowWidth(window), windowHeight(window)]
+  }
+  assert.deepEqual(stage(state), [true, false, 120, 132])
+  state = setRoomExpanded(state, original.id, true)
+  assert.deepEqual(stage(state), [true, true, 120, 132])
+  assert.deepEqual(windowBounds(state), { x: -80, y: 40, width: 120, height: 132, right: 40, bottom: 172 })
+  state = setWindowCompact(state, 'planning', false)
+  assert.deepEqual(stage(state), [false, true, 560, 650])
+  assert.deepEqual(setRoomExpanded(state, 'planning', true), state)
+  state = setWindowCompact(state, original.id, true)
+  assert.deepEqual(stage(state), [true, true, 120, 132])
+  state = setWindowCompact(state, 'planning', false)
+  state = setRoomExpanded(state, original.id, false)
+  assert.deepEqual(stage(state), [true, false, 120, 132])
+  assert.deepEqual(state.windows[0], { ...original, roomExpanded: false })
+  assert.deepEqual(stage(setWindowCompact(state, 'planning', false)), [false, true, 560, 650])
+  assert.equal(original.roomExpanded, false)
+  assert.equal(original.compact, true)
+})
+
+test('room reopens preserve the legacy flag while compact geometry stays an avatar', () => {
+  let state = openWindow(createCanvasState(), room('planning'), { width: 550, height: 660 })
+  const original = state.windows[0]
+  state = setRoomExpanded(state, 'planning', true)
+  let reopened = openWindow(collapseWindow(state, 'planning'), room('planning'), { width: 999, height: 999 })
+  assert.equal(reopened.windows.length, 1)
+  assert.equal(reopened.windows[0].id, original.id)
+  assert.equal(reopened.windows[0].roomExpanded, true)
+  assert.equal(reopened.windows[0].compact, true)
+  assert.deepEqual([reopened.windows[0].width, reopened.windows[0].height], [550, 660])
+  state = setRoomExpanded(reopened, 'planning', false)
+  reopened = openWindow(collapseWindow(state, 'planning'), room('planning'))
+  assert.equal(reopened.windows[0].roomExpanded, false)
+  assert.equal(reopened.windows[0].compact, true)
+  const opened = openWindow(reopened, room('planning'), { compact: false })
+  assert.equal(opened.windows[0].roomExpanded, true)
+  assert.equal(opened.windows[0].compact, false)
+  const closed = openWindow(opened, room('planning'))
+  assert.equal(closed.windows[0].roomExpanded, true)
+  assert.equal(closed.windows[0].compact, true)
+  const created = openWindow(createCanvasState(), room('new-chat'), { compact: false })
+  assert.equal(created.windows[0].roomExpanded, true)
+  assert.equal(created.windows[0].compact, false)
+})
+
+test('legacy room flag persistence stores no room business data', () => {
+  const storage = memoryStorage()
+  const actualRoom = { id: 'planning', kind: 'room', name: 'Delivery', members: ['chief', 'writer'], admin: 'chief', messages: ['private'], permissions: ['all'] }
+  const originalRoom = structuredClone(actualRoom)
+  const state = setRoomExpanded(openWindow(createCanvasState(), actualRoom), 'planning', true)
+  const dirty = { ...state, windows: [{ ...state.windows[0], members: actualRoom.members, admin: actualRoom.admin, messages: actualRoom.messages, name: actualRoom.name, permissions: actualRoom.permissions }] }
+  assert.equal(writeCanvas(storage, dirty), true)
+  const raw = JSON.parse(storage.getItem(CANVAS_STORAGE_KEY))
+  assert.deepEqual(Object.keys(raw.windows[0]).sort(), ['compact', 'entityId', 'height', 'id', 'kind', 'open', 'roomExpanded', 'width', 'x', 'y', 'z'])
+  assert.equal(raw.windows[0].roomExpanded, true)
+  assert.deepEqual(readCanvas(storage), state)
+  assert.deepEqual(actualRoom, originalRoom)
+  const withoutFlag = { ...state.windows[0] }
+  delete withoutFlag.roomExpanded
+  assert.equal(normalizeCanvas({ version: 1, windows: [withoutFlag] }).windows[0].roomExpanded, false)
+  assert.equal(normalizeCanvas({ version: 1, windows: [{ ...withoutFlag, roomExpanded: 'true' }] }).windows[0].roomExpanded, false)
+})
+
+test('normalization, layout changes and conversation restoration preserve legacy room flags', () => {
+  const storage = memoryStorage()
+  let state = openWindow(withEmployees(), room('preview'))
+  state = setRoomExpanded(state, 'preview', true)
+  state = openWindow(state, room('avatar'))
+  const id = state.windows.find(window => window.entityId === 'preview').id
+  const stages = value => value.windows.filter(window => window.kind === 'room').map(window => [window.entityId, window.roomExpanded])
+  const expected = [['preview', true], ['avatar', false]]
+  const active = setWindowCompact(state, 'preview', false)
+  assert.equal(writeCanvas(storage, active), true)
+  const restored = readCanvas(storage)
+  assert.ok(restored.windows.every(window => window.compact))
+  const layouts = [normalizeCanvas(state), moveWindow(state, id, 80, -40), resizeWindow(state, id, 40, 20),
+    setCanvasSelection(state, [id], id), setCanvasViewport(state, { x: 20, zoom: .75 }),
+    groupWindows(state, state.windows.slice(0, 2).map(window => window.id)), compactConversations(active), restored,
+    reconcileCanvas(state, roster(['chief', 'coder', 'writer'], ['preview', 'avatar']))]
+  for (const layout of layouts) assert.deepEqual(stages(layout), expected)
+  assert.deepEqual(state.windows.filter(window => window.kind === 'bot'), active.windows.filter(window => window.kind === 'bot'))
+})
+
+test('legacy room flag updates leave employee windows unchanged and ignore unknown room ids', () => {
+  const state = openWindow(createCanvasState(), employee('chief'), { compact: false })
+  assert.deepEqual(setRoomExpanded(state, 'chief', true), state)
+  assert.deepEqual(setRoomExpanded(state, 'missing', false), state)
+  const dirty = { ...state, windows: [{ ...state.windows[0], roomExpanded: true }] }
+  assert.equal('roomExpanded' in normalizeCanvas(dirty).windows[0], false)
+  assert.deepEqual([windowWidth(state.windows[0]), windowHeight(state.windows[0])], [420, 540])
+  const compact = setWindowCompact(state, 'chief', true)
+  assert.deepEqual([windowWidth(compact.windows[0]), windowHeight(compact.windows[0])], [120, 112])
+})
+
+
+test('legacy roomExpanded true survives storage without enlarging the compact room hit box', () => {
+  const storage = memoryStorage()
+  const state = normalizeCanvas({ version: 1, windows: [{
+    id: 'legacy-room', kind: 'room', entityId: 'planning', x: 210, y: 90,
+    width: 620, height: 720, open: true, compact: true, roomExpanded: true,
+  }] })
+  const dimensions = value => [windowWidth(value.windows[0]), windowHeight(value.windows[0])]
+  assert.equal(state.windows[0].roomExpanded, true)
+  assert.deepEqual(dimensions(state), [120, 132])
+  assert.equal(writeCanvas(storage, state), true)
+  assert.equal(JSON.parse(storage.getItem(CANVAS_STORAGE_KEY)).windows[0].roomExpanded, true)
+  const restored = readCanvas(storage)
+  assert.equal(restored.windows[0].roomExpanded, true)
+  assert.equal(restored.windows[0].compact, true)
+  assert.deepEqual(dimensions(restored), [120, 132])
+  assert.deepEqual(windowBounds(restored), { x: 210, y: 90, width: 120, height: 132, right: 330, bottom: 222 })
+  assert.deepEqual([restored.windows[0].width, restored.windows[0].height], [620, 720])
 })

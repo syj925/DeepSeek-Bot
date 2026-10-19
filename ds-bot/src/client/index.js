@@ -42,6 +42,7 @@ import { createTaskNotices } from './task-notice-state.js'
 import { TaskNotifications, TASK_NOTICE_CSS } from './task-notices.js'
 import { completionSound, openTaskFile } from './task-notice-navigation.js'
 import { fixedDesktop, arrangeDesktop } from './canvas-desktop.js'
+import { placeNewRoom, roomPlacementLayout } from './canvas-room-placement.js'
 import { readCanvas, writeCanvas, reconcileCanvas, openWindow, setCanvasSelection, setWindowCompact, compactConversations, arrangeCards } from './canvas-state.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
@@ -604,7 +605,14 @@ export function apply(ctx) {
     updateTeam: (id, patch) => after(call('update-team', { id, ...patch })),
     setTeam: (id, teamId) => after(call('set-team', { id, teamId })),
     deleteTeam: id => after(call('delete-team', { id })),
-    createRoom: (members, options = {}) => after(call('create-room', { members, ...options })),
+    createRoom: async (members, options = {}) => {
+      const room = await after(call('create-room', { members, ...options }))
+      if (room?.id && canvasPreferred && canvasVisible()) {
+        const layout = roomPlacementLayout(document, canvasSize)
+        if (layout) updateCanvas(state => placeNewRoom(state, room.id, layout))
+      }
+      return room
+    },
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     refreshModels: () => after(call('models')).catch(() => {}),
     efforts: ref => call('efforts', { ref }),

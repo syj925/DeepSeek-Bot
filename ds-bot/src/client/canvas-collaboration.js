@@ -20,19 +20,24 @@ export function overlapMain(state, roster, sourceId, excluded = []) {
     .filter(entry => entry.distance < 58).sort((a, b) => a.distance - b.distance || b.window.z - a.window.z)[0]?.window
 }
 
+export function canvasPoint(state, box, clientX, clientY) {
+  return { x: (clientX - box.left - state.viewport.x) / state.viewport.zoom, y: (clientY - box.top - state.viewport.y) / state.viewport.zoom }
+}
+
 export function canvasDropPoint(state, box, clientX, clientY) {
-  return { x: (clientX - box.left - state.viewport.x) / state.viewport.zoom - 60, y: (clientY - box.top - state.viewport.y) / state.viewport.zoom - 40 }
+  const point = canvasPoint(state, box, clientX, clientY)
+  return { x: point.x - 60, y: point.y - 40 }
 }
 
 export function selectedMains(state, roster, ids, includeClosed = false) {
   return [...new Set(state.windows.filter(window => (window.open || includeClosed) && window.kind === 'bot' && ids.includes(window.id) && roster.byId[window.entityId]).map(window => window.entityId))]
 }
 
-export function groupDropTarget(state, roster, ids, point) {
+export function groupDropTarget(state, roster, ids, point, boundsOf) {
   if (!ids.length || selectedMains(state, roster, ids).length !== ids.length) return null
   const inside = box => point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height
   const room = state.windows.filter(window => window.open && window.kind === 'room' && !ids.includes(window.id))
-    .sort((a, b) => b.z - a.z).find(window => roster.roomsById[window.entityId] && inside({ ...window, width: windowWidth(window), height: windowHeight(window) }))
+    .sort((a, b) => b.z - a.z).find(window => roster.roomsById[window.entityId] && inside(boundsOf?.(window) ?? { ...window, width: windowWidth(window), height: windowHeight(window) }))
   if (room) return { kind: 'room', id: room.entityId, windowId: room.id }
   const draft = [...state.groups].reverse().find(group => group.draft && inside({ ...group, width: 280, height: 180 }))
   return draft ? { kind: 'draft', id: draft.id } : null

@@ -1,8 +1,10 @@
+import { QiBitCommandCenter } from './qibit-command-center.js'
 import { RESTORED_CHAT_CSS } from './restored-chat-styles.js'
-import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { BotAvatar, RoomAvatar } from './mark.js'
+import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { BotAvatar, RoomAvatar, lookOf } from './mark.js'
 import { previewOf } from './text.js'
-import { PlusIcon, PeopleIcon, ChatsIcon, GearIcon, CloseIcon, FolderIcon, DotsIcon, PencilIcon, CalendarIcon, SearchIcon } from './icons.js'
+import { PlusIcon, PeopleIcon, ChatsIcon, GearIcon, CloseIcon, FolderIcon, DotsIcon, PencilIcon, CalendarIcon, SearchIcon, ArrowRightIcon } from './icons.js'
 import { isMainOf } from './sources.js'
 import { ROOM_MODES, shownMode } from './group-settings.js'
 import { memberWork, busyMembers, summaryText } from './member-status.js'
@@ -12,8 +14,8 @@ import { CanvasWallpaper } from './canvas-wallpaper.js'
 import { CANVAS_LIMITS, collapseWindow, groupWindows, moveWindow, openWindow, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact, ungroupWindows, windowHeight, windowWidth } from './canvas-state.js'
 import { t } from './i18n.js'
 import { departmentFor, managerFor, reportsFor } from './designer-data.js'
-import { Dock, DockIcon, DockItem, DockLabel } from './dock.js'
-import { overlapMain, groupDropTarget, selectedMains, canvasDropPoint, mergeHintPosition } from './canvas-collaboration.js'
+import { Dock, DockIcon, DockItem } from './dock.js'
+import { overlapMain, groupDropTarget, selectedMains, canvasPoint, canvasDropPoint, mergeHintPosition } from './canvas-collaboration.js'
 import { addDraftMembers, createEmptyGroup } from './canvas-state.js'
 import { fitChat, resizeChat } from './chat-geometry.js'
 import { MAIN_AGENT_POINTER } from './main-agent-drag.js'
@@ -39,14 +41,17 @@ function MergeHint({ pair, viewport, canvasRef }) {
     `${t('Release to create group chat')} · ${pair.sourceName} ＋ ${pair.targetName}`)
 }
 
-function gooeyBridge(p1, p2, r1 = 36, r2 = 36) {
+export const MERGE_DISTANCE_THRESHOLD = 120
+
+function gooeyBridge(p1, p2, r1 = 28, r2 = 28, maxDist = MERGE_DISTANCE_THRESHOLD) {
   const dx = p2.x - p1.x
   const dy = p2.y - p1.y
   const d = Math.hypot(dx, dy)
-  if (d === 0 || d > 240) return ''
+  if (d === 0 || d > maxDist) return ''
   const angle = Math.atan2(dy, dx)
   const angle90 = angle + Math.PI / 2
-  const pinch = Math.max(4, 18 * (1 - d / 240))
+  const ratio = Math.max(0, Math.min(1, d / maxDist))
+  const pinch = Math.max(4, 20 * (1 - ratio))
 
   const x1a = p1.x + r1 * Math.cos(angle90)
   const y1a = p1.y + r1 * Math.sin(angle90)
@@ -69,7 +74,31 @@ function gooeyBridge(p1, p2, r1 = 36, r2 = 36) {
   return `M ${x1a} ${y1a} Q ${cx1} ${cy1} ${x2a} ${y2a} L ${x2b} ${y2b} Q ${cx2} ${cy2} ${x1b} ${y1b} Z`
 }
 
-function CanvasGlobalSearch({ actions }) {
+const ROLE_TINT_COLORS = {
+  qibit: '#E2EBF2',
+  '总助': '#E2EBF2',
+  '综合': '#E2EBF2',
+  '技术': '#DFECED',
+  '研发': '#DFECED',
+  '工程': '#DFECED',
+  '设计': '#ECE8F0',
+  '行政': '#EFE9E1',
+  '运营': '#E4ECE4',
+  '财务': '#E0EBF0',
+  '销售': '#F3E7E3',
+}
+
+function getRoleTintColor(bot) {
+  if (!bot) return '#E2EBF2'
+  if (bot.generalAssistant) return '#E2EBF2'
+  const name = String(bot.name || '').toLowerCase()
+  for (const [k, c] of Object.entries(ROLE_TINT_COLORS)) {
+    if (name.includes(k)) return c
+  }
+  return '#E2EBF2'
+}
+
+function CanvasGlobalSearch({ actions, roster }) {
   useEffect(() => {
     const onKey = event => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -81,28 +110,19 @@ function CanvasGlobalSearch({ actions }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [actions])
 
-  return h('div', { className: 'bt-canvas-global-search' },
-    h('button', {
-      type: 'button',
-      className: 'bt-canvas-search-pill glass-button',
-      'aria-label': t('Search Bots, chats and messages'),
-      onClick: () => actions.openPalette(),
-    },
-      h('span', { className: 'bt-canvas-search-icon', 'aria-hidden': true }, h(SearchIcon)),
-      h('span', { className: 'bt-canvas-search-label' }, t('Search Bots, chats and messages')),
-      h('kbd', { className: 'bt-canvas-search-kbd' }, '⌘K')))
+  return h(QiBitCommandCenter, { actions, roster, searchIcon: SearchIcon })
 }
 
 const button = (label, onClick, icon, extra = {}) => h('button', { type: 'button', className: `bt-canvas-button glass-button${extra.className ? ` ${extra.className}` : ''}`, onClick, ...extra }, icon ? h(icon) : null, label)
 const entityOf = (window, roster) => window.kind === 'room' ? roster.roomsById[window.entityId] : roster.byId[window.entityId]
 const employeesOf = (windows, ids, roster) => [...new Set(windows.filter(window => window.open && window.kind === 'bot' && ids.includes(window.id) && roster.byId[window.entityId]).map(window => window.entityId))]
 
-function RoomSummary({ room, roster, work, actions }) {
+export function RoomSummary({ room, roster, work, actions }) {
   const admin = roster.byId[room.admin]
   const mode = t(ROOM_MODES.find(([id]) => id === shownMode(room, roster))?.[1] ?? 'Everyone')
   const members = memberWork(room, work).filter(entry => roster.byId[entry.id])
   return h('div', { className: 'bt-canvas-room-summary' },
-    h('button', { type: 'button', className: 'bt-canvas-room-mode', onClick: () => actions.openSettings('groups', room.id), title: t('Group settings') },
+    h('button', { type: 'button', className: 'bt-canvas-room-mode', onClick: () => actions.openSettings('groups', room.id), title: t('Group settings'), 'aria-label': t('Group settings') },
       mode, ' · ', admin ? t('Admin {name}', { name: admin.name }) : t('No admin')),
     h('div', { className: 'bt-canvas-members', 'aria-label': t('Members · {count}', { count: members.length }) },
       members.slice(0, 3).map(entry => {
@@ -133,11 +153,120 @@ function GroupTitle({ group, start, actions }) {
     button(null, edit, PencilIcon, { 'aria-label': t('Rename window group'), title: t('Rename window group') }))
 }
 
-function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, isMergeTarget = false, dropTarget = false }) {
+function useRoomPreview(window, canvasRoot, drag, conversationOpen, viewport) {
+  const [preview, setPreview] = useState(null)
+  const anchor = useRef(null), popup = useRef(null), entry = useRef(null)
+  const openTimer = useRef(null), closeTimer = useRef(null), focusEntry = useRef(false), outsideGesture = useRef(null)
+  const cancel = () => {
+    safeClearTimeout(openTimer.current); openTimer.current = null
+    safeClearTimeout(closeTimer.current); closeTimer.current = null
+  }
+  const hide = (restoreFocus = false) => {
+    cancel()
+    focusEntry.current = false
+    setPreview(null)
+    if (restoreFocus) anchor.current?.querySelector('.bt-canvas-room-avatar-open')?.focus({ preventScroll: true })
+  }
+  const show = (focus = false) => {
+    cancel()
+    if (window.kind !== 'room' || conversationOpen || drag?.current || !anchor.current || !canvasRoot?.current) return
+    const box = canvasRoot.current.getBoundingClientRect(), rect = anchor.current.getBoundingClientRect()
+    const width = Math.min(320, Math.max(0, box.width - 24)), height = Math.min(300, Math.max(0, box.height - 24))
+    const right = rect.right - box.left + 12, left = rect.left - box.left - width - 12
+    let x, y = rect.top - box.top, side
+    if (right + width <= box.width - 12) { x = right; side = 'right' }
+    else if (left >= 12) { x = left; side = 'left' }
+    else {
+      x = Math.max(12, Math.min(box.width - width - 12, rect.left - box.left + rect.width / 2 - width / 2))
+      const below = rect.bottom - box.top + 12
+      side = below + height <= box.height - 12 ? 'below' : 'above'
+      y = side === 'below' ? below : rect.top - box.top - height - 12
+    }
+    focusEntry.current = focus
+    setPreview({ left: x, top: Math.max(12, Math.min(box.height - height - 12, y)), width, height, side })
+  }
+  const contains = target => {
+    if (!target) return false
+    const Node = anchor.current?.ownerDocument?.defaultView?.Node
+    if (Node && !(target instanceof Node)) return false
+    return Boolean(anchor.current?.contains(target) || popup.current?.contains(target))
+  }
+  const keep = () => cancel()
+  const enter = event => {
+    if (event.pointerType === 'touch' || event.buttons > 0 || drag?.current) return
+    cancel()
+    if (!preview && !conversationOpen) openTimer.current = safeSetTimeout(() => { openTimer.current = null; show() }, 120)
+  }
+  const leave = event => {
+    if (contains(event?.relatedTarget)) { cancel(); return }
+    safeClearTimeout(openTimer.current); openTimer.current = null
+    safeClearTimeout(closeTimer.current)
+    closeTimer.current = safeSetTimeout(() => {
+      closeTimer.current = null
+      if (!drag?.current && !outsideGesture.current?.moved && !contains(anchor.current?.ownerDocument?.activeElement)) hide()
+    }, 240)
+  }
+  const key = event => {
+    if (event.key === 'Escape' && !event.isComposing && !event.nativeEvent?.isComposing) {
+      event.preventDefault(); event.stopPropagation()
+      hide(Boolean(popup.current?.contains(anchor.current?.ownerDocument?.activeElement)))
+    }
+  }
+  useEffect(() => cancel, [])
+  useEffect(() => { hide() }, [window.x, window.y, conversationOpen, viewport?.x, viewport?.y, viewport?.zoom])
+  useEffect(() => {
+    if (!preview) return undefined
+    if (focusEntry.current) { entry.current?.focus({ preventScroll: true }); focusEntry.current = false }
+    const doc = anchor.current?.ownerDocument, view = doc?.defaultView
+    const outside = target => target && !contains(target) && !target.closest?.('.bt-menu,[role=dialog],.bt-overlay,.bt-drawer')
+    const down = event => {
+      outsideGesture.current = event.button === 0 && outside(event.target) ? { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false } : null
+      if (outsideGesture.current) { safeClearTimeout(closeTimer.current); closeTimer.current = null }
+    }
+    const move = event => {
+      const gesture = outsideGesture.current
+      if (gesture?.id === event.pointerId && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) >= 6) gesture.moved = true
+    }
+    const up = event => {
+      const gesture = outsideGesture.current
+      if (gesture?.id !== event.pointerId) return
+      outsideGesture.current = null
+      const target = doc.elementFromPoint?.(event.clientX, event.clientY) ?? event.target
+      if (outside(target)) {
+        if (!gesture.moved && event.type !== 'pointercancel') hide()
+        else leave({ relatedTarget: target })
+      }
+    }
+    const escape = event => { if (!event.defaultPrevented && event.key === 'Escape' && !event.isComposing) key(event) }
+    const resize = () => hide()
+    const scroll = event => { if (!popup.current?.contains(event.target)) hide() }
+    doc?.addEventListener?.('pointerdown', down, true)
+    doc?.addEventListener?.('pointermove', move, { capture: true, passive: true })
+    doc?.addEventListener?.('pointerup', up)
+    doc?.addEventListener?.('pointercancel', up)
+    doc?.addEventListener?.('keydown', escape)
+    view?.addEventListener?.('resize', resize)
+    view?.addEventListener?.('scroll', scroll, true)
+    return () => {
+      outsideGesture.current = null
+      doc?.removeEventListener?.('pointerdown', down, true)
+      doc?.removeEventListener?.('pointermove', move, true)
+      doc?.removeEventListener?.('pointerup', up)
+      doc?.removeEventListener?.('pointercancel', up)
+      doc?.removeEventListener?.('keydown', escape)
+      view?.removeEventListener?.('resize', resize)
+      view?.removeEventListener?.('scroll', scroll, true)
+    }
+  }, [preview])
+  return { preview, anchor, popup, entry, show, hide, enter, leave, keep, key }
+}
+
+function WindowCard({ window, roster, selected, active, actions, useSessions, useWork, SessionProvider, renderSlot, start, canvasRoot, drag, conversationOpen = false, viewport, isMergeTarget = false, dropTarget = false }) {
   const entity = entityOf(window, roster)
   const sessionId = canvasSessionId(window, roster)
   const preview = useSessions(list => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId]))
   const work = useWork(value => value)
+  const roomPreview = useRoomPreview(window, canvasRoot, drag, conversationOpen, viewport)
   if (!entity || !sessionId) return null
   const room = window.kind === 'room' ? entity : null
   const activity = room ? busyMembers(room, work, roster) : []
@@ -169,22 +298,107 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
     const step = event.shiftKey ? 24 : 8
     actions.updateCanvas(state => (resizing ? resizeWindow : moveWindow)(state, window.id, delta[0] * step, delta[1] * step))
   }
+  const isCompactBot = window.compact && !room
+  const isRoomAvatar = window.compact && room
+  const isCompactAvatar = isCompactBot || isRoomAvatar
   const shell = {
-    className: `bt-canvas-window agent-window${isMergeTarget ? ' bt-canvas-merge-target' : ''}`, 'data-window-id': window.id, 'data-entity-id': entity.id,
-    'data-kind': window.kind,
+    className: `bt-canvas-window${isCompactAvatar ? ' bt-canvas-avatar-window' : ' agent-window'}${room ? ' bt-canvas-group-card' : ''}${isRoomAvatar ? ' bt-canvas-room-avatar-window' : ''}${isMergeTarget ? ' bt-canvas-merge-target' : ''}`, 'data-window-id': window.id, 'data-entity-id': entity.id,
+    'data-kind': window.kind, 'data-room-drop-id': room?.id,
     'data-drop-target': dropTarget || isMergeTarget || undefined,
-    'data-mode': window.compact ? 'card' : 'conversation',
+    'data-mode': isRoomAvatar ? 'avatar' : window.compact ? 'card' : 'conversation',
+    'data-room-stage': room ? isRoomAvatar ? 'avatar' : 'preview' : undefined,
     'data-active': active && selected || undefined, 'data-selected': selected || undefined, 'aria-label': entity.name,
-    style: { left: window.x, top: window.y, width: windowWidth(window), height: windowHeight(window), zIndex: window.z + 2 },
+    style: {
+      left: window.x,
+      top: window.y,
+      width: windowWidth(window),
+      height: windowHeight(window),
+      zIndex: window.z + 2,
+      ...(isCompactAvatar ? {
+        border: 'none',
+        background: 'transparent',
+        boxShadow: 'none',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+        borderRadius: 0,
+        outline: 'none',
+      } : {}),
+    },
     onPointerDownCapture: select, onFocusCapture: select, onContextMenu: event => { if (!event.target.closest('.bt-canvas-content')) openMenu(event) },
   }
-  if (window.compact && !room) return h('section', shell,
-    h('div', { className: 'bt-canvas-avatar-node' },
-      h('button', { type: 'button', className: 'bt-canvas-avatar-open', 'aria-label': t('Open conversation'), title: t('Click to open · Drag to move'), onPointerDown: event => start(event, 'avatar', window.id), onClick: event => { if (event.detail === 0) actions.openCanvasConversation(window.id) }, onKeyDown: keyboard },
+  if (isCompactBot) return h('section', shell,
+    h('div', { className: 'bt-canvas-avatar-node', style: { border: 'none', background: 'transparent', boxShadow: 'none' } },
+      h('button', {
+        type: 'button',
+        className: 'bt-canvas-avatar-open',
+        style: { width: 56, height: 56, padding: 0, border: 'none', background: 'transparent', boxShadow: 'none', outline: 'none', borderRadius: '50%' },
+        'aria-label': t('Open conversation'),
+        title: t('Click to open · Drag to move'),
+        onPointerDown: event => start(event, 'avatar', window.id),
+        onClick: event => { if (event.detail === 0) actions.openCanvasConversation(window.id) },
+        onKeyDown: keyboard,
+      },
         h(BotAvatar, { bot: entity, size: 56, main: isMainOf(roster, entity.id) })),
       h('button', { type: 'button', className: 'bt-canvas-window-title', onPointerDown: event => start(event, 'window', window.id), onKeyDown: keyboard, 'aria-label': t('Move {name}', { name: entity.name }) },
         h('strong', null, entity.name), h('span', { className: 'bt-canvas-window-meta text-secondary' }, entity.generalAssistant ? t('General Assistant') : isMainOf(roster, entity.id) ? t('Main Bot') : entity.role || t('Employee'))),
       h('span', { className: 'bt-canvas-avatar-status', 'data-state': statusKind, title: status, role: 'status', 'aria-label': status })))
+  if (isRoomAvatar) {
+    const begin = event => {
+      roomPreview.keep()
+      const touch = event.pointerType === 'touch'
+      start(event, 'avatar', window.id,
+        () => touch ? roomPreview.show(true) : roomPreview.enter({ pointerType: 'mouse', buttons: 0 }),
+        () => roomPreview.hide())
+    }
+    const popupId = `bt-room-preview-${window.id}`
+    return h('section', { ...shell, ref: roomPreview.anchor, onPointerLeave: roomPreview.leave, onBlurCapture: roomPreview.leave },
+      h('div', { className: 'bt-canvas-avatar-node bt-canvas-room-avatar-node' },
+        h('button', {
+          type: 'button', className: 'bt-canvas-avatar-open bt-canvas-room-avatar-open',
+          'aria-label': t('Expand group card'), 'aria-expanded': Boolean(roomPreview.preview), 'aria-haspopup': 'dialog',
+          'aria-controls': roomPreview.preview ? popupId : undefined,
+          title: t('Hover to preview · Drag to move'),
+          onPointerEnter: roomPreview.enter,
+          onPointerDown: begin,
+          onClick: event => { if (event.detail === 0) roomPreview.show(true) },
+          onKeyDown: event => { if (event.key === 'Escape') roomPreview.key(event); else keyboard(event) },
+        }, h(RoomAvatar, { room, roster, size: 72 })),
+        h('button', { type: 'button', className: 'bt-canvas-window-title',
+          onPointerDown: event => { roomPreview.hide(); start(event, 'window', window.id) }, onKeyDown: keyboard,
+          'aria-label': t('Move {name}', { name: entity.name }) },
+          h('strong', null, entity.name), h('span', null, t('{count} members', { count: room.members.length }))),
+        h('span', { className: 'bt-canvas-avatar-status', 'data-state': statusKind, title: status, role: 'status', 'aria-label': status }),
+        button(null, () => roomPreview.show(true), DotsIcon,
+          { className: 'bt-canvas-room-preview-toggle', 'aria-label': t('Group card details'), title: t('Group card details') })),
+      roomPreview.preview && canvasRoot?.current ? createPortal(h('section', {
+        ref: roomPreview.popup, id: popupId, role: 'dialog', 'aria-label': `${entity.name} · ${t('Group card details')}`,
+        className: 'bt-canvas-window bt-canvas-group-card bt-canvas-room-hover-preview agent-window',
+        'data-mode': 'card', 'data-kind': 'room', 'data-room-stage': 'preview', 'data-side': roomPreview.preview.side,
+        'data-window-id': window.id, 'data-entity-id': entity.id, 'data-room-drop-id': room.id,
+        'data-drop-target': dropTarget || undefined,
+        style: { left: roomPreview.preview.left, top: roomPreview.preview.top,
+          '--bt-room-preview-width': `${roomPreview.preview.width}px`, '--bt-room-preview-height': `${roomPreview.preview.height}px` },
+        onPointerEnter: roomPreview.keep, onPointerLeave: roomPreview.leave, onBlurCapture: roomPreview.leave,
+        onKeyDown: roomPreview.key, onContextMenu: openMenu,
+      }, h('div', { className: 'bt-group-card-body' },
+        h('header', { className: 'bt-group-card-header' },
+          h('input', { type: 'checkbox', checked: selected, 'aria-label': t('Select {name}', { name: entity.name }),
+            onChange: event => actions.selectCanvasWindow(window.id, event.target.checked, true), onPointerDown: event => event.stopPropagation() }),
+          h(RoomAvatar, { room, roster, size: 40 }),
+          h('div', { className: 'bt-group-card-heading' },
+            h('strong', { className: 'bt-group-card-title' }, entity.name),
+            h('span', { className: 'bt-group-card-count text-secondary' }, t('{count} members', { count: entity.members.length }))),
+          button(null, openMenu, DotsIcon, { 'aria-label': t('{name} actions', { name: entity.name }), title: t('More'), 'aria-haspopup': 'menu' }),
+          button(null, () => roomPreview.hide(true), CloseIcon, { 'aria-label': t('Collapse group card'), title: t('Collapse group card') })),
+        h('button', { type: 'button', className: 'bt-canvas-card-state', 'data-state': statusKind,
+          onClick: () => actions.showDetails(sessionId), title: statusText }, h('span', { 'aria-hidden': true }), statusText),
+        h(RoomSummary, { room, roster, work, actions }),
+        h('p', { className: 'bt-group-card-preview text-secondary', title: summary }, summary),
+        h('button', { ref: roomPreview.entry, type: 'button', className: 'bt-group-card-enter',
+          onClick: () => { roomPreview.hide(); actions.openCanvasConversation(window.id) }, 'aria-label': t('Open conversation') },
+          t('Open conversation'), h(ArrowRightIcon, { size: 18 })))), canvasRoot.current) : null)
+  }
+
   return h('section', shell,
   h('div', { className: 'bt-canvas-window-header agent-window__header' },
     h('input', { type: 'checkbox', checked: selected, 'aria-label': t('Select {name}', { name: entity.name }), onChange: event => actions.selectCanvasWindow(window.id, event.target.checked, true), onPointerDown: event => event.stopPropagation() }),
@@ -217,289 +431,123 @@ export function getDepartmentForEntity(entity, roster) {
   return departmentFor(entity, roster)
 }
 
+export function getCollaboratorBots(department, roster, customTempBots = []) {
+  const available = new Map((roster.bots ?? []).filter(bot => !bot.hidden).map(bot => [bot.id, bot]))
+  const agents = [...new Map([...(department?.agents ?? []), ...customTempBots]
+    .filter(agent => available.has(agent.id)).map(agent => [agent.id, { ...agent, ...available.get(agent.id) }])).values()]
+  const regular = agents.filter(agent => agent.employment !== 'temporary')
+  const temporary = agents.filter(agent => agent.employment === 'temporary')
+  return [...regular, ...temporary]
+}
+
 export function groupDockEntities(entities, roster) {
-  const seenDepts = new Set()
-  const groups = []
-
+  const seen = new Set(), groups = []
+  const available = new Set((roster.bots ?? []).map(bot => bot.id))
   for (const entity of entities) {
-    const isRoom = Boolean(roster?.roomsById?.[entity.id])
-    if (isRoom) {
-      groups.push({
-        leadEntity: entity,
-        dept: null,
-        deptBadge: null,
-        deptTitle: entity.name,
-      })
-      continue
-    }
-
-    const dept = getDepartmentForEntity(entity, roster)
-    if (dept) {
-      if (!seenDepts.has(dept.key)) {
-        seenDepts.add(dept.key)
-        groups.push({
-          leadEntity: roster.byId[dept.agents.find(agent => agent.isLead)?.id] ?? entity,
-          dept,
-          deptBadge: dept.name,
-          deptTitle: dept.title,
-        })
-      }
-    } else {
-      groups.push({
-        leadEntity: entity,
-        dept: null,
-        deptBadge: entity.role || t('Employee'),
-        deptTitle: entity.name,
-      })
-    }
+    const isRoom = Boolean(roster.roomsById?.[entity.id])
+    if (!isRoom && !available.has(entity.id)) continue
+    const dept = isRoom ? null : getDepartmentForEntity(entity, roster)
+    const key = dept?.key ?? `${isRoom ? 'room' : 'bot'}:${entity.id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const leadEntity = dept ? roster.byId[dept.agents.find(agent => agent.isLead)?.id] ?? entity : entity
+    groups.push({ key, leadEntity, dept, deptBadge: dept?.name ?? null,
+      deptTitle: dept?.title ?? entity.name, name: dept?.name ?? entity.name })
   }
   return groups
 }
 
-export function DockCollaborationPopover({ entity, department: initialDept, pos, roster, work, useSessions, actions, size, onMouseEnter, onMouseLeave, onClose }) {
+export function DockCollaborationPopover({ entity, department: initialDept, pos, roster, work = { bots: {}, rooms: {} }, useSessions, actions, size, onMouseEnter, onMouseLeave, onClose }) {
   if (!entity || !pos) return null
   const department = initialDept || getDepartmentForEntity(entity, roster)
-  const isRoom = Boolean(roster?.roomsById?.[entity.id])
+  const isRoom = Boolean(roster.roomsById?.[entity.id])
   const isMain = !isRoom && isMainOf(roster, entity.id)
   const sessionId = isRoom ? entity.id : (entity.sessionId ?? entity.id)
-  const preview = useSessions ? useSessions(list => previewOf(list, sessionId, roster?.exchangeTurns?.[sessionId])) : ''
-  const mainBot = managerFor(entity, roster)
-
-  // Status calculation
-  const botWork = !isRoom ? work?.bots?.[entity.id] : null
+  const preview = useSessions ? useSessions(list => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId])) : ''
+  const manager = !isRoom ? managerFor(entity, roster) : null
+  const reports = !isRoom ? reportsFor(entity, roster) : []
   const roomActivity = isRoom ? busyMembers(entity, work, roster) : []
-  const isApproving = isRoom
-    ? ((work?.approvals ?? []).some(entry => entry.roomId === entity.id) || roomActivity.some(entry => entry.state === 'ask'))
-    : (work?.approvals ?? []).some(entry => entry.botId === entity.id)
-  const isQuestion = !isRoom && roster?.questions?.[sessionId] !== undefined
-  const isBusy = isRoom
-    ? (work?.rooms?.[entity.id]?.length ?? 0) > 0
-    : Boolean(botWork) || Object.values(work?.rooms ?? {}).some(entries => entries.some(entry => entry.botId === entity.id))
-
-  const statusLabel = isApproving
-    ? t('Waiting for approval')
-    : isQuestion
-      ? t('Waiting for response')
-      : isBusy
-        ? t('In Execution')
-        : department
-          ? t('All agents ready')
-          : t('Ready to collaborate')
-
-  const statusKind = isApproving || isQuestion ? 'waiting' : isBusy ? 'working' : 'available'
-
-  // Sub-agents when entity is Main Agent
-  const subBots = reportsFor(entity, roster)
-  const anySubBusy = subBots.some(sub => Boolean(work?.bots?.[sub.id]))
-
-  // Handlers
-  const handleOpenChat = () => {
-    onClose?.()
-    actions.openCanvasEntity?.(entity.id, size)
-  }
-  const handlePlaceCanvas = () => {
+  const waiting = (work.approvals ?? []).some(entry => isRoom ? entry.roomId === entity.id : entry.botId === entity.id) || roomActivity.some(entry => entry.state === 'ask')
+  const question = roster.questions?.[sessionId] !== undefined
+  const busy = isRoom ? (work.rooms?.[entity.id]?.length ?? 0) > 0
+    : Boolean(work.bots?.[entity.id]) || Object.values(work.rooms ?? {}).some(entries => entries.some(entry => entry.botId === entity.id))
+  const statusKind = waiting || question ? 'waiting' : busy ? 'working' : 'available'
+  const statusLabel = waiting ? t('Waiting for approval') : question ? t('Waiting for response') : busy ? t('In Execution') : t('Ready to collaborate')
+  const actualMembers = isRoom ? entity.members.map(id => roster.byId[id]).filter(Boolean) : reports
+  const collaborators = department ? getCollaboratorBots(department, roster)
+    : getCollaboratorBots({ agents: actualMembers }, roster)
+  const role = entity.generalAssistant ? t('General Assistant') : entity.role || (isRoom ? t('Group collaboration') : t('Employee'))
+  const openChat = target => { onClose?.(); actions.openCanvasEntity?.(target.id, size) }
+  const place = target => {
     onClose?.()
     actions.updateCanvas?.(current => {
-      const existing = current.windows.find(w => w.entityId === entity.id)
-      if (existing) {
-        return { ...current, windows: current.windows.map(window => window.id === existing.id ? { ...window, open: true, compact: true } : window), active: existing.id, selected: [existing.id] }
-      }
-      return openWindow(current, { id: entity.id, kind: isRoom ? 'room' : 'bot' })
+      const existing = current.windows.find(window => window.entityId === target.id)
+      if (existing) return { ...current, windows: current.windows.map(window => window.id === existing.id ? { ...window, open: true, compact: true } : window), active: existing.id, selected: [existing.id] }
+      return openWindow(current, { id: target.id, kind: roster.roomsById[target.id] ? 'room' : 'bot' })
     })
     actions.saveCanvas?.()
   }
-
-  const handlePlaceAgent = (targetAgent) => {
-    onClose?.()
-    actions.updateCanvas?.(current => {
-      const existing = current.windows.find(w => w.entityId === targetAgent.id)
-      if (existing) {
-        return { ...current, windows: current.windows.map(window => window.id === existing.id ? { ...window, open: true, compact: true } : window), active: existing.id, selected: [existing.id] }
-      }
-      return openWindow(current, { id: targetAgent.id, kind: 'bot' })
-    })
-    actions.saveCanvas?.()
-  }
-
-  const handlePlaceDepartment = () => {
+  const placeDepartment = () => {
     onClose?.()
     actions.updateCanvas?.(current => {
       let next = current
-      const list = department?.agents || [entity]
-      list.forEach(ag => {
-        const existing = next.windows.find(w => w.entityId === ag.id)
-        next = existing ? { ...next, windows: next.windows.map(window => window.id === existing.id ? { ...window, open: true, compact: true } : window) } : openWindow(next, { id: ag.id, kind: 'bot' })
-      })
+      for (const agent of department?.agents ?? []) {
+        const existing = next.windows.find(window => window.kind === 'bot' && window.entityId === agent.id)
+        next = existing ? { ...next, windows: next.windows.map(window => window.id === existing.id ? { ...window, open: true, compact: true } : window) }
+          : openWindow(next, { id: agent.id, kind: 'bot' })
+      }
       return next
     })
     actions.saveCanvas?.()
   }
 
-  const popoverStyle = {
-    left: `${pos.x}px`,
-    bottom: `${pos.bottom}px`,
-  }
-
-  const arrowStyle = {
-    left: `calc(50% + ${Math.round(pos.arrowOffset || 0)}px)`,
-  }
-
   return h('div', {
-    className: 'bt-dock-popover glass-card',
-    style: popoverStyle,
-    onMouseEnter,
-    onMouseLeave,
-    role: 'dialog',
-    'aria-label': `${entity.name} · ${t('Collaboration Progress')}`,
+    className: 'bt-dock-popover glass-card', style: { left: `${pos.x}px`, bottom: `${pos.bottom}px` },
+    onMouseEnter, onMouseLeave, role: 'dialog', 'aria-label': `${entity.name} · ${t('Collaboration Progress')}`,
+    'data-room-drop-id': isRoom ? entity.id : undefined,
   },
-    // Header
     h('div', { className: 'bt-dock-popover-header' },
-      isRoom
-        ? h(RoomAvatar, { room: entity, roster, size: 40 })
-        : h(BotAvatar, { bot: entity, size: 40, main: isMain }),
-      h('div', { className: 'bt-dock-popover-meta' },
-        h('div', { className: 'bt-dock-popover-title-row' },
-          h('span', { className: 'bt-dock-popover-name' },
-            department ? `${department.icon} ${entity.name}` : entity.name),
-          department ? h('span', { className: 'bt-dock-dept-title-tag' }, department.title) : null,
-          h('span', { className: `bt-dock-status-pill bt-dock-status-${statusKind}` },
-            h('span', { className: `bt-pulse-dot bt-pulse-${statusKind}` }),
-            statusLabel)),
-        h('div', { className: 'bt-dock-role-badge' },
-          entity.generalAssistant ? t('General Assistant') : isMain
-            ? t('Main Agent · Supervision & Orchestration Hub')
-            : isRoom
-              ? t('Collaboration Group · Multi-Agent')
-              : t('Sub-Agent · Specialized Collaboration')),
-        department?.desc ? h('div', { className: 'bt-dock-dept-desc' }, department.desc) : null)),
-
-    // Supervision Linkage / Topology
-    isMain ? h('div', { className: 'bt-dock-supervision-section' },
-      h('div', { className: 'bt-dock-section-title' },
-        h('span', null, t('Supervision & Sub-Agent Network'))),
-      subBots.length > 0
-        ? h('div', { className: 'bt-dock-subagents-grid' },
-          subBots.slice(0, 4).map(sub => {
-            const subDoing = work?.bots?.[sub.id]
-            const subTool = subDoing?.tool
-            const subState = subDoing ? 'working' : 'available'
-            return h('div', { key: sub.id, className: `bt-dock-subagent-card bt-subagent-${subState}` },
-              h(BotAvatar, { bot: sub, size: 22 }),
-              h('div', { className: 'bt-dock-subagent-info' },
-                h('span', { className: 'bt-dock-subagent-name' }, sub.name),
-                h('span', { className: 'bt-dock-subagent-state' },
-                  subTool ? `🛠️ ${subTool}` : (subDoing ? t('Working') : t('Available')))))
-          }),
-          subBots.length > 4 ? h('div', { className: 'bt-dock-subagent-card bt-subagent-more' }, `+${subBots.length - 4}`) : null)
-        : h('div', { className: 'bt-dock-subagents-empty' }, t('No sub-agents in team yet'))
-    ) : (!isRoom && mainBot ? h('div', { className: 'bt-dock-supervision-chain' },
-      h('div', { className: 'bt-dock-chain-node' },
-        h(BotAvatar, { bot: mainBot, size: 24, main: true }),
-        h('span', { className: 'bt-dock-chain-label' }, `👑 ${mainBot.name}`)),
-      h('div', { className: 'bt-dock-chain-arrow' },
-        h('span', { className: 'bt-dock-chain-arrow-text' }, t('Supervised by {name}', { name: mainBot.name })),
-        h('span', { className: 'bt-dock-chain-arrow-icon' }, '➔')),
-      h('div', { className: 'bt-dock-chain-node bt-node-active' },
-        h(BotAvatar, { bot: entity, size: 24 }),
-        h('span', { className: 'bt-dock-chain-label' }, `🤖 ${entity.name}`)))
-    : (isRoom ? h('div', { className: 'bt-dock-room-chain' },
-      h('span', { className: 'bt-dock-room-admin-tag' },
-        entity.admin && roster?.byId?.[entity.admin] ? `👑 ${t('Admin: {name}', { name: roster.byId[entity.admin].name })}` : t('Group collaboration')),
-      h('span', { className: 'bt-dock-room-mode-tag' }, entity.mode === 'admin' ? t('Admin reply only') : t('All members collaborative'))) : null)),
-
-    // Department Agents Showcase (部门全部 Agent 成员展示矩阵)
-    department && department.agents && department.agents.length > 0 ? h('div', { className: 'bt-dock-dept-section' },
-      h('div', { className: 'bt-dock-section-title' },
-        h('span', null, `🏢 ${department.title} · ${t('Department Members')} (${department.agents.length})`)),
-      h('div', { className: 'bt-dock-dept-agents-grid' },
-        department.agents.map(ag => {
-          const isAgLead = ag.isLead || ag.id === entity.id
-          return h('div', {
-            key: ag.id,
-            className: 'bt-dock-agent-card',
-            draggable: true,
-            title: `${ag.name} · ${t('Click to open · Drag to place on canvas')}`,
-            onDragStart: event => {
-              try {
-                event.dataTransfer.setData('application/x-ds-bot', JSON.stringify({ id: ag.id, kind: 'bot' }))
-                event.dataTransfer.effectAllowed = 'copyMove'
-              } catch { /* ignored */ }
-            },
-          },
-            h('div', { className: 'bt-dock-agent-card-top' },
-              h(BotAvatar, { bot: ag, size: 28, main: ag.isMain, admin: isAgLead }),
-              h('div', { className: 'bt-dock-agent-card-meta' },
-                h('div', { className: 'bt-dock-agent-card-name-row' },
-                  h('span', { className: 'bt-dock-agent-card-name' }, ag.name),
-                  ag.badge ? h('span', { className: `bt-dock-agent-badge ${isAgLead ? 'bt-badge-lead' : ''}` }, ag.badge) : null),
-                h('div', { className: 'bt-dock-agent-card-role' }, ag.role))),
-            h('div', { className: 'bt-dock-agent-card-actions' },
-              h('button', {
-                type: 'button',
-                className: 'bt-dock-agent-mini-btn',
-                onClick: (e) => {
-                  e?.stopPropagation?.()
-                  onClose?.()
-                  actions.openCanvasEntity?.(ag.id, size)
-                },
-                title: t('Open chat'),
-              }, h(ChatsIcon), t('Chat')),
-              h('button', {
-                type: 'button',
-                className: 'bt-dock-agent-mini-btn',
-                onClick: (e) => {
-                  e?.stopPropagation?.()
-                  handlePlaceAgent(ag)
-                },
-                title: t('Place on canvas'),
-              }, h(PlusIcon), '+')))
-      }))) : null,
-
-    // Collaboration Progress Stepper
-    h('div', { className: 'bt-dock-pipeline' },
-      h('div', { className: 'bt-dock-step bt-step-ready' },
-        h('span', { className: 'bt-step-icon' }, '○'),
-        h('span', { className: 'bt-step-label' }, t('Task Breakdown'))),
-      h('div', { className: 'bt-step-connector bt-conn-active' }),
-      h('div', { className: `bt-dock-step ${isBusy || anySubBusy ? 'bt-step-active' : 'bt-step-ready'}` },
-        h('span', { className: 'bt-step-icon' }, isBusy || anySubBusy ? '⚡' : '○'),
-        h('span', { className: 'bt-step-label' }, t('In Execution'))),
-      h('div', { className: 'bt-step-connector' }),
-      h('div', { className: 'bt-dock-step bt-step-pending' },
-        h('span', { className: 'bt-step-icon' }, '○'),
-        h('span', { className: 'bt-step-label' }, t('Result Audit')))),
-
-    // Current Task Context / Progress
-    h('div', { className: 'bt-dock-task-preview' },
-      botWork?.tool
-        ? h('span', { className: 'bt-dock-task-highlight' }, `🛠️ ${t('Working on: {tool}', { tool: botWork.tool })}`)
-        : preview
-          ? h('span', null, `💬 "${preview.slice(0, 90)}${preview.length > 90 ? '…' : ''}"`)
-          : (isMain
-            ? h('span', null, t('Main Agent oversees collaboration targets and supervises sub-agent deliverables.'))
-            : (isRoom
-              ? h('span', null, t('Collaborative group workspace for multi-agent synthesis and discussions.'))
-              : h('span', null, entity.role ? `${t('Role')}: ${entity.role}` : t('Specialized collaboration ready, listening for commands.'))))),
-
-    // Action buttons
+      h('div', { className: 'bt-dock-popover-header-left' },
+        isRoom ? h(RoomAvatar, { room: entity, roster, size: 40 }) : h(BotAvatar, { bot: entity, size: 40, main: isMain }),
+        h('div', { className: 'bt-dock-popover-meta' },
+          h('div', { className: 'bt-dock-popover-title-row' },
+            h('span', { className: 'bt-dock-popover-name' }, entity.name),
+            department ? h('span', { className: 'bt-dock-dept-badge' }, department.name) : null,
+            h('span', { className: `bt-dock-status-pill bt-dock-status-${statusKind}` }, statusLabel)),
+          h('div', { className: 'bt-dock-popover-role-desc' }, role))),
+      department?.agents.length > 1 ? h('button', { type: 'button', className: 'bt-dock-popover-close',
+        onClick: event => { event.stopPropagation(); placeDepartment() }, title: t('Place department on canvas'), 'aria-label': t('Place department on canvas') }, h(FolderIcon)) : null,
+      h('button', { type: 'button', className: 'bt-dock-popover-close',
+        onClick: event => { event?.stopPropagation?.(); onClose?.() }, title: t('Close'), 'aria-label': t('Close') }, h(CloseIcon))),
+    !isRoom && manager && manager.id !== entity.id ? h('div', { className: 'bt-dock-supervision-chain' },
+      h('span', null, t('Supervised by {name}', { name: manager.name }))) : null,
+    isRoom ? h('div', { className: 'bt-dock-room-chain' },
+      h('span', { className: 'bt-dock-room-admin-tag' }, roster.byId[entity.admin] ? t('Admin: {name}', { name: roster.byId[entity.admin].name }) : t('No admin')),
+      h('span', { className: 'bt-dock-room-mode-tag' }, t(ROOM_MODES.find(([id]) => id === shownMode(entity, roster))?.[1] ?? 'Everyone'))) : null,
+    h('div', { className: 'bt-dock-collab-section' },
+      h('div', { className: 'bt-dock-section-title' }, h('span', null, department ? t('Department Members') : isRoom ? t('Members · {count}', { count: entity.members.length }) : t('Supervision & Sub-Agent Network'))),
+      collaborators.length ? h('div', { className: 'bt-dock-collab-grid', style: { maxHeight: 'min(280px, 40vh)', overflowY: 'auto' } }, collaborators.map(agent => {
+        const temporary = agent.employment === 'temporary'
+        const badge = isRoom && entity.admin === agent.id ? t('Admin') : agent.isLead ? t('Team leader') : temporary ? t('Temporary employee') : t('Employee')
+        return h('div', { key: agent.id, className: `bt-collab-card${temporary ? ' bt-collab-card--temp' : ''}`, title: `${agent.name} · ${agent.role || ''}`, draggable: true,
+          onDragStart: event => {
+            try { event.dataTransfer.setData('application/x-ds-bot', JSON.stringify({ id: agent.id, kind: 'bot' })); event.dataTransfer.effectAllowed = 'copyMove' } catch { /* dataTransfer */ }
+          } },
+          h('div', { className: 'bt-collab-card-top' },
+            h(BotAvatar, { bot: agent, size: 28, main: isMainOf(roster, agent.id) }),
+            h('div', { className: 'bt-collab-card-meta' },
+              h('div', { className: 'bt-collab-card-name-row' }, h('span', { className: 'bt-collab-card-name' }, agent.name), h('span', { className: `bt-collab-badge${temporary ? ' bt-badge-temp' : ''}` }, badge)),
+              h('div', { className: 'bt-collab-card-role' }, agent.role || t('Employee')))),
+          h('div', { className: 'bt-collab-card-actions' },
+            h('button', { type: 'button', className: 'bt-collab-mini-btn bt-collab-chat-btn', onClick: event => { event.stopPropagation(); openChat(agent) }, title: t('Open chat') }, h(ChatsIcon), t('Chat')),
+            h('button', { type: 'button', className: 'bt-collab-mini-btn bt-collab-more-btn', onClick: event => { event.stopPropagation(); place(agent) }, title: t('Place on canvas') }, '…')))
+      })) : h('div', { className: 'bt-dock-subagents-empty' }, t('No sub-agents in team yet'))),
+    h('div', { className: 'bt-dock-task-preview' }, work.bots?.[entity.id]?.tool
+      ? t('Working on: {tool}', { tool: work.bots[entity.id].tool })
+      : preview ? preview.slice(0, 90) : department?.desc || ''),
     h('div', { className: 'bt-dock-popover-actions' },
-      h('button', {
-        type: 'button',
-        className: 'bt-canvas-button glass-button bt-dock-action-btn',
-        onClick: handleOpenChat,
-      }, h(ChatsIcon), t('Open chat')),
-      h('button', {
-        type: 'button',
-        className: 'bt-canvas-button glass-button bt-dock-action-btn bt-dock-action-primary',
-        onClick: handlePlaceCanvas,
-      }, h(PlusIcon), t('Place on canvas')),
-      department && department.agents && department.agents.length > 1 ? h('button', {
-        type: 'button',
-        className: 'bt-canvas-button glass-button bt-dock-action-btn',
-        onClick: handlePlaceDepartment,
-      }, h(FolderIcon), t('Place department on canvas')) : null),
-
-    h('div', { className: 'bt-dock-popover-arrow', style: arrowStyle }))
+      h('button', { type: 'button', className: 'bt-dock-action-btn bt-dock-action-chat', onClick: () => openChat(entity) }, h(ChatsIcon), t('Open chat')),
+      h('button', { type: 'button', className: 'bt-dock-action-btn bt-dock-action-primary', onClick: () => place(entity) }, h(PlusIcon), t('Place on canvas'))))
 }
 
 const safeClearTimeout = timer => {
@@ -508,6 +556,181 @@ const safeClearTimeout = timer => {
 const safeSetTimeout = (fn, ms) => {
   if (typeof setTimeout !== 'undefined') return setTimeout(fn, ms)
   return null
+}
+
+export function CanvasDepartmentDock({ roster, work, useSessions, actions, size, canvasRoot, activeDeptKey, onStartDrag, drag }) {
+  const [dockHover, setDockHover] = useState(null)
+  const [previewReady, setPreviewReady] = useState(false)
+  const groups = useMemo(() => groupDockEntities([...roster.bots, ...roster.rooms].filter(entity => !entity.hidden), roster), [roster])
+  const [selectedDeptKey, setSelectedDeptKey] = useState(activeDeptKey ?? groups[0]?.key)
+  const hoverRegionRef = useRef(null)
+  const dockScrollRef = useRef(null)
+  const hoverRef = useRef(null)
+  const closeTimer = useRef(null)
+  const previewTimer = useRef(null)
+  const scrollFrame = useRef(null)
+  hoverRef.current = dockHover
+
+  const cancelClose = () => {
+    safeClearTimeout(closeTimer.current)
+    closeTimer.current = null
+  }
+  const cancelPreview = () => {
+    safeClearTimeout(previewTimer.current)
+    previewTimer.current = null
+  }
+  const closeHover = () => {
+    cancelClose()
+    cancelPreview()
+    hoverRef.current = null
+    setDockHover(null)
+    setPreviewReady(false)
+  }
+  const scheduleClose = () => {
+    cancelClose()
+    cancelPreview()
+    if (!hoverRef.current) return
+    closeTimer.current = safeSetTimeout(closeHover, 240)
+  }
+  const positionFor = tab => {
+    const wrap = dockScrollRef.current, root = canvasRoot.current
+    if (!tab || !wrap || !root) return null
+    const rect = tab.getBoundingClientRect()
+    const clip = wrap.getBoundingClientRect()
+    if (rect.right <= clip.left || rect.left >= clip.right || rect.bottom <= clip.top || rect.top >= clip.bottom) return null
+    const container = root.getBoundingClientRect()
+    const center = rect.left - container.left + rect.width / 2
+    const tabBottom = container.bottom - rect.top
+    const x = Math.max(240, Math.min(container.width - 240, center))
+    return { x, bottom: tabBottom + 64, arrowOffset: center - x, tabCenterX: center, avatarBottom: tabBottom - 18 }
+  }
+  const showGroup = (group, tab, immediate = false) => {
+    if (drag?.current) return
+    cancelClose()
+    cancelPreview()
+    const pos = positionFor(tab)
+    if (!pos) { closeHover(); return }
+    const sameGroup = hoverRef.current?.deptKey === group.key
+    const next = { entity: group.leadEntity, department: group.dept, deptKey: group.key, pos }
+    hoverRef.current = next
+    setDockHover(next)
+    if (immediate) { setPreviewReady(true); return }
+    if (sameGroup && previewReady) return
+    setPreviewReady(false)
+    previewTimer.current = safeSetTimeout(() => {
+      previewTimer.current = null
+      if (hoverRef.current?.deptKey === group.key && !drag?.current) setPreviewReady(true)
+    }, 120)
+  }
+  const startDrag = (event, entity) => {
+    closeHover()
+    onStartDrag(event, entity)
+  }
+  const onDockWheel = event => {
+    if (dockScrollRef.current && event.deltaY !== 0 && event.deltaX === 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      dockScrollRef.current.scrollLeft += event.deltaY
+    }
+  }
+  useEffect(() => {
+    if (activeDeptKey) setSelectedDeptKey(activeDeptKey)
+  }, [activeDeptKey])
+  useEffect(() => {
+    dockScrollRef.current?.querySelector(`[data-dept-key="${selectedDeptKey}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+  }, [selectedDeptKey])
+  useEffect(() => {
+    const wrap = dockScrollRef.current
+    if (!wrap) return () => { cancelClose(); cancelPreview() }
+    const alignHover = () => {
+      scrollFrame.current = null
+      const current = hoverRef.current
+      if (!current) return
+      if (drag?.current) { closeHover(); return }
+      const tab = wrap.querySelector(`[data-dept-key="${current.deptKey}"]`)
+      const pos = positionFor(tab)
+      if (!pos) { closeHover(); return }
+      if (Object.keys(pos).every(key => pos[key] === current.pos[key])) return
+      const next = { ...current, pos }
+      hoverRef.current = next
+      setDockHover(next)
+    }
+    const onScroll = () => {
+      if (!hoverRef.current || scrollFrame.current !== null) return
+      if (typeof requestAnimationFrame === 'undefined') { alignHover(); return }
+      scrollFrame.current = requestAnimationFrame(alignHover)
+    }
+    wrap.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      wrap.removeEventListener('scroll', onScroll)
+      if (scrollFrame.current !== null && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(scrollFrame.current)
+      scrollFrame.current = null
+      cancelClose()
+      cancelPreview()
+    }
+  }, [canvasRoot, drag])
+
+  return h('div', { ref: hoverRegionRef, className: 'bt-dock-hover-region', 'data-hover-open': Boolean(dockHover), style: { display: 'contents' }, onMouseEnter: cancelClose, onMouseLeave: scheduleClose },
+    h(Dock, {
+      role: 'toolbar',
+      className: 'bt-canvas-dock agent-dock',
+      'aria-label': t('Employees and group chats'),
+      hoverRegionRef,
+      hoverLift: 30,
+      focusedIconSize: 52,
+      hoverExitDelay: 240,
+    },
+      h('div', {
+        ref: dockScrollRef,
+        className: 'bt-dock-scroll-wrap',
+        onWheel: onDockWheel,
+      },
+        h('div', { className: 'bt-dock-scroll-row' }, groups.map((group, idx) => {
+          const entity = group.leadEntity
+          const isSelected = selectedDeptKey === group.key
+          const isHovered = dockHover?.deptKey === group.key
+          return h(DockItem, {
+            key: group.key || entity.id,
+            index: idx,
+            className: `bt-canvas-button bt-canvas-dock-item bt-dock-dept-tab${isSelected ? ' bt-dock-dept-tab--selected' : ''}${isHovered ? ' bt-dock-dept-tab--hovered' : ''}`,
+            'aria-label': group.name,
+            'data-dept-key': group.key,
+            'aria-pressed': isSelected,
+            onClick: event => {
+              if (event.detail !== 0 || drag?.current) return
+              setSelectedDeptKey(group.key)
+              const tab = dockScrollRef.current?.querySelector(`[data-dept-key="${group.key}"]`) || event.currentTarget
+              showGroup(group, tab, true)
+            },
+            onPointerDown: event => startDrag(event, entity),
+            onMouseEnter: event => showGroup(group, event.currentTarget),
+            onMouseLeave: scheduleClose,
+            draggable: true,
+            onDragStart: event => {
+              closeHover()
+              try {
+                event.dataTransfer.setData('application/x-ds-bot', JSON.stringify({ id: entity.id, kind: roster.roomsById[entity.id] ? 'room' : 'bot' }))
+                event.dataTransfer.effectAllowed = 'copyMove'
+              } catch { /* dataTransfer */ }
+            },
+          },
+            h(DockIcon, { className: 'bt-dock-icon-wrap' },
+              roster.roomsById[entity.id] ? h(RoomAvatar, { room: entity, roster, size: 36 }) : h(BotAvatar, { bot: entity, size: 36, main: isMainOf(roster, entity.id) })),
+            h('span', { className: 'bt-dock-dept-name' }, group.name))
+        })))),
+    dockHover && previewReady ? h(DockCollaborationPopover, {
+      entity: dockHover.entity,
+      department: dockHover.department,
+      pos: dockHover.pos,
+      roster,
+      work,
+      useSessions,
+      actions,
+      size,
+      onMouseEnter: cancelClose,
+      onMouseLeave: scheduleClose,
+      onClose: closeHover,
+    }) : null)
 }
 
 function CanvasChatWindow(props) {
@@ -607,8 +830,9 @@ function CanvasChatWindow(props) {
     onPointerCancel: () => { backdropPress.current = null },
     onContextMenu: event => { if (event.target === event.currentTarget) { event.preventDefault(); event.stopPropagation() } },
   },
-    h('div', { ref: node, className: 'bt-canvas-chat-float', role: 'dialog', tabIndex: -1, 'aria-label': entityOf(window, roster)?.name,
-      'data-entity-id': window.entityId, 'data-active': active || undefined,
+    h('div', { ref: node, className: 'bt-canvas-chat-float', role: 'dialog', tabIndex: -1, 'aria-label': entityOf(displayWindow, roster)?.name,
+      'data-entity-id': displayWindow.entityId, 'data-active': active || undefined,
+      'data-room-drop-id': displayWindow.kind === 'room' && !closing ? displayWindow.entityId : undefined,
       'data-closing': closing || undefined, 'data-sized': dimensions ? true : undefined,
       style: { translate: `${offset.x}px ${offset.y}px`, ...(dimensions ? { width: dimensions.width, height: dimensions.height } : {}) },
       onPointerDown: event => { event.stopPropagation(); if (!active) actions.updateCanvas(state => setCanvasSelection(state, [], window.id)) },
@@ -654,9 +878,6 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   const roster = useRoster(value => value)
   const state = useCanvas(value => value)
   const work = useWork ? useWork(value => value) : { bots: {}, rooms: {}, approvals: [] }
-  const [dockHover, setDockHover] = useState(null)
-  const dockHoverTimer = useRef(null)
-  useEffect(() => () => safeClearTimeout(dockHoverTimer.current), [])
   const latest = useRef(state)
   latest.current = state
   const root = useRef(null)
@@ -676,6 +897,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
   const quickBot = roster.byId[focused.current] ?? roster.byId[roster.mainBotId] ?? roster.bots[0]
   const selectedBots = employeesOf(visible, state.selected, roster)
   const update = actions.updateCanvas
+
   useEffect(() => {
     const clearSelection = event => {
       if (event.button !== 0 || !latest.current.selected.length) return
@@ -730,7 +952,29 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     for (const widget of widgets) { observer.observe(widget); position.observe(widget, { attributes: true, attributeFilter: ['style', 'data-folded'] }) }
     return () => { observer.disconnect(); position.disconnect(); if (actions.canvasArrangementLayout === arrangementLayout) delete actions.canvasArrangementLayout; actions.setCanvasSize(null) }
   }, [])
-  const start = (event, kind, id) => {
+  const groupTargetAt = (canvas, ids, clientX, clientY) => {
+    const node = root.current, box = node.getBoundingClientRect()
+    const hit = node.ownerDocument?.elementFromPoint(clientX, clientY)?.closest('[data-room-drop-id]')
+    const roomId = hit?.dataset.roomDropId
+    const rect = hit?.dataset.roomStage === 'preview' ? hit.getBoundingClientRect() : null
+    const inside = !rect || clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+    if (inside && roomId && roster.roomsById[roomId] && ids.length && selectedMains(canvas, roster, ids).length === ids.length) {
+      const window = canvas.windows.find(window => window.kind === 'room' && window.entityId === roomId && window.open)
+      return { kind: 'room', id: roomId, ...(window ? { windowId: window.id } : {}), keepSurface: true }
+    }
+    const cards = [...(node.querySelectorAll?.('.bt-canvas-group-card[data-window-id]') ?? [])]
+    const point = canvasPoint(canvas, box, clientX, clientY)
+    const target = groupDropTarget(canvas, roster, ids, point, window => {
+      const bounds = cards.filter(card => card.dataset.windowId === window.id).map(card => {
+        const rect = card.getBoundingClientRect()
+        return { ...canvasPoint(canvas, box, rect.left, rect.top), width: rect.width / canvas.viewport.zoom, height: rect.height / canvas.viewport.zoom }
+      }).filter(rect => rect.width > 0 && rect.height > 0)
+      // The avatar and its portal are separate drop surfaces; their gap is not a target.
+      return bounds.find(rect => point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height) ?? bounds[0]
+    })
+    return target?.kind === 'room' ? { ...target, keepSurface: true } : target
+  }
+  const start = (event, kind, id, onTap, onDragStart) => {
     if (event.button !== 0 && !(event.button === 2 && kind === 'marquee')) return
     event.preventDefault()
     event.stopPropagation()
@@ -745,7 +989,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       update(current, false)
     }
     suppressContext.current = false
-    drag.current = { kind, id, ids, startX: event.clientX, startY: event.clientY, state: current, box, moved: false, right: event.button === 2 }
+    drag.current = { kind, id, ids, onTap, onDragStart, startX: event.clientX, startY: event.clientY, state: current, box, moved: false, right: event.button === 2 }
     root.current.setPointerCapture(event.pointerId)
   }
   const startDockDrag = (event, entity) => {
@@ -754,14 +998,14 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     event.stopPropagation()
     const kind = roster.roomsById[entity.id] ? 'room' : 'bot'
     const box = root.current.getBoundingClientRect()
-    drag.current = { kind: 'dock', entity, entityKind: kind, startX: event.clientX, startY: event.clientY, moved: false, box }
+    drag.current = { kind: 'dock', entity, entityKind: kind, originState: latest.current, startX: event.clientX, startY: event.clientY, moved: false, box }
     root.current.setPointerCapture(event.pointerId)
   }
   const move = event => {
     const current = drag.current
     if (!current) return
     const dx = event.clientX - current.startX, dy = event.clientY - current.startY, v = current.state?.viewport ?? latest.current.viewport
-    if (Math.hypot(dx, dy) > 4) current.moved = true
+    if (!current.moved && Math.hypot(dx, dy) > 4) { current.moved = true; current.onDragStart?.() }
     if (current.kind === 'dock') {
       if (current.moved) {
         const x = (event.clientX - current.box.left - v.x) / v.zoom - (CANVAS_LIMITS.avatarWidth / 2)
@@ -775,7 +1019,9 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
         }
         update(nextState, false)
         if (win) {
-          drag.current = { kind: 'avatar', id: win.id, ids: [win.id], startX: event.clientX, startY: event.clientY, state: nextState, box: current.box, moved: true }
+          const target = groupTargetAt(nextState, [win.id], event.clientX, event.clientY)
+          setDropTarget(target?.windowId ?? target?.id ?? null)
+          drag.current = { kind: 'avatar', id: win.id, ids: [win.id], startX: event.clientX, startY: event.clientY, state: nextState, latest: nextState, originState: current.originState, target, box: current.box, moved: true }
         }
       }
       return
@@ -785,7 +1031,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       const next = current.ids.reduce((value, id) => moveWindow(value, id, dx / v.zoom, dy / v.zoom), { ...current.state, selected: current.ids })
       if (current.kind === 'group') next.groups = next.groups.map(group => group.id === current.id && group.draft ? { ...group, x: group.x + dx / v.zoom, y: group.y + dy / v.zoom } : group)
       current.latest = next
-      current.target = groupDropTarget(next, roster, current.ids, { x: (event.clientX - current.box.left - v.x) / v.zoom, y: (event.clientY - current.box.top - v.y) / v.zoom })
+      current.target = groupTargetAt(next, current.ids, event.clientX, event.clientY)
       setDropTarget(current.target?.windowId ?? current.target?.id ?? null)
       update(next, false)
     }
@@ -806,6 +1052,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
         const shown = { ...(current.latest ?? latest.current), windows: (current.latest ?? latest.current).windows.map(window => ({ ...window, compact: true })) }
         const other = current.target ? undefined : overlapMain(shown, roster, current.id)
         const closest = other ? {
+          sourceId: draggedWin.entityId, targetId: other.entityId,
           sourceWindowId: draggedWin.id, targetWindowId: other.id,
           sourceName: roster.byId[draggedWin.entityId]?.name || '',
           targetName: roster.byId[other.entityId]?.name || '',
@@ -846,24 +1093,31 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       suppressContext.current = true
     }
     if (current.moved && current.target) {
-      update(current.state)
+      update(current.target.kind === 'room' ? current.originState ?? current.state : current.state)
       proposeGroup(selectedMains(current.state, roster, current.ids), current.target)
       return
     }
     if (current.moved && current.ids?.length === 1 && ['avatar', 'window'].includes(current.kind)) {
       const next = current.latest ?? latest.current
-      const target = overlapMain({ ...next, windows: next.windows.map(window => ({ ...window, compact: true })) }, roster, current.id)
-      if (target) {
+      const targetWin = overlapMain({ ...next, windows: next.windows.map(window => ({ ...window, compact: true })) }, roster, current.id)
+      if (targetWin) {
         const source = next.windows.find(window => window.id === current.id)
         update(current.state)
-        proposeGroup([source.entityId, target.entityId])
+        const members = [source.entityId, targetWin.entityId]
+        const bots = members.map(id => roster.byId[id]).filter(Boolean)
+        const autoName = bots.map(bot => bot.name).join(' + ')
+        actions.createRoom?.(members, { admin: members[0], name: autoName }).then(room => {
+          if (room) actions.openCanvasEntity?.(room.id)
+        }).catch(error => actions.reportError?.(error, 'canvas-group'))
         return
       }
     }
     if (current.kind === 'dock' && !current.moved && event.type !== 'pointercancel') {
       actions.openCanvasEntity(current.entity.id, size)
     } else if (current.kind === 'avatar' && !current.moved && event.type !== 'pointercancel') {
-      actions.openCanvasConversation(current.id)
+      const window = latest.current.windows.find(window => window.id === current.id)
+      if (window?.kind === 'room') current.onTap?.()
+      else actions.openCanvasConversation(current.id)
     }
   }
   const proposeGroup = (members, target) => {
@@ -898,11 +1152,11 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
     const current = latest.current, box = root.current.getBoundingClientRect()
     const existing = current.windows.find(window => window.kind === 'bot' && window.entityId === id)
     const probe = { ...current, windows: existing ? current.windows.map(window => window.id === existing.id ? { ...window, open: true, compact: true } : window) : [...current.windows, { id: 'contact-drop', kind: 'bot', entityId: id, open: true, compact: true }] }
-    const target = groupDropTarget(probe, roster, [existing?.id ?? 'contact-drop'], { x: x - box.left, y: y - box.top })
+    const target = groupTargetAt(probe, [existing?.id ?? 'contact-drop'], x, y)
     setDropTarget(target?.windowId ?? target?.id ?? null)
     if (!commit) return
     setDropTarget(null)
-    if (!target || !existing?.open) actions.placeCanvasMain(id, canvasDropPoint(current, box, x, y))
+    if (!target || target.kind === 'draft' && !existing?.open) actions.placeCanvasMain(id, canvasDropPoint(current, box, x, y))
     if (target) proposeGroup([id], target)
   }
   const contactDropRef = useRef(contactDrop)
@@ -912,7 +1166,8 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       const { id, x, y, phase } = event.detail
       const node = root.current
       const hit = node.ownerDocument.elementFromPoint(x, y)
-      if (phase === 'cancel' || !hit || !node.contains(hit)) { setDropTarget(null); return }
+      const roomId = hit?.closest('[data-room-drop-id]')?.dataset.roomDropId
+      if (phase === 'cancel' || !hit || !node.contains(hit) && !roomId) { setDropTarget(null); return }
       contactDropRef.current(id, x, y, phase === 'end')
     }
     window.addEventListener(MAIN_AGENT_POINTER, receive)
@@ -937,7 +1192,8 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       if (kind !== 'bot' && kind !== 'room' || !(kind === 'bot' ? roster.byId[id] : roster.roomsById[id])) return
       const probe = openWindow(latest.current, { id, kind }, { x, y, compact: true })
       const winId = probe.windows.find(window => window.entityId === id)?.id
-      const target = kind === 'bot' ? groupDropTarget(probe, roster, [winId], { x: (event.clientX - box.left - v.x) / v.zoom, y: (event.clientY - box.top - v.y) / v.zoom }) : null
+      const target = kind === 'bot' ? groupTargetAt(probe, [winId], event.clientX, event.clientY) : null
+      if (target?.kind === 'room') { proposeGroup([id], target); return }
       update(current => {
         const next = openWindow(current, { id, kind }, { x, y, compact: true })
         const win = next.windows.find(w => w.entityId === id || w.id === id || String(w.entityId) === String(id))
@@ -954,6 +1210,27 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       if (target) proposeGroup([id], target)
     } catch { /* malformed drag */ }
   }
+  const nativeDropRef = useRef(handleDrop)
+  nativeDropRef.current = handleDrop
+  useEffect(() => {
+    const doc = root.current.ownerDocument
+    if (!doc) return undefined
+    const isGroupDrop = event => event.target.closest?.('[data-room-drop-id]') && Array.from(event.dataTransfer?.types ?? []).includes('application/x-ds-bot')
+    const over = event => {
+      if (!isGroupDrop(event)) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    }
+    const drop = event => {
+      if (!isGroupDrop(event)) return
+      try {
+        if (JSON.parse(event.dataTransfer.getData('application/x-ds-bot')).kind === 'bot') nativeDropRef.current(event)
+      } catch { /* malformed drag */ }
+    }
+    doc.addEventListener('dragover', over, true)
+    doc.addEventListener('drop', drop, true)
+    return () => { doc.removeEventListener('dragover', over, true); doc.removeEventListener('drop', drop, true) }
+  }, [])
   return h('div', { ref: root, className: 'bt-canvas canvas-viewport', 'aria-label': t('Employee canvas'), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish, onContextMenu: onCanvasContextMenu, onDragEnter: handleDragOver, onDragOver: handleDragOver, onDrop: handleDrop },
     h('style', null, SPATIAL_WIDGET_CSS + RESTORED_CHAT_CSS),
     h('style', null, MAIN_GROUP_CSS),
@@ -973,7 +1250,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       h(CanvasWallpaper, { canvasRef: root }),
       button(t('Settings'), () => actions.openSettings(), GearIcon),
       button(t('Classic view'), () => actions.openClassicSession())),
-    h(CanvasGlobalSearch, { actions }),
+    h(CanvasGlobalSearch, { actions, roster }),
     h('main', {
       className: 'bt-canvas-stage',
       onContextMenu: onCanvasContextMenu,
@@ -998,103 +1275,89 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
               employeesOf(visible, group.members, roster).length >= 2 ? button(null, () => actions.openNewChat('group', employeesOf(visible, group.members, roster)), ChatsIcon, { title: t('Create group chat'), 'aria-label': t('Create group chat') }) : null,
               button(null, () => update(current => ungroupWindows(current, group.id)), CloseIcon, { title: t('Ungroup'), 'aria-label': t('Ungroup') })))
         }),
-        visible.map(window => h(WindowCard, { key: window.id, window: { ...window, compact: true }, roster, selected: state.selected.includes(window.id), active: state.active === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget: dropTarget === window.id, isMergeTarget: mergePair?.targetWindowId === window.id })),
-        mergePair ? h('div', {
-          className: 'bt-metaball-container',
-          style: { position: 'absolute', left: 0, top: 0, width: '1px', height: '1px', pointerEvents: 'none', zIndex: 1 },
-        },
-          h('svg', {
-            className: 'bt-metaball-svg',
-            style: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', overflow: 'visible' },
+        visible.map(window => h(WindowCard, { key: window.id, window: { ...window, compact: true }, canvasRoot: root, drag, conversationOpen: !window.compact, viewport: state.viewport, roster, selected: state.selected.includes(window.id), active: state.active === window.id, actions, useSessions, useWork, SessionProvider, renderSlot, start, dropTarget: dropTarget === window.id, isMergeTarget: mergePair?.targetWindowId === window.id })),
+        mergePair ? (() => {
+          const sourceBot = roster?.byId?.[mergePair.sourceId]
+          const targetBot = roster?.byId?.[mergePair.targetId]
+          const sourceColor = getRoleTintColor(sourceBot)
+          const targetColor = getRoleTintColor(targetBot)
+          const sourceImg = lookOf(sourceBot)?.image
+          const targetImg = lookOf(targetBot)?.image
+          const minX = Math.min(mergePair.source.x, mergePair.target.x) - 100
+          const minY = Math.min(mergePair.source.y, mergePair.target.y) - 100
+          const width = Math.max(mergePair.source.x, mergePair.target.x) - minX + 100
+          const height = Math.max(mergePair.source.y, mergePair.target.y) - minY + 100
+          const sX = mergePair.source.x - minX
+          const sY = mergePair.source.y - minY
+          const tX = mergePair.target.x - minX
+          const tY = mergePair.target.y - minY
+          const bridgePath = gooeyBridge({ x: sX, y: sY }, { x: tX, y: tY }, 28, 28)
+
+          return h('div', {
+            className: 'bt-metaball-container',
+            style: {
+              position: 'absolute',
+              left: `${minX}px`,
+              top: `${minY}px`,
+              width: `${width}px`,
+              height: `${height}px`,
+              pointerEvents: 'none',
+              zIndex: 9999,
+            },
           },
-            h('defs', null,
-              h('filter', { id: 'canvas-gooey-filter', x: '-50%', y: '-50%', width: '200%', height: '200%' },
-                h('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: 12, result: 'blur' }),
-                h('feColorMatrix', { in: 'blur', mode: 'matrix', values: '1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -12', result: 'goo' }),
-                h('feComposite', { in: 'SourceGraphic', in2: 'goo', operator: 'atop' }))),
-            h('g', { filter: 'url(#canvas-gooey-filter)' },
-              h('circle', {
-                cx: mergePair.source.x,
-                cy: mergePair.source.y,
-                r: Math.max(32, 46 - mergePair.dist * 0.08),
-                fill: 'rgba(56, 120, 250, 0.88)',
-              }),
-              h('circle', {
-                cx: mergePair.target.x,
-                cy: mergePair.target.y,
-                r: Math.max(38, 52 - mergePair.dist * 0.08),
-                fill: 'rgba(56, 120, 250, 0.88)',
-              }),
-              h('path', {
-                d: gooeyBridge(mergePair.source, mergePair.target, 36, 40),
-                fill: 'rgba(56, 120, 250, 0.88)',
-              }))),
-          ) : null),
+            h('svg', {
+              className: 'bt-metaball-svg',
+              width,
+              height,
+              viewBox: `0 0 ${width} ${height}`,
+              style: {
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: '100%',
+                height: '100%',
+                overflow: 'visible',
+                filter: 'drop-shadow(0 6px 16px rgba(20, 35, 60, 0.08))',
+              },
+            },
+              h('defs', null,
+                h('filter', { id: 'canvas-gooey-filter', x: '-40%', y: '-40%', width: '180%', height: '180%' },
+                  h('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: 8, result: 'blur' }),
+                  h('feColorMatrix', { in: 'blur', mode: 'matrix', values: '1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -10' })),
+                h('linearGradient', {
+                  id: 'canvas-gooey-gradient',
+                  gradientUnits: 'userSpaceOnUse',
+                  x1: sX,
+                  y1: sY,
+                  x2: tX,
+                  y2: tY,
+                },
+                  h('stop', { offset: '0%', stopColor: sourceColor }),
+                  h('stop', { offset: '100%', stopColor: targetColor })),
+                h('clipPath', { id: 'clip-source-avatar' },
+                  h('circle', { cx: sX, cy: sY, r: 28 })),
+                h('clipPath', { id: 'clip-target-avatar' },
+                  h('circle', { cx: tX, cy: tY, r: 28 }))),
+              h('g', { filter: 'url(#canvas-gooey-filter)' },
+                h('circle', { cx: sX, cy: sY, r: 32, fill: sourceColor }),
+                h('circle', { cx: tX, cy: tY, r: 32, fill: targetColor }),
+                bridgePath ? h('path', { d: bridgePath, fill: 'url(#canvas-gooey-gradient)' }) : null),
+              h('circle', { cx: sX, cy: sY, r: 30, fill: 'none', stroke: '#ffffff', strokeWidth: 1.5, opacity: 0.6 }),
+              h('circle', { cx: tX, cy: tY, r: 30, fill: 'none', stroke: '#ffffff', strokeWidth: 1.5, opacity: 0.6 }),
+              sourceImg ? h('image', { href: sourceImg, x: sX - 28, y: sY - 28, width: 56, height: 56, clipPath: 'url(#clip-source-avatar)' }) : null,
+              targetImg ? h('image', { href: targetImg, x: tX - 28, y: tY - 28, width: 56, height: 56, clipPath: 'url(#clip-target-avatar)' }) : null))
+        })() : null),
       visible.length === 0 ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
     visible.filter(window => !window.compact).sort((a, b) => a.z - b.z).map((window, order) => h(CanvasChatWindow, { key: window.id, window, active: state.active === window.id, order, size, roster, actions, useSessions, SessionProvider, renderSlot })),
     mergePair ? h(MergeHint, { pair: mergePair, viewport: state.viewport, canvasRef: root }) : null,
     h(CanvasQuickMessage, { bot: quickBot, actions }),
     h(CanvasAgenda, { roster, actions }),
     marquee ? h('div', { className: 'bt-canvas-marquee', style: marquee }) : null,
-    h(Dock, {
-      role: 'toolbar',
-      className: 'bt-canvas-dock agent-dock',
-      'aria-label': t('Employees and group chats'),
-    },
-      groupDockEntities([...roster.bots, ...roster.rooms].filter(entity => !entity.hidden), roster).map((group, idx) => {
-        const entity = group.leadEntity
-        return h(DockItem, {
-          key: entity.id,
-          index: idx,
-          className: 'bt-canvas-button bt-canvas-dock-item dock-item',
-          'aria-label': entity.name,
-          title: `${group.deptTitle || entity.name} · ${t('Click to open · Drag to place on canvas')}`,
-          'aria-pressed': visible.some(window => window.entityId === entity.id && window.id === state.active),
-          onPointerDown: event => {
-            setDockHover(null)
-            startDockDrag(event, entity)
-          },
-          onMouseEnter: event => {
-            safeClearTimeout(dockHoverTimer.current)
-            const rect = event.currentTarget?.getBoundingClientRect?.()
-            const container = root.current?.getBoundingClientRect?.()
-            if (container && rect) {
-              const center = rect.left - container.left + rect.width / 2
-              const bottom = container.bottom - rect.top + 10
-              const x = Math.max(220, Math.min(container.width - 220, center))
-              dockHoverTimer.current = safeSetTimeout(() => setDockHover({ entity, department: group.dept, pos: { x, bottom, arrowOffset: center - x } }), 140)
-            }
-          },
-          onMouseLeave: () => {
-            safeClearTimeout(dockHoverTimer.current)
-            dockHoverTimer.current = safeSetTimeout(() => setDockHover(null), 240)
-          },
-          draggable: false,
-          onDragStart: event => {
-            setDockHover(null)
-            try {
-              event.dataTransfer.setData('application/x-ds-bot', JSON.stringify({ id: entity.id, kind: roster.roomsById[entity.id] ? 'room' : 'bot' }))
-              event.dataTransfer.effectAllowed = 'copyMove'
-            } catch { /* dataTransfer */ }
-          },
-        },
-          h(DockLabel, { className: 'bt-dock-label-floating' }, group.deptTitle || entity.name),
-          h(DockIcon, { className: 'bt-dock-icon-wrap' },
-            roster.roomsById[entity.id] ? h(RoomAvatar, { room: entity, roster, size: 36 }) : h(BotAvatar, { bot: entity, size: 36, main: isMainOf(roster, entity.id) })),
-          h('span', { className: 'bt-dock-item-name' }, entity.generalAssistant ? t('General Assistant') : entity.name))
-      })),
-    dockHover ? h(DockCollaborationPopover, {
-      entity: dockHover.entity,
-      department: dockHover.department,
-      pos: dockHover.pos,
-      roster,
-      work,
-      useSessions,
-      actions,
-      size,
-      onMouseEnter: () => safeClearTimeout(dockHoverTimer.current),
-      onMouseLeave: () => { dockHoverTimer.current = safeSetTimeout(() => setDockHover(null), 200) },
-      onClose: () => setDockHover(null),
-    }) : null,
+    h(CanvasDepartmentDock, {
+      roster, work, useSessions, actions, size, canvasRoot: root,
+      activeDeptKey: activeBot ? getDepartmentForEntity(roster.byId[activeBot.entityId], roster)?.key ?? `bot:${activeBot.entityId}`
+        : visible.find(window => window.id === state.active && window.kind === 'room') ? `room:${visible.find(window => window.id === state.active).entityId}` : undefined,
+      onStartDrag: startDockDrag, drag,
+    }),
     null)
 }
