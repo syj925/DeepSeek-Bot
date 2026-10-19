@@ -144,7 +144,10 @@ export function install(rt) {
           await rt.load()
           return ok(rt.executionView(body.sessionId, body.botId))
         case 'room-progress':
-          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null, ...(entry.streaming?.text && !/^\s*\[(?:P(?:A(?:S(?:S\]?)?)?)?)?\s*$/i.test(entry.streaming.text) ? { streaming: entry.streaming } : {}) })))
+          return ok([
+            ...[...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null, ...(entry.streaming?.text && !/^\s*\[(?:P(?:A(?:S(?:S\]?)?)?)?)?\s*$/i.test(entry.streaming.text) ? { streaming: entry.streaming } : {}) })),
+            ...(rt.roomStreamsView?.(body.roomId) ?? []),
+          ])
         case 'ensure-general-assistant':
           await rt.bootstrap()
           return ok(await rt.ensureGeneralAssistant())

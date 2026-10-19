@@ -13,8 +13,8 @@ unified [QibitAI publishing protocol](https://github.com/syj925/qibitai-site/blo
 3. Tag that commit with exactly `ds-bot-v<package version>` and push the tag:
 
    ```sh
-   git tag ds-bot-v0.1.53
-   git push fork ds-bot-v0.1.53
+   git tag ds-bot-v0.1.54
+   git push fork ds-bot-v0.1.54
    ```
 
 4. Wait for **DS Bot Plugin Release** to finish both jobs. It installs the pinned

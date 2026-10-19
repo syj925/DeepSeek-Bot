@@ -73,8 +73,13 @@ export function install(rt) {
     if (record?.turn !== turn || !record.route) return config
     // Adapter-owned defaults resolve again under this route. Never carry an
     // unsupported reasoning level or output cap across providers.
-    if (!record.config) record.config = !record.task && config.provider === record.route.provider && config.model === record.route.model
-      ? { ...config, ...record.route } : { ...record.route }
+    if (!record.config) {
+      // Omitting a level means model default; merging the old config unchanged
+      // would keep a cleared level or one the current model no longer supports.
+      const { reasoningEffort: _previousEffort, ...base } = config
+      record.config = !record.task && config.provider === record.route.provider && config.model === record.route.model
+        ? { ...base, ...record.route } : { ...record.route }
+    }
     return { ...record.config }
   })
   rt.ctx.on('session/event', (session, event) => {

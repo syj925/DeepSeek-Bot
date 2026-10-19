@@ -488,6 +488,18 @@ export function install(rt) {
     const current = rt.chatOf(id)
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
+    for (const room of Object.values(state.rooms)) {
+      if (room.sessions?.[id]) parts.add(room.sessions[id])
+      for (const segment of room.segments?.[id] ?? []) parts.add(segment.sessionId)
+    }
+    // Once its Session leaves the index, its archive's turn/end is ignored. Release
+    // the waiting round and clear public text while its group identity still exists.
+    for (const part of parts) rt.clearRoomStream?.(part, rt.live?.get(part)?.info)
+    for (const [exchangeId, waiter] of rt.roomWaiters ?? []) {
+      if (waiter.botId !== id && !parts.has(waiter.sessionId)) continue
+      rt.clearRoomStream?.(waiter.sessionId, { role: 'room', roomId: waiter.roomId, exchangeId })
+      waiter.resolve(null)
+    }
     for (const team of Object.values(state.teams)) team.members = team.members.filter(member => member !== id)
     delete state.bots[id]
     for (const part of parts) {
@@ -496,11 +508,12 @@ export function install(rt) {
     }
     const touched = []
     for (const room of Object.values(state.rooms)) {
-      if (!room.members.includes(id)) continue
-      room.members = room.members.filter(member => member !== id)
+      if (room.members.includes(id)) {
+        room.members = room.members.filter(member => member !== id)
+        touched.push(room)
+      }
       if (room.admin === id) room.admin = null
-      rt.dropGroupSession(room, id)
-      touched.push(room)
+      rt.dropGroupSession(room, id, { archive: false })
     }
     await followMemberNames(touched)
     await rt.forgetBotSecrets(id)
@@ -509,11 +522,16 @@ export function install(rt) {
     // Same as deleteRoom: stopActivity removes the Session's armed scheduled tasks.
     // Past parts are archived too: a part move can leave tasks on the old Session,
     // which otherwise stays armed and invisible. Already-archived ids are a no-op.
+    const archiveFailures = []
     for (const part of parts) {
       await ctx.workspaceRegistry.archiveSession(part, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: Bot %s not archived: %s', bot.name, error))
+        .catch(error => {
+          archiveFailures.push(`${part}: ${error.message ?? error}`)
+          rt.warn('ds-bot: Bot %s not archived: %s', bot.name, error)
+        })
     }
     if (failed !== undefined) throw failed
+    if (archiveFailures.length > 0) throw new Error(`${bot.name} was removed from the roster, but some conversations could not be archived: ${archiveFailures.join('; ')}`)
   }
 
   // A temporary employee leaves the active roster after its task, while its identity

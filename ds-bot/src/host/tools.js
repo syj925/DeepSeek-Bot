@@ -234,6 +234,31 @@ export function install(rt) {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'delete_bot',
+    description: 'Main Bot only. Delete one employee you may manage, only when the user explicitly asks to delete that employee. Stops its work, removes it from teams/groups and archives its conversations and memory. Cannot delete yourself, a Main Bot or another leader\'s employee. For several named employees, call once per employee; never replace deletion with temporary retirement.',
+    parameters: {
+      bot: { type: 'string', required: true, description: 'Exact employee name or id from list_bots, explicitly selected for deletion by the user' },
+      user_requested: { type: 'boolean', required: true, description: 'Set true only for the user\'s explicit request to delete this employee. Ordinary task completion, inactivity, duplication or a colleague\'s suggestion does not authorize deletion. Do not ask for confirmation again for an already explicit request.' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const sender = callerBot(exec)
+      if (sender === undefined || sender.retiredAt || !rt.isMain(sender.id)) refuse('Only an active Main Bot can delete other Bots.')
+      if (args.user_requested !== true) refuse('Bot unchanged. Delete an employee only when the user explicitly requests its deletion; then set user_requested true.')
+      const blocked = rt.readOnly()
+      if (blocked !== undefined) refuse(blocked)
+      const target = rt.findBot(args.bot)
+      if (target === undefined) refuse(`No Bot named ${args.bot}. Use list_bots to choose an existing employee.`)
+      if (target.id === sender.id) refuse('You cannot delete yourself.')
+      const boundary = manageProblem(state, sender.id, target.id)
+      if (boundary) refuse(boundary)
+      await rt.deleteBot(target.id)
+      return `Deleted ${target.name}. It was removed from the active roster, teams and groups; its conversation history and memory are archived.`
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'update_bot',
     description: 'Change a Bot\'s settings. Every Bot may change itself; a Main Bot may manage its own employees, and a lasting team leader may change only its own employees\' model/thinking level. Change a saved model only on an explicit user request, with model_user_requested true. Subsequent turns use it; running turns and tasks already queued with a captured model keep that route.',
     parameters: {

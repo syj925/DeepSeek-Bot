@@ -12,6 +12,7 @@ import { failureLabel } from './diagnostics.js'
 import { turnReasoning } from './turn-reasoning.js'
 import { replyIdentity } from '../shared/employee-avatar.js'
 import { TaskGroupCard } from './task-groups.js'
+import { subscribeRoomProgress } from './room-progress.js'
 
 // -------------------------------------------------------------------------
 // Chat cells
@@ -172,13 +173,13 @@ function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
 }
 
 // One Bot message inside a group chat: avatar, name (with its group role), bubble.
-function GroupMessage({ bot, text, room, roster, actions, msgKey, useUi }) {
+export function GroupMessage({ bot, text, room, roster, actions, msgKey, useUi, streaming, streamId }) {
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
-  return h('div', { className: 'bt-group-msg' },
+  return h('div', { className: 'bt-group-msg', 'data-bt-stream-id': streamId },
     h('span', { className: 'bt-group-name', style: { color: inkText(colorOf(bot)) } }, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null),
-    h(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead }))
+    h(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead, streaming }))
 }
 
 // A centered event line that names a group chat and opens it.
@@ -345,7 +346,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         if (source.failed !== undefined || source.resumed === true || source.stopped === true) return null
         const room = roster.roomsById[sessionId]
         const poster = replyIdentity({ identity: source.identity, botId: source.senderSessionId, name: source.senderName ?? t('a Bot') }, roster)
-        return h(GroupMessage, { bot: poster, text: stripHeader(contentText(data.content)), room, roster, actions, msgKey: `${sessionId}:${data.turn}:post`, useUi })
+        return h(GroupMessage, { bot: poster, text: stripHeader(contentText(data.content)), room, roster, actions, msgKey: `${sessionId}:${data.turn}:post`, useUi, streamId: source.streamId })
       }
       if (source.role === 'report') {
         return h(GroupEvent, { prefix: t('Replies from'), room: roster.roomsById[source.roomId], name: t('a group chat'), roster, actions })
@@ -545,26 +546,19 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   const [live, setLive] = useState({ replies: [], speaking: null })
   useEffect(() => {
     if (done) return undefined
-    let stop = false
-    let timer
     let seen = ''
-    const tick = async () => {
-      const result = await actions.roomProgress(sessionId).catch(() => [])
-      if (stop) return
-      const entry = callId ? (result ?? []).find(item => item.callId === callId) : (result ?? [])[0]
+    return subscribeRoomProgress(actions, sessionId, result => {
+      const entry = callId ? result.find(item => item.callId === callId && !item.background) : result.find(item => !item.background)
       const key = entry ? JSON.stringify([entry.replies, entry.speaking, entry.streaming]) : ''
       if (entry && key !== seen) { seen = key; setLive({ replies: entry.replies ?? [], speaking: entry.speaking ?? null, streaming: entry.streaming }) }
-      timer = setTimeout(tick, document.hidden ? 5000 : 150)
-    }
-    void tick()
-    return () => { stop = true; clearTimeout(timer) }
-  }, [done, sessionId, callId])
+    })
+  }, [done, sessionId, callId, actions])
   let replies = live.streaming ? [...live.replies, live.streaming] : live.replies
   if (done) {
     try { replies = JSON.parse(contentText(content)).replies ?? [] } catch { replies = [] }
   }
   // Members speak one at a time, so only the current speaker is typing.
-  const pending = done || !live.speaking ? [] : [live.speaking]
+  const pending = done || !live.speaking || live.streaming?.text ? [] : [live.speaking]
   const speakerTool = useWork?.(work => work.rooms?.[sessionId]?.find(entry => entry.botId === live.speaking)?.tool) ?? undefined
   if (replies.length === 0 && pending.length === 0) return null
   const room = roster.roomsById[sessionId]
@@ -601,7 +595,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       if (reply.kind === 'stopped') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
       }
-      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi })
+      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, streamId: reply.streamId, streaming: !done && reply === live.streaming })
     }),
     pending.map((id) => {
       const bot = roster.byId[id]

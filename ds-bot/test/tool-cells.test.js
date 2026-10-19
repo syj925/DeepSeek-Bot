@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, callTree } from './src/client/cells.js'",
+      "export { ToolCell, TriggerCell, callTree } from './src/client/cells.js'",
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
@@ -44,7 +44,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, callTree, QuestionDock, SecretDock, countCards } = module.exports
+const { ToolCell, TriggerCell, callTree, QuestionDock, SecretDock, countCards } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -97,6 +97,29 @@ const show = (root, options) => {
   return out
 }
 const shown = (root, options) => text(show(root, options))
+
+test('a durable background group post carries its stream identity onto the visible bubble', () => {
+  const streamId = JSON.stringify(['room', 'writer', 'exchange'])
+  const input = {
+    sessionId: 'room', node: { data: {
+      source: { kind: 'bot', role: 'post', senderSessionId: 'writer', senderName: 'Writer', late: true, streamId },
+      content: text$('[Group post from Writer]\nThe completed result.'), turn: 1,
+    }, location: { turn: { turn: 1 } } },
+    useRoster: select => select(team()), useSessions: select => select({ byId: {} }),
+    useUi: select => select({ reactions: {}, visits: {} }), useTurnClock: select => select({}), actions: {},
+  }
+  const posted = expand(TriggerCell(input))
+  effects = []
+  const bubble = find(posted, node => node.props?.['data-bt-stream-id'] === streamId)
+  assert.ok(bubble, 'the persisted post must replace the same temporary background stream')
+  assert.match(text(posted), /Writer.*The completed result\./)
+  assert.doesNotMatch(text(posted), /Group post from/)
+  const reloaded = expand(TriggerCell({ ...input, node: plainClone(input.node) }))
+  effects = []
+  assert.equal(find(reloaded, node => node.props?.['data-bt-stream-id'] === streamId)?.props['data-bt-stream-id'], streamId)
+})
+
+const plainClone = value => JSON.parse(JSON.stringify(value))
 
 // One finished call of every kind ToolCell draws, and what it shows.
 const BRANCHES = [

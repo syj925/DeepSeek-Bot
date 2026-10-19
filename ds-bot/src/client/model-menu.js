@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart } from './text.js'
-import { CheckIcon, SlidersIcon } from './icons.js'
+import { CheckIcon, PeopleIcon, SlidersIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { openHarnessOnboarding, openHarnessSettings } from './sidebar.js'
 import { SPRING_POP, SPRING_SHAPE, spring, useLinger } from './motion.js'
@@ -98,6 +98,14 @@ function ModelRows({ roster, current, onPick }) {
 
 export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, height: 12, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M5.5 8l4.5 4.5L14.5 8' }))
 
+// A local provider mark stays readable for custom routes without fetching a logo.
+export function ModelGlyph({ provider }) {
+  const label = (provider ?? '').trim()
+  const letter = Array.from(label)[0]?.toLocaleUpperCase() ?? '◇'
+  const hue = Array.from(label).reduce((value, char) => (value * 31 + char.codePointAt(0)) % 360, 0)
+  return h('span', { className: 'bt-model-glyph', 'aria-hidden': true, style: { '--bt-provider-hue': hue } }, letter)
+}
+
 // A menu that opens under its trigger, or above when the window has no room below. A
 // click outside, Escape, or a scroll outside it closes it.
 export function useAnchoredMenu() {
@@ -125,7 +133,7 @@ export function useAnchoredMenu() {
   }, [place])
   const open = () => {
     const rect = button.current.getBoundingClientRect()
-    const width = Math.max(240, rect.width)
+    const width = Math.min(Math.max(240, rect.width), Math.max(0, window.innerWidth - 16))
     const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
     const below = window.innerHeight - rect.bottom
     setPlace(below >= 260 || below >= rect.top
@@ -138,7 +146,7 @@ export function useAnchoredMenu() {
 // The trigger shows the model name over its provider. A Thinking section lists the
 // levels of the shown model when it has them.
 // `onPick`/`onPickEffort` replace saving to the Bot, for a Bot that does not exist yet.
-export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort }) {
+export function ModelMenu({ bot, roster, actions, run, wide = false, compact = false, onPick, onPickEffort }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
@@ -156,35 +164,94 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     void actions?.refreshModels?.()
     open()
   }
+  const restoreComposer = () => {
+    if (!compact) return
+    button.current?.closest('[data-composer-card]')?.querySelector('[role=textbox][contenteditable=true]')?.focus()
+  }
   const pick = (ref) => {
     close()
     if (onPick) onPick(ref)
     else if (ref !== current || !bot.model) void run(actions.updateBot(bot.id, { model: ref }))
+    restoreComposer()
   }
   const pickEffort = (effort) => {
     close()
     if (onPickEffort) onPickEffort(effort)
     else if (effort !== bot.effort) void run(actions.updateBot(bot.id, { effort: effort ?? null }))
+    restoreComposer()
   }
   const models = roster.models ?? []
   return h(Fragment, null,
     h('button', {
-      ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
+      ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined, 'data-compact': compact || undefined,
       'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
+      title: shown ? `${shown.provider} · ${shown.name}${effortLabel ? ` · ${effortLabel}` : ''}` : t('Choose a model'),
+      onMouseDown: compact ? event => event.preventDefault() : undefined,
       'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick: toggle,
     },
-    h('span', { className: 'bt-model-copy' },
+    compact ? h(ModelGlyph, { provider: shown?.provider }) : h('span', { className: 'bt-model-copy' },
       h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
       shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
         ? (effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
         : t('{provider} · not available', { provider: shown.provider })) : null),
-    h(Caret)),
-    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
+    compact ? null : h(Caret)),
+    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined, onMouseDown: compact ? event => event.preventDefault() : undefined },
       models.length > 0 ? h(ModelRows, { roster, current, onPick: pick })
         : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
       effortRows(reasoning).length > 0 ? h(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
       h('div', { className: 'bt-menu-sep', role: 'separator' }),
       h('button', { type: 'button', role: 'menuitem', onClick: () => { close(); openHarnessSettings() } }, h(SlidersIcon), h('span', { className: 'bt-menu-label' }, t('Models and providers…')))), document.body) : null)
+}
+
+// A group has no shared model. Pick its employee first, then change that employee's
+// saved model and thinking level through the same host action as its own chat.
+export function RoomModelMenu({ room, roster, actions, run }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
+  const [selected, setSelected] = useState(null)
+  const members = room.members.map(id => roster.byId[id]).filter(bot => bot && !bot.retiredAt)
+  const bot = members.find(member => member.id === selected)
+  const toggle = () => {
+    if (isOpen) { close(); return }
+    setSelected(null)
+    void actions?.refreshModels?.()
+    open()
+  }
+  const restoreFocus = () => button.current?.closest('[data-composer-card]')?.querySelector('[role=textbox][contenteditable=true]')?.focus()
+  return h(Fragment, null,
+    h('button', {
+      ref: button, type: 'button', className: 'bt-model-trigger', 'data-compact': true,
+      'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Member models'), title: t('Member models'),
+      onMouseDown: event => event.preventDefault(), onClick: toggle,
+    }, h(PeopleIcon)),
+    shownPlace ? createPortal(h('div', {
+      ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`,
+      role: 'menu', 'aria-label': bot ? t('Model for {name}', { name: bot.name }) : t('Member models'), style: shownPlace,
+      'data-leaving': leaving || undefined, onMouseDown: event => event.preventDefault(),
+    }, bot ? h(Fragment, null,
+      h('button', { type: 'button', role: 'menuitem', onClick: () => setSelected(null) }, h('span', { 'aria-hidden': true }, '‹'), h('span', { className: 'bt-menu-label' }, bot.name)),
+      h('div', { className: 'bt-menu-sep', role: 'separator' }),
+      h(MemberModelRows, { bot, roster, actions, run, close, restoreFocus }))
+      : members.map(member => h('button', { key: member.id, type: 'button', role: 'menuitem', 'aria-haspopup': 'menu', onClick: () => setSelected(member.id) },
+        h(ModelGlyph, { provider: modelOf(member, roster)?.provider }),
+        h('span', { className: 'bt-model-member' }, h('span', { className: 'bt-menu-label' }, member.name), h('small', null, modelOf(member, roster)?.name ?? t('Choose a model'))),
+        h('span', { 'aria-hidden': true }, '›')))), document.body) : null)
+}
+
+function MemberModelRows({ bot, roster, actions, run, close, restoreFocus }) {
+  const current = bot.model ?? bot.appliedModel
+  const reasoning = useEfforts(servedOf(roster, current), current, actions)
+  const picked = reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : undefined
+  const save = (patch) => {
+    close()
+    void run(actions.updateBot(bot.id, patch))
+    restoreFocus()
+  }
+  return h(Fragment, null,
+    (roster.models ?? []).length ? h(ModelRows, { roster, current, onPick: ref => { if (ref === bot.model) { close(); restoreFocus() } else save({ model: ref }) } })
+      : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
+    effortRows(reasoning).length > 0 ? h(EffortRows, { reasoning, current: picked, onPick: effort => { if (effort === bot.effort) { close(); restoreFocus() } else save({ effort: effort ?? null }) } }) : null,
+    h('div', { className: 'bt-menu-sep', role: 'separator' }),
+    h('button', { type: 'button', role: 'menuitem', onClick: () => { close(); openHarnessSettings() } }, h(SlidersIcon), h('span', { className: 'bt-menu-label' }, t('Models and providers…'))))
 }
 
 // The card a Bot's chat opens on while the Bot has no model, or has one that is no
@@ -275,6 +342,10 @@ export const MODEL_CSS = `
 .bt-model-trigger{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-model-trigger[data-compact]{flex:none;justify-content:center;width:28px;height:28px;min-height:28px;padding:0;margin-left:5px;border-radius:9px;background:transparent}
+.bt-model-glyph{display:grid;place-items:center;flex:none;width:23px;height:23px;border-radius:7px;background:hsl(var(--bt-provider-hue) 42% 50% / .13);box-shadow:inset 0 0 0 .5px hsl(var(--bt-provider-hue) 42% 45% / .18);color:hsl(var(--bt-provider-hue) 45% 34%);font:600 12px/1 system-ui}
+.bt-model-member{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0}.bt-model-member small{font-size:11px;line-height:14px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-model-trigger[data-compact][data-missing]{box-shadow:inset 0 0 0 1px #c21d2e}
 .bt-model-trigger[data-missing] .bt-model-provider{color:#c21d2e}
 .bt-model-trigger[data-wide]{display:flex;width:100%;min-height:48px;padding:7px 12px;justify-content:space-between;border-radius:12px;background:var(--bt-card);box-shadow:inset 0 0 0 1px var(--bt-line)}
 .bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-hover)}
@@ -283,7 +354,7 @@ export const MODEL_CSS = `
 .bt-model-provider{font-size:11px;line-height:14px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-model-caret{flex:none;color:var(--bt-ink-3);transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-model-trigger[aria-expanded=true] .bt-model-caret{transform:rotate(180deg)}
-.bt-model-menu{overflow-y:auto;scrollbar-width:thin}
+.bt-model-menu{min-width:0;max-width:calc(100vw - 16px);overflow-y:auto;scrollbar-width:thin}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}

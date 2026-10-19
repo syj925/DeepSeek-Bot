@@ -38,7 +38,7 @@ export function ExecutionStatus({ sessionId, useRoster, useWork, useSessionStatu
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [active, sessionId])
-  if (!state) return null
+  if (!state) return h('div', { className: 'bt-execution-status', 'data-state': 'idle', 'aria-hidden': true })
   const working = ['waiting', 'tool', 'reply', 'queued'].includes(state.kind)
   const seconds = Math.max(0, Math.floor((now - (state.since ?? activity.current.at)) / 1000))
   const elapsed = seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`
@@ -52,8 +52,12 @@ export function ExecutionStatus({ sessionId, useRoster, useWork, useSessionStatu
 }
 
 export const EXECUTION_STATUS_CSS = `
-.bt-execution-status{flex:none;display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 14px;border-top:1px solid var(--bt-line);color:var(--bt-ink-2);font:12px/18px var(--bt-font-sans);min-height:32px}
+.bt-execution-status{flex:none;display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 14px;border-top:1px solid var(--bt-line);color:var(--bt-ink-2);font:12px/18px var(--bt-font-sans);min-height:32px;box-sizing:border-box}
 .bt-execution-status-dot{width:6px;height:6px;border-radius:50%;background:var(--bt-accent);flex:none}
+.bt-execution-status[data-state=idle]{border-top-color:transparent}
+.bt-execution-status:is([data-state=waiting],[data-state=tool],[data-state=reply],[data-state=queued]) .bt-execution-status-dot{animation:bt-status-breathe 1.8s ease-in-out infinite}
+@keyframes bt-status-breathe{50%{opacity:.35;box-shadow:0 0 0 3px color-mix(in srgb,var(--bt-accent) 12%,transparent)}}
+@media(prefers-reduced-motion:reduce){.bt-execution-status-dot{animation:none!important}}
 .bt-execution-status[data-state=error] .bt-execution-status-dot,.bt-execution-status[data-state=approval] .bt-execution-status-dot,.bt-execution-status[data-state=question] .bt-execution-status-dot{background:#d97706}
 .bt-execution-elapsed{font-variant-numeric:tabular-nums;white-space:nowrap}.bt-execution-slow{flex-basis:100%;font-size:11px}
 .bt-execution-status button{margin-inline-start:auto;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px}

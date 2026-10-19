@@ -845,21 +845,20 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 .bt-typing>.bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
 .bt-typing>.bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
 .bt-typing>.bt-mark:hover .bt-eyes{scale:1.18}
-.bt-typing-text{display:flex;align-items:center;flex:1 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
+.bt-typing-text{display:flex;align-items:center;flex:1 1 auto;min-width:0}
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;font-size:12px;line-height:22px;color:var(--bt-ink-3);white-space:nowrap}
-@keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
-@keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:blur(3px)}}
-@keyframes bt-typing-label{from{opacity:0;filter:blur(5px);transform:translateY(3px)}}
-/* Shimmer: a stepped sweep clipped to the text. */
-.bt-shimmer{color:transparent;background:linear-gradient(90deg,var(--bt-shimmer-base) 0%,var(--bt-shimmer-base) 25%,var(--bt-ink) 60%,var(--bt-shimmer-base) 75%,var(--bt-shimmer-base) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:bt-shimmer 2.2s steps(60) infinite;--bt-shimmer-base:color-mix(in srgb,var(--bt-ink) 40%,transparent)}
+@keyframes bt-typing-in{from{opacity:0;transform:translateY(3px)}}
+@keyframes bt-typing-out{to{opacity:0;transform:translateY(-2px)}}
+@keyframes bt-typing-label{from{opacity:.3}}
+.bt-shimmer{color:transparent;background:linear-gradient(90deg,var(--bt-shimmer-base) 0%,var(--bt-shimmer-base) 25%,var(--bt-ink) 60%,var(--bt-shimmer-base) 75%,var(--bt-shimmer-base) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:bt-shimmer 2.2s linear infinite;--bt-shimmer-base:color-mix(in srgb,var(--bt-ink) 50%,transparent)}
 @keyframes bt-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
 /* New rows slide up; a reply that replaces the activity row grows out of its corner. */
 [data-bt-enter="new"]{animation:bt-row-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-[data-bt-enter="after-collapse"]{transform-origin:0 100%;animation:bt-row-after .24s cubic-bezier(.23,1,.32,1) .38s backwards}
+[data-bt-enter="after-collapse"]{animation:bt-row-after .18s cubic-bezier(.23,1,.32,1)}
 @keyframes bt-row-in{from{transform:translateY(12px)}to{transform:none}}
-@keyframes bt-row-after{0%{opacity:0;transform:translateY(12px) scale(.94)}55%{opacity:1}100%{opacity:1;transform:none}}
+@keyframes bt-row-after{from{opacity:.5;transform:translateY(4px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){
 .bt-typing,.bt-typing[data-exiting]{animation-name:bt-fade-in;animation-duration:.12s;transform:none}
 .bt-typing[data-exiting]{animation-name:bt-fade-out}

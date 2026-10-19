@@ -100,9 +100,11 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   const entries = useMemo(() => Object.values(JSON.parse(liveKey)), [liveKey])
   const streaming = entries.some(entry => entry.text)
   const tools = entries.filter(entry => !entry.text).sort((a, b) => a.at - b.at)
-  // Group chats show who is typing on their own while members speak.
+  // Group replies own their member's typing state and streamed body. A group
+  // relay can run inside PTC or outlive its tool note, so a generic room row
+  // would otherwise appear beside an employee who is already answering.
   const relaying = tools.some(entry => entry.relay)
-  const visible = running && !streaming && !relaying && (bot !== undefined || room !== undefined)
+  const visible = running && !streaming && !relaying && bot !== undefined && room === undefined
   const tool = tools.at(-1)
   const inputRef = useRef(0)
   // A steer keeps the run going, so nothing else resets the row: fresh input is

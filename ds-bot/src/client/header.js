@@ -7,6 +7,8 @@ import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, openingTurn, unseenSince } from './cells.js'
 import { t } from './i18n.js'
 import { TaskGroupJourney } from './task-groups.js'
+import { RoomStreams } from './room-streams.js'
+import { StreamFollow } from './stream-follow.js'
 
 // -------------------------------------------------------------------------
 // Conversation header
@@ -103,7 +105,9 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow))),
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
-    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, actions })))
+    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, actions }),
+    h(StreamFollow, { key: `follow:${sessionId}`, sessionId }),
+    room ? h(RoomStreams, { key: `streams:${sessionId}`, sessionId, roster, actions, useUi }) : null))
 }
 
 // New-message pills. "N new messages ↓" takes Back to bottom's place when

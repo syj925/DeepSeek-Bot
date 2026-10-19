@@ -691,11 +691,13 @@ test("deleting a Bot also stops its past parts' Sessions, where tasks can stay a
   ])
 })
 
-test('an archive failure on delete is warned instead of passing silently', async (t) => {
+test('an archive failure on delete is warned and reported instead of claiming full success', async (t) => {
   const { call, stop, warnings } = start(undefined, { models: ['deepseek-v4-flash'], archiveError: new Error('archive refused') })
   t.after(stop)
   const writer = (await call('create-bot', { name: 'Writer' })).value
-  assert.equal((await call('delete-bot', { id: writer.id })).ok, true)
+  const result = await call('delete-bot', { id: writer.id })
+  assert.equal(result.ok, false)
+  assert.match(result.error.message, /removed from the roster, but some conversations could not be archived.*archive refused/)
   await settle()
   assert.equal(warnings.filter(text => text.includes('not archived')).length, 1)
 })

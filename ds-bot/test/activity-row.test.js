@@ -113,7 +113,7 @@ function fixture() {
     useLive: pick => pick(live), useSession: pick => pick({ pendingSubmissions: [] }),
     actions: { clearLive: id => cleared.push(id) },
   })
-  return { status, live, props, cleared }
+  return { status, live, roster, props, cleared }
 }
 
 const text = node => typeof node === 'string' ? node : (node?.children ?? []).map(text).join('')
@@ -175,5 +175,20 @@ test('classic activity keeps its document transcript host and clears stopped liv
   assert.equal(page.draw(data.props('writer')), null)
   page.advance(140)
   assert.deepEqual(data.cleared, ['writer'])
+  page.unmount()
+})
+
+test('a group without a live relay note leaves typing and streaming feedback to its members', () => {
+  const document = { querySelector: () => { throw new Error('canvas activity must stay scoped') } }
+  const data = fixture(), group = transcript(), page = runtime(document)
+  data.roster.roomsById.team = { id: 'team', name: 'Team' }
+  data.status.set('team', { running: true })
+  data.live.team = {}
+  const props = { ...data.props('team'), rootRef: { current: group.root } }
+  assert.equal(page.draw(props), null, 'a PTC relay need not register a live relay note')
+  data.live.team = { background: { at: 2, label: 'Waiting for a colleague', state: 'working' } }
+  assert.equal(page.draw(props), null, 'an employee stream must not gain a second room activity row')
+  data.live.team = { relay: { at: 3, relay: true } }
+  assert.equal(page.draw(props), null)
   page.unmount()
 })

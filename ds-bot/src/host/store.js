@@ -332,17 +332,17 @@ export function install(rt) {
   // A Session where the Bot speaks now, as opposed to an archived segment.
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
-  const dropGroupSession = (room, botId) => {
+  const dropGroupSession = (room, botId, { archive = true } = {}) => {
     const sessionId = room.sessions?.[botId]
+    if (room.segments !== undefined) delete room.segments[botId]
     if (sessionId === undefined) return
     delete state.questions[sessionId]
     delete room.sessions[botId]
-    if (room.segments !== undefined) delete room.segments[botId]
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
-    void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
+    if (archive) void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
   }
   const findBot = (ref) => {
     if (ref === undefined) return undefined

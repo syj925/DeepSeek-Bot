@@ -441,13 +441,14 @@ export function install(rt) {
         if (!switched) rt.finishRecovery?.(id, reason, info)
         if (failure !== undefined) rt.recordModelFailure?.(id, failure)
         if (failure !== undefined) noteTurnFailure(id, failure)
-        if (switched) { delete entry.completion; break }
+        if (switched) { rt.clearRoomStream?.(id, info); delete entry.completion; break }
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting
         // round or sender gets the real answer; a second time, the text goes on without
         // the call.
         const wroteCall = failure === undefined && reason?.kind === 'completed' && lastCalled !== true && writesToolCall(lastText)
         const retry = wroteCall && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
+        if (retry || failure !== undefined || reason?.kind === 'aborted') rt.clearRoomStream?.(id, info)
         rt.finishTaskNotice?.(entry, { reason, retry: retry || wroteCall || stoppedRoomTurns.has(info?.exchangeId), switched, id, turn, opened, info, lastText, lastCalled })
         if (retry) void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
         const replyText = () => {
@@ -493,6 +494,7 @@ export function install(rt) {
           roomWaiters.delete(info.exchangeId)
           const stopped = stoppedRoomTurns.delete(info.exchangeId)
           if (waiter !== undefined) {
+            rt.clearRoomStream?.(id, info)
             if (failure !== undefined) waiter.fail(failure)
             else waiter.resolve(reason?.kind === 'aborted' ? null : replyText())
           } else if (!stopped && reason?.kind !== 'aborted') {

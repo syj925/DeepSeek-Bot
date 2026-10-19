@@ -1,4 +1,4 @@
-The QibitAI 0.1.53 source integrates Chief routing, task collaboration and desktop UI updates. Source integration is separate from publication; the stable install address serves the latest published release.
+The QibitAI 0.1.54 source adds live group replies, responsive member mentions, a floating composer and employee model controls. Source integration is separate from publication; the stable install address serves the latest published release.
 
 QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
 
@@ -77,6 +77,10 @@ Group membership and canvas arrangement never change team affiliation, private c
 
 Floating components leave desktop Agent positions unchanged. Team-list drags follow a compact avatar and name; selected Agents show only a soft highlight and expose their management menu on right-click. Widgets expand toward the canvas interior and temporarily avoid overlap, returning to their saved position when collapsed. Manual placement remains free; click a widget to bring it forward. Conversations open in a consistent area beside the left team rail and can still be moved manually.
 
+The glass message box stays at the bottom of each chat while its history scrolls. Its compact model entry changes that employee's saved model or thinking level. In a group, choose a member first: every employee keeps an independent model. New settings apply to subsequent turns; work already running keeps its model.
+
+When you explicitly ask a Main Bot to delete an employee it may manage, it uses `delete_bot`: active work and scheduled activity are stopped, membership is removed, and conversations and memory are archived. Group history remains readable. This does not retire the employee temporarily; another Main Bot, another leader's employee and a leader whose role has not been handed over remain protected.
+
 This development branch adds a canvas for persistent employees and group chats. The background fills the workspace, with a light gray gradient, milky translucent panels, a movable, collapsible team list and a centered avatar dock, following the supplied Starbots visual design. A slate variant follows the host dark theme. This theme is local to the canvas. Use **Create employee** to configure a new Bot, or open an existing one from **Employee directory**, the team list or the dock. Expanded conversations can move and resize; compacting or closing them preserves the employee, memory and conversation.
 
 Employees start as draggable 120×112 avatar entries; Rooms remain 320×200 summaries with their real members. Click an employee avatar or a Room's **Open conversation** to load its conversation. Several manually opened conversations can stay visible together. Reloading restores compact entries and positions without loading all histories. **Arrange cards** packs entries by their actual sizes and visual groups; **Collapse conversations** keeps their positions. Moving and grouping entries never loads a conversation or stops background work.
@@ -117,6 +121,8 @@ In short: have a question? Ask the main bot.
 DS Bot has group chats. A group chat is a great way to get several bots to work together, but it clearly costs more. So DS Bot does this: every group chat has an admin. The admin answers your messages by default and calls in the other bots for you. You can also @ a bot directly, and it answers you directly: type @ and pick the bot from the list. To give the bots another chat as context, use + → Reference a chat in the message box.
 
 Any bot can hand work to another bot with @. That bot does the work on its own, and the group goes on. While it works, the group, the sidebar and the bot's own chat show what it is doing. When it is done, it posts the result in the group, and the bot that asked for the work answers. To stop the work, open the group's details.
+
+Replies stream into the speaking employee's bubble as text arrives, including while other work continues. The view follows new text only while you are near the bottom; scrolling back lets you read history. A new plain-text `@Name` request can schedule an idle member even while an earlier member is still working. It does not cancel that work; requests to a busy employee remain queued, and messages with attachments or chat references keep their normal processing order.
 
 ![Group chat: the admin, Chief, hands the work to Writer and Coder](docs/images/group.png)
 

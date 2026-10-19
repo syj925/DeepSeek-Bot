@@ -170,3 +170,21 @@ test('task effort is validated, inherited only when supported, and isolated from
   bots.employee.effort = 'low'
   assert.equal((await rt.planTaskModel(bots.employee)).effort, undefined)
 })
+
+test('the model default clears a session thinking level while preserving same-model request settings', async () => {
+  const { bots, admit, request, listeners } = bench()
+  delete bots.employee.effort
+  const base = Object.freeze({ provider: 'p', model: 'pro', reasoningEffort: 'max', maxTokens: 1234 })
+  await admit('own', 1, [{ source: { kind: 'user' } }])
+  assert.deepEqual(await request('own', 1, base), { provider: 'p', model: 'pro', maxTokens: 1234 })
+  assert.equal(base.reasoningEffort, 'max')
+
+  listeners.get('session/event')({ id: 'own' }, { type: 'turn/end' })
+  // A saved level from a previous model may remain on the Bot, but must not leak
+  // through a session config after the new model has been selected.
+  bots.employee.effort = 'max'
+  bots.employee.model = 'p/flash'
+  await admit('own', 2, [{ source: { kind: 'user' } }])
+  assert.deepEqual(await request('own', 2, { ...base, model: 'flash' }), { provider: 'p', model: 'flash', maxTokens: 1234 })
+  assert.equal(bots.employee.effort, 'max')
+})

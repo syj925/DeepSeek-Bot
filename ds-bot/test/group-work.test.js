@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -39,14 +40,17 @@ async function start(t, room, questions = {}) {
         nextStep: [],
         nextTurn: held,
         remove(id) {
-          const at = held.findIndex(message => message.id === id)
-          if (at === -1) return false
-          held.splice(at, 1)
-          return true
+          for (const list of [this.nextStep, this.nextTurn]) {
+            const at = list.findIndex(message => message.id === id)
+            if (at === -1) continue
+            list.splice(at, 1)
+            return true
+          }
+          return false
         },
       }
       const keep = (message) => { calls.push(message); held.push(message) }
-      agents.set(sessionId, { session: { id: sessionId }, calls, cancelled, inbox, followup: keep, steer: keep, cancel(reason) { cancelled.push(reason) } })
+      agents.set(sessionId, { id: sessionId, session: { id: sessionId }, calls, cancelled, inbox, followup: keep, steer: keep, cancel(reason) { cancelled.push(reason) } })
     }
     return agents.get(sessionId)
   }
@@ -72,7 +76,7 @@ async function start(t, room, questions = {}) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
     }
   }
-  const tool = (name, args, sessionId, exec = {}) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId }, ...exec })
+  const tool = (name, args, sessionId, exec = {}) => ctx.registeredTools.get(name).execute(args, { agent: agentOf(sessionId), ...exec })
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
   // A Session takes up the newest message it was sent, as a new turn.
   const begin = (sessionId) => {
@@ -100,13 +104,20 @@ async function start(t, room, questions = {}) {
     return read
   }
   const say = text => ({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  const queueUser = (sessionId, content, list = 'nextTurn') => {
+    const agent = agentOf(sessionId)
+    const message = { id: randomUUID(), ...say(''), content: typeof content === 'string' ? [{ type: 'text', text: content }] : content }
+    agent.inbox[list].push(message)
+    ctx.emit('agent/inbox/inserted', { agent, message })
+    return message
+  }
   const takePost = () => {
     const post = agentOf('r1').calls.shift()
     return { content: post.content, source: post.source }
   }
   await tool('list_bots', {}, 'a')
   const stream = (id, frame) => { for (const listener of ctx.listeners.get('agent/assistant-stream') ?? []) listener({ agent: { id }, frame }) }
-  return { home, agentOf, emit, stream, tool, call, begin, finish, round, say, takePost }
+  return { home, agentOf, emit, stream, tool, call, begin, finish, round, say, takePost, queueUser }
 }
 
 const settle = async (check) => {
@@ -221,6 +232,96 @@ test('active tool work holds the next employee until its reply finishes', async 
   await settle(() => result() !== undefined)
   assert.deepEqual(kinds(result()), [['message', 'Chief'], ['message', 'Writer'], ['message', 'Tester']])
   assert.equal(host.agentOf('r1').calls.length, 0)
+})
+
+test('a queued @mention reaches an idle colleague while the previous employee keeps working', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const result = host.round('queued-mention', host.say('@Writer Continue the report'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'long-tool', name: 'pwsh', arguments: '{}' })
+  host.queueUser('r1', '@Chief Are you here?')
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  assert.equal(host.agentOf('gb').cancelled.length, 0)
+  assert.equal(host.agentOf('r1').inbox.nextTurn.length, 0)
+  assert.match(text(host.begin('ga')), /@Chief Are you here\?/)
+  const working = (await host.call('state', {})).value.work.rooms.r1
+  assert.ok(working.some(row => row.botId === 'b' && row.tool === 'pwsh'))
+  host.finish('ga', 'I am here. Writer can continue the report.')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(kinds(result()), [['working', 'Writer'], ['user', undefined], ['message', 'Chief']])
+  t.mock.timers.tick(ROOM_REPLY_TIMEOUT_MS * 2)
+  assert.deepEqual(host.agentOf('gb').cancelled, [])
+  host.finish('gb', 'The report is ready.')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  assert.match(text(host.takePost()), /The report is ready/)
+})
+
+test('a failed employee does not lose the next queued @mention', async (t) => {
+  const host = await start(t)
+  const result = host.round('failed-mention', host.say('@Writer Check the report'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.queueUser('r1', '@Chief Switch the employee model', 'nextStep')
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'UNSUPPORTED_REASONING_EFFORT' } } })
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  assert.match(text(host.begin('ga')), /@Chief Switch the employee model/)
+  host.finish('ga', 'I received your new request.')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(host.agentOf('r1').inbox.nextStep, [])
+  assert.equal(result().replies.filter(row => row.name === 'Chief').length, 1)
+  assert.equal((await host.call('state', {})).value.modelFailures[0].code, 'UNSUPPORTED_REASONING_EFFORT')
+})
+
+test('deleting the current speaker releases its group round without waiting for the removed Session to end', async t => {
+  const host = await start(t)
+  const result = host.round('delete-speaker', host.say('@Writer @Tester Prepare the report'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.stream('gb', { type: 'start', attemptId: 'deleted-speaker' })
+  host.stream('gb', { type: 'chunk', attemptId: 'deleted-speaker', index: 0, chunk: { type: 'text-delta', text: 'Unfinished answer' } })
+  assert.equal((await host.call('room-progress', { roomId: 'r1' })).value[0].streaming.text, 'Unfinished answer')
+
+  await host.tool('delete_bot', { bot: 'Writer', user_requested: true }, 'a')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.equal((await host.call('state', {})).value.bots.some(bot => bot.id === 'b'), false)
+  const progress = (await host.call('room-progress', { roomId: 'r1' })).value
+  assert.equal(progress[0].speaking, 'c')
+  assert.equal(progress[0].streaming, undefined)
+  assert.equal(progress.some(row => row.background), false)
+
+  // An archive may end the removed Session after the next colleague has started.
+  host.finish('gb', 'Do not publish the deleted employee')
+  host.stream('gb', { type: 'chunk', attemptId: 'deleted-speaker', index: 1, chunk: { type: 'text-delta', text: ' stale chunk' } })
+  host.begin('gc')
+  host.finish('gc', 'I can continue the report')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(kinds(result()), [['message', 'Tester']])
+  assert.equal(host.agentOf('gb').calls.length, 1, 'the deleted employee must not receive another turn')
+  assert.equal(host.agentOf('r1').calls.length, 0, 'the deleted employee must not post a late answer')
+  assert.deepEqual((await host.call('room-progress', { roomId: 'r1' })).value, [])
+})
+
+test('an attachment or reference ahead of a new @mention leaves it queued for its own round', async (t) => {
+  for (const blocked of [
+    [{ type: 'text', text: 'Review this' }, { type: 'image', attachment: { id: 'mock-image' } }],
+    [{ type: 'text', text: 'Read @[Notes](dsh-session:mock-session)' }],
+  ]) {
+    const host = await start(t)
+    const result = host.round(randomUUID(), host.say('@Writer Continue the report'))
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    host.queueUser('r1', blocked)
+    host.queueUser('r1', '@Chief after the attachment')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(host.agentOf('ga').calls.length, 0)
+    assert.equal(result(), undefined)
+    assert.equal(host.agentOf('r1').inbox.nextTurn.length, 2)
+    host.finish('gb', 'Done with the original task.')
+    await settle(() => result() !== undefined)
+    assert.equal(host.agentOf('r1').inbox.nextTurn.length, 2)
+  }
 })
 
 test('a member called while still at earlier work lets the round go on at once', async (t) => {
@@ -401,6 +502,136 @@ test('only the current public stream appears live, retries replace partial text 
   await settle(() => result() !== undefined)
   assert.equal(result().replies[0].text, 'First step.\n\nFinal answer.')
   assert.deepEqual((await host.call('room-progress', { roomId: 'r1' })).value, [])
+})
+
+test('a yielded public reply keeps streaming in the group and the final post shares its stable stream id', async t => {
+  const host = await start(t)
+  const result = host.round('yielded-stream', host.say('@Writer 说一下'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.stream('gb', { type: 'start', attemptId: 'public' })
+  host.stream('gb', { type: 'chunk', attemptId: 'public', index: 0, chunk: { type: 'text-delta', text: 'First' } })
+  const initial = (await host.call('room-progress', { roomId: 'r1' })).value
+  assert.equal(initial[0].callId, 'yielded-stream')
+  assert.equal(initial[0].background, undefined)
+  assert.equal(initial.length, 1, 'the active round must not duplicate its stream in the background view')
+  const streamId = initial[0].streaming.streamId
+
+  host.queueUser('r1', '@Tester 现在回复')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '收到')
+  await settle(() => result() !== undefined)
+  host.stream('gb', { type: 'chunk', attemptId: 'public', index: 1, chunk: { type: 'text-delta', text: ' answer' } })
+  const background = (await host.call('room-progress', { roomId: 'r1' })).value
+  assert.equal(background.length, 1)
+  assert.equal(background[0].callId, 'background:r1')
+  assert.equal(background[0].background, true)
+  const live = background[0].streams[0]
+  assert.deepEqual({ ...live, time: 0 }, { streamId, botId: 'b', name: 'Writer', text: 'First answer', time: 0, status: 'active' })
+  assert.equal(typeof live.time, 'number')
+  assert.deepEqual((await host.call('room-progress', { roomId: 'missing' })).value, [])
+
+  host.finish('gb', 'First answer')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.equal(post.source.streamId, streamId)
+  assert.equal(post.source.late, true)
+  const completed = (await host.call('room-progress', { roomId: 'r1' })).value[0].streams[0]
+  assert.equal(completed.streamId, streamId)
+  assert.equal(completed.status, 'completed')
+  assert.equal(completed.text, 'First answer')
+  const now = Date.now()
+  t.mock.method(Date, 'now', () => now + 30_001)
+  assert.deepEqual((await host.call('room-progress', { roomId: 'r1' })).value, [])
+})
+
+test('a timed-out public member reply remains visible as it produces later text', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const result = host.round('timeout-stream', host.say('@Writer 等你回复'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.stream('gb', { type: 'start', attemptId: 'slow' })
+  host.stream('gb', { type: 'chunk', attemptId: 'slow', index: 0, chunk: { type: 'text-delta', text: 'Preparing' } })
+  t.mock.timers.tick(ROOM_REPLY_TIMEOUT_MS)
+  await settle(() => result() !== undefined)
+  assert.deepEqual(kinds(result()), [['missed', 'Writer']])
+  host.stream('gb', { type: 'chunk', attemptId: 'slow', index: 1, chunk: { type: 'text-delta', text: ' result' } })
+  const value = (await host.call('room-progress', { roomId: 'r1' })).value
+  assert.equal(value.length, 1)
+  assert.equal(value[0].background, true)
+  assert.equal(value[0].streams[0].text, 'Preparing result')
+  host.finish('gb', 'Preparing result')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+})
+
+test('background public streams isolate members, discard failed attempts and ignore unstarted or private work', async t => {
+  const host = await start(t)
+  const beginPublic = (id, exchangeId) => {
+    host.emit(id, 'turn/start', { turn: 1 })
+    host.emit(id, 'user/message', { content: [{ type: 'text', text: 'Reply here' }], source: { kind: 'bot', role: 'room', exchangeId, roomId: 'r1', hop: 0 } })
+  }
+  const beginStream = (id, attemptId, value, index = 0) => {
+    host.stream(id, { type: 'start', attemptId })
+    host.stream(id, { type: 'chunk', attemptId, index, chunk: { type: 'text-delta', text: value } })
+  }
+  const live = async () => (await host.call('room-progress', { roomId: 'r1' })).value.flatMap(row => row.streams ?? [])
+  host.stream('gc', { type: 'start', attemptId: 'not-started' })
+  host.stream('gc', { type: 'chunk', attemptId: 'not-started', index: 0, chunk: { type: 'text-delta', text: 'Queued, not running' } })
+  assert.deepEqual(await live(), [])
+  beginPublic('gb', 'writer-public')
+  beginPublic('gc', 'tester-public')
+  beginStream('gb', 'writer-1', 'Draft')
+  beginStream('gc', 'tester-1', 'Checking')
+  let streams = await live()
+  assert.deepEqual(streams.map(item => [item.botId, item.text]), [['b', 'Draft'], ['c', 'Checking']])
+  assert.notEqual(streams[0].streamId, streams[1].streamId)
+  const testerId = streams[1].streamId
+  host.stream('gb', { type: 'end', attemptId: 'writer-1', outcome: { kind: 'abandoned' } })
+  assert.deepEqual((await live()).map(item => item.botId), ['c'])
+  host.stream('gb', { type: 'chunk', attemptId: 'writer-1', index: 1, chunk: { type: 'text-delta', text: 'Stale tail' } })
+  assert.deepEqual((await live()).map(item => item.botId), ['c'])
+  beginStream('gb', 'writer-2', 'Replacement')
+  assert.equal((await live()).find(item => item.botId === 'b').text, 'Replacement')
+  assert.equal((await live()).find(item => item.botId === 'c').streamId, testerId)
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+  assert.deepEqual((await live()).map(item => item.botId), ['c'])
+  host.emit('gc', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'SERVER', message: 'Upstream failed' } } })
+  assert.deepEqual(await live(), [])
+
+  host.emit('gb', 'turn/start', { turn: 2 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'Private delegated work' }], source: { kind: 'bot', role: 'request', exchangeId: 'private', senderSessionId: 'a', hop: 0 } })
+  beginStream('gb', 'private', 'Private intermediate result')
+  assert.deepEqual(await live(), [])
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'aborted' } })
+
+  host.emit('gb', 'turn/start', { turn: 3 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'Retry the public reply' }], source: { kind: 'bot', role: 'retry', exchangeId: 'writer-retry', roomId: 'r1', hop: 0 } })
+  beginStream('gb', 'public-retry', 'Retried answer')
+  assert.equal((await live())[0].text, 'Retried answer')
+  host.emit('gb', 'turn/end', { turn: 3, reason: { kind: 'aborted' } })
+  assert.deepEqual(await live(), [])
+})
+
+test('only the coordinator public reply streams after message_bot privately returns employee results', async t => {
+  const host = await start(t)
+  await host.tool('message_bot', { to: 'Tester', message: 'Check the result' }, 'gb')
+  assert.equal(host.begin('gc').source.role, 'request')
+  host.stream('gc', { type: 'start', attemptId: 'private-worker' })
+  host.stream('gc', { type: 'chunk', attemptId: 'private-worker', index: 0, chunk: { type: 'text-delta', text: 'Internal draft' } })
+  assert.deepEqual((await host.call('room-progress', { roomId: 'r1' })).value, [])
+  host.finish('gc', 'Checked')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  assert.equal(host.begin('gb').source.role, 'reply')
+  host.stream('gb', { type: 'start', attemptId: 'public-coordinator' })
+  host.stream('gb', { type: 'chunk', attemptId: 'public-coordinator', index: 0, chunk: { type: 'text-delta', text: 'The check passed' } })
+  const stream = (await host.call('room-progress', { roomId: 'r1' })).value[0].streams[0]
+  assert.equal(stream.botId, 'b')
+  assert.equal(stream.text, 'The check passed')
+  host.finish('gb', 'The check passed')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  assert.equal(host.takePost().source.streamId, stream.streamId)
 })
 
 test('a collaborative task ends with one admin summary without calling employees again', async (t) => {

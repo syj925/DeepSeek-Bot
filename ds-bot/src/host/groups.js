@@ -124,33 +124,66 @@ export function install(rt) {
     return { text: `[Answer to question card] ${question.question}\nAnswer: ${text}`, questionBotId: question.botId }
   }
 
-  // Only public text from the current group's exact exchange enters the live view.
-  // Reasoning, tool arguments, private-chat streams and other attempts stay out.
+  const roomStreams = new Map()
+  const streamIdOf = (roomId, botId, info) => JSON.stringify([roomId, botId, info.exchangeId])
+  const publicTurn = (sessionId, info) => {
+    const owner = rt.groupOwners.get(sessionId)
+    const room = rt.roomOf(owner?.roomId)
+    if (!room || !room.members.includes(owner.botId) || !info?.exchangeId) return undefined
+    if (info.role !== 'room' && info.role !== 'reply' && info.role !== 'retry') return undefined
+    if (info.role === 'room' && info.roomId !== room.id) return undefined
+    return { roomId: room.id, botId: owner.botId, streamId: streamIdOf(room.id, owner.botId, info) }
+  }
+  const roundFor = (item) => [...rt.roomProgress.values()].find(round => round.roomId === item.roomId
+    && round.speaking === item.botId && rt.roomWaiters.has(item.exchangeId)
+    && round.started.some(turn => turn.exchangeId === item.exchangeId))
+  rt.clearRoomStream = (sessionId, info) => {
+    const place = publicTurn(sessionId, info)
+    if (place) roomStreams.delete(place.streamId)
+  }
+  rt.roomStreamsView = (roomId) => {
+    const streams = []
+    for (const [key, item] of roomStreams) {
+      const room = rt.roomOf(item.roomId)
+      if (!room?.members.includes(item.botId) || item.expiresAt <= Date.now()) { roomStreams.delete(key); continue }
+      if (item.roomId !== roomId || roundFor(item) || !item.text.trim() || isPass(item.text)
+        || /^\s*\[(?:P(?:A(?:S(?:S\]?)?)?)?)?\s*$/i.test(item.text)) continue
+      const { streamId, botId, name, text, time, status } = item
+      streams.push({ streamId, botId, name, text, time, status })
+    }
+    return streams.length ? [{ callId: `background:${roomId}`, background: true, streams }] : []
+  }
+
+  // Only public group turns enter this view. A delegated private reply still goes
+  // through its recipient before that recipient speaks in the group.
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {
     const entry = rt.live.get(agent.id)
     const info = entry?.info
-    if (info?.role !== 'room') return
-    const round = [...rt.roomProgress.values()].find(value => value.roomId === info.roomId && value.started.some(turn => turn.exchangeId === info.exchangeId))
-    if (!round || round.speaking !== rt.selfOf(agent.id)) return
+    if (entry?.turn === undefined) return
+    const place = publicTurn(agent.id, info)
+    if (!place) return
+    let item = roomStreams.get(place.streamId)
     rt.touchRoomTurn?.(agent.id)
     if (frame.type === 'start') {
-      round.streamAttempt = { id: frame.attemptId, index: -1, prefix: (entry.texts ?? []).join('\n\n') }
-      round.streaming = { botId: round.speaking, name: rt.botOf(round.speaking)?.name, text: round.streamAttempt.prefix, time: Date.now() }
-    } else if (frame.attemptId === round.streamAttempt?.id) {
-      const attempt = round.streamAttempt
-      if (frame.type === 'chunk' && frame.index > attempt.index && round.streaming) {
+      const prefix = (entry.texts ?? []).join('\n\n')
+      item = { ...place, exchangeId: info.exchangeId, name: rt.botOf(place.botId)?.name, text: prefix, time: item?.time ?? Date.now(), status: 'active', attempt: { id: frame.attemptId, index: -1, prefix } }
+      roomStreams.set(place.streamId, item)
+    } else if (item?.attempt && frame.attemptId === item.attempt.id) {
+      const attempt = item.attempt
+      if (frame.type === 'chunk' && frame.index > attempt.index) {
         attempt.index = frame.index
         if (frame.chunk?.type === 'text-delta') {
-          if (round.streaming.text === attempt.prefix && attempt.prefix) round.streaming.text += '\n\n'
-          round.streaming.text += frame.chunk.text ?? ''
+          if (item.text === attempt.prefix && attempt.prefix) item.text += '\n\n'
+          item.text += frame.chunk.text ?? ''
         }
       } else if (frame.type === 'end') {
-        if (frame.outcome.kind === 'abandoned' || frame.outcome.eventType === 'assistant/attempt') {
-          round.streaming.text = attempt.prefix
-        }
-        delete round.streamAttempt
+        if (frame.outcome?.kind === 'abandoned' || frame.outcome?.eventType === 'assistant/attempt') item.text = attempt.prefix
+        delete item.attempt
       }
     }
+    if (!item) return
+    const round = roundFor(item)
+    if (round) round.streaming = { streamId: item.streamId, botId: item.botId, name: item.name, text: item.text, time: item.time }
   })
 
   // Group execution never imports the employee's private conversation.
@@ -225,13 +258,27 @@ export function install(rt) {
   })
   const minutesSince = at => Math.max(1, Math.round((Date.now() - at) / 60000))
 
+  // A plain user message queued in the room releases a member waiter. The old
+  // member work continues; the next speaker boundary drains the room inbox.
+  const roomInboxWaiters = new Map()
+  const isPlainUserMessage = message => {
+    if (message?.source?.kind !== 'user') return false
+    const content = Array.isArray(message.content) ? message.content : []
+    const text = textOf(content)
+    return text !== '' && content.every(block => block?.type === 'text') && !text.includes('dsh-session:')
+  }
+  ctx.on('agent/inbox/inserted', ({ agent, message } = {}) => {
+    if (!isPlainUserMessage(message)) return
+    for (const wake of [...(roomInboxWaiters.get(agent?.id) ?? [])]) wake()
+  })
+
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
   // model call failed, `{ missed }` when it went quiet for too long, `{ approval }` when
   // it waits for the user's approval, `{ working }` when it goes on working without the
   // round, or null when the round was stopped. The wait restarts on each event of the
   // member's Session, so a member at work is never cut off. `by` is the member that
   // called it, which answers what the turn posts after the round moved on.
-  async function roomTurn(room, member, sessionId, text, note, signal, started, by) {
+  async function roomTurn(room, member, sessionId, text, note, signal, started, by, roomAgent) {
     if (signal.aborted) return null
     const exchangeId = randomUUID()
     const turn = { botId: member.id, sessionId, exchangeId }
@@ -239,16 +286,33 @@ export function install(rt) {
     room.seen[member.id] = room.seq
     // Checked before the delivery, which may start the turn at once.
     const busy = rt.live.get(sessionId)?.turn !== undefined
+    const roomSessionId = roomAgent?.id ?? room.id
     const done = new Promise((resolve) => {
       let timer
+      let watching = false
+      let settled = false
+      const wakeForUserMessage = () => {
+        if (waitingLines(roomAgent).length > 0) finish({ working: true })
+      }
+      const stopWatching = () => {
+        if (!watching) return
+        const waiters = roomInboxWaiters.get(roomSessionId)
+        waiters?.delete(wakeForUserMessage)
+        if (waiters?.size === 0) roomInboxWaiters.delete(roomSessionId)
+        watching = false
+      }
       const abort = () => finish(null)
       const finish = (value) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
+        stopWatching()
         signal.removeEventListener('abort', abort)
         rt.roomWaiters.delete(exchangeId)
         resolve(value)
       }
       const touch = () => {
+        if (settled) return
         clearTimeout(timer)
         timer = setTimeout(() => finish({ missed: true }), ROOM_REPLY_TIMEOUT_MS)
       }
@@ -256,6 +320,13 @@ export function install(rt) {
       touch()
       rt.roomWaiters.set(exchangeId, { sessionId, botId: member.id, roomId: room.id, resolve: finish, fail: failure => finish({ failure }), touch, work, approval: () => finish({ approval: true }) })
       signal.addEventListener('abort', abort, { once: true })
+      if (roomAgent?.inbox) {
+        const waiters = roomInboxWaiters.get(roomSessionId) ?? new Set()
+        waiters.add(wakeForUserMessage)
+        roomInboxWaiters.set(roomSessionId, waiters)
+        watching = true
+        wakeForUserMessage()
+      }
     })
     try {
       await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, ...(by ? { askedBy: by } : {}) })
@@ -396,7 +467,8 @@ export function install(rt) {
       const prompt = roomPrompt(room, member, round)
       round.shown?.push(member.id)
       const text = session.brief === undefined ? prompt : `${session.brief}\n\n${prompt}`
-      const reply = await roomTurn(room, member, session.id, text, slot.note ?? 'your turn', signal, round.started, slot.by)
+      const reply = await roomTurn(room, member, session.id, text, slot.note ?? 'your turn', signal, round.started, slot.by, round.kickoff ? undefined : agent)
+      const streamId = round.streaming?.streamId
       delete round.streaming
       delete round.streamAttempt
       round.speaking = null
@@ -436,7 +508,7 @@ export function install(rt) {
       }
       slot.status = 'posted'
       appendRoom(room, { who: member.name, botId: member.id, text: reply })
-      round.replies.push({ botId: member.id, name: member.name, color: member.color, ...temporaryIdentity(member), text: reply, time: Date.now() })
+      round.replies.push({ botId: member.id, name: member.name, color: member.color, ...temporaryIdentity(member), ...(streamId ? { streamId } : {}), text: reply, time: Date.now() })
       void rt.save().catch(() => {})
       // Only the admin's "@all" calls everyone, so a member cannot set off a storm.
       const leads = rt.isAdminOf(room, member.id)
@@ -677,12 +749,15 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     const text = stripOwnName(member.name, reply)
-    if (isPass(text)) return
+    const streamId = streamIdOf(room.id, member.id, info)
+    if (isPass(text)) { roomStreams.delete(streamId); return }
+    const stream = roomStreams.get(streamId)
+    if (stream) Object.assign(stream, { text, status: 'completed', expiresAt: Date.now() + 30000 })
     const quiet = (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
     if (!quiet) room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
-    await postToRoom(room, member, text, { late: true, ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
-      .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
+    await postToRoom(room, member, text, { late: true, streamId, ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
+      .catch(error => { roomStreams.delete(streamId); rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error) })
   }
   rt.lateRoomReply = lateRoomReply
 

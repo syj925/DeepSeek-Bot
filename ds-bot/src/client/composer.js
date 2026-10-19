@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { ChatsIcon, ClockIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { useLinger } from './motion.js'
+import { ModelMenu, RoomModelMenu } from './model-menu.js'
+import { currentPart } from './text.js'
 import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -121,7 +123,9 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('mousedown', onDown, true); window.removeEventListener('keydown', onKey, true) }
   }, [open])
-  const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id
+  const bot = roster.byId?.[sessionId] ?? roster.bots?.find(entry => currentPart(entry) === sessionId)
+  const room = roster.roomsById?.[sessionId]
+  const target = bot?.id ?? room?.id
   if (sessionId === undefined || target === undefined) return null
   const toggle = () => {
     if (open) { setOpen(null); return }
@@ -148,6 +152,8 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
       ref: button, type: 'button', className: 'bt-plus', 'aria-label': t('Add'), title: t('Add'),
       'aria-haspopup': 'menu', 'aria-expanded': Boolean(open), onMouseDown: keepComposerFocus, onClick: toggle,
     }, h(PlusIcon)),
+    bot ? h(ModelMenu, { bot, roster, actions, compact: true, run: promise => Promise.resolve(promise).catch(error => actions.reportError(error, 'composer-model')) })
+      : h(RoomModelMenu, { room, roster, actions, run: promise => Promise.resolve(promise).catch(error => actions.reportError(error, 'composer-model')) }),
     shown ? createPortal(h('div', {
       ref: menu, className: 'bt-menu bt-menu-up bt-plus-menu', role: 'menu', 'aria-label': t('Add'),
       style: { left: shown.left, bottom: shown.bottom }, 'data-leaving': leaving || undefined,

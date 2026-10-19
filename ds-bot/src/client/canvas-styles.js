@@ -2010,6 +2010,7 @@ export const canvasStyles = `
   overscroll-behavior: contain;
   background: transparent;
   padding-bottom: 18px;
+  scroll-padding-bottom: calc(var(--dsh-composer-height,80px) + 12px);
   scrollbar-width: thin;
   scrollbar-color: rgba(0,0,0,.15) transparent;
 }
@@ -2019,12 +2020,13 @@ export const canvasStyles = `
 .bt-canvas .bt-group-failure-actions .bt-soft{padding:3px 8px;border:1px solid rgba(180,35,24,.22);border-radius:7px;background:rgba(255,255,255,.72);color:#9f1239;cursor:pointer;font:inherit;font-size:11px}
 .bt-canvas .bt-group-failure-actions .bt-soft:hover{background:#fff}
 .bt-canvas [data-composer-seat] {
-  position:relative;
-  z-index:2;
+  position:sticky;
+  bottom:0;
+  z-index:7;
   flex:none;
   margin-top: auto;
   background: transparent !important;
-  border-top: 1px solid var(--divider) !important;
+  border: 0 !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
