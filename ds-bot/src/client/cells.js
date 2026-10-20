@@ -9,7 +9,8 @@ import { AnsweredCell, SettledQuestion, PendingQuestion } from './questions.js'
 import { SecretToolCell } from './secret-card.js'
 import { dateLocale, t } from './i18n.js'
 import { failureLabel } from './diagnostics.js'
-import { turnReasoning } from './turn-reasoning.js'
+import { turnReasoningState } from './turn-reasoning.js'
+import { ThinkingRow } from './reasoning-stream.js'
 import { replyIdentity } from '../shared/employee-avatar.js'
 import { TaskGroupCard } from './task-groups.js'
 import { subscribeRoomProgress } from './room-progress.js'
@@ -28,7 +29,7 @@ const mdLabels = () => {
 }
 
 // The sender avatar starts the first bubble; following bubbles retain its gutter.
-export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, sessionId, msgKey, useUi, lead, mentions }) {
+export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, sessionId, msgKey, useUi, lead, mentions, revealFresh, revealKey }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -43,7 +44,7 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, s
       const picked = key ? reactions?.[index] ?? [] : []
       const last = index === texts.length - 1
       const live = streaming && last
-      return h('div', { key: index, className: 'bt-msg', 'data-bt-streaming': live ? '' : undefined, 'data-bt-stream-key': streamId ? `${streamId}:${index}` : undefined },
+      return h('div', { key: index, className: 'bt-msg', 'data-bt-streaming': live ? '' : undefined, 'data-bt-stream-key': streamId ? `${streamId}:${index}` : undefined, 'data-bt-reveal-fresh': revealFresh && last ? '' : undefined, 'data-bt-reveal-key': revealFresh && last ? revealKey : undefined },
         h('div', { className: 'bt-msg-line' },
           lead && index === 0 ? lead : null,
           h('div', { className: 'bt-bubble', 'data-bt-reveal-text': '' },
@@ -110,12 +111,6 @@ function MessageTools({ text, name, sessionId, react, actions }) {
       item(t('Copy'), CopyIcon, copy), item(t('Download'), DownloadIcon, download)), document.body) : null)
 }
 
-function ThinkingRow({ text, streaming }) {
-  return h('details', { className: 'bt-think', 'data-bt-streaming': streaming ? '' : undefined },
-    h('summary', null, t('Thought it through')),
-    h('div', { className: 'bt-think-text', 'data-bt-reveal-text': '' }, text))
-}
-
 // The files a finished turn changed or delivered, linked from inline code in its
 // reply as in DSH's own chat. DSH resolves them for the step that closes the turn.
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
@@ -138,15 +133,19 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn)
   const texts = groupPart === 'reasoning' ? [] : data.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text)
   const running = data.status === 'running'
+  const visit = useUi(state => state.visits?.[sessionId])
+  const turnStart = node.location?.turn?.start?.time
+  const revealFresh = !running && typeof visit?.entered === 'number' && typeof turnStart === 'number' && turnStart >= visit.entered
+  const revealKey = `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`
   // A streaming reply stands in for the activity row.
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
   if (hidden) return null
-  const reasoning = groupPart === 'response' ? '' : turnReasoning(steps, data)
+  const reasoning = groupPart === 'response' ? { text: '', streaming: false } : turnReasoningState(steps, data)
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
   // DSH 0.2; the step that answers it shows the event line where it was read,
   // once, in the step's first cell.
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : []
-  if (texts.length === 0 && !reasoning && relays.length === 0) return null
+  if (texts.length === 0 && !reasoning.text && relays.length === 0) return null
   const selfId = roster.byId[sessionId]?.id ?? sessionId
   return h(Fragment, null,
     relays.map(relay => {
@@ -160,8 +159,8 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
         whole: true,
       })
     }),
-    reasoning ? h(ThinkingRow, { text: reasoning, streaming: running }) : null,
-    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions }) : null)
+    reasoning.text ? h(ThinkingRow, { key: `reasoning:${sessionId}:${data.turn}`, text: reasoning.text, streaming: reasoning.streaming, streamId: `reasoning:${sessionId}:${data.turn}` }) : null,
+    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: revealKey, useUi, mentions, revealFresh, revealKey }) : null)
 }
 
 function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {

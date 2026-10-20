@@ -6,15 +6,19 @@ const FADE_MS = 120
 const STAGGER_MS = 120
 const BURST_LIMIT = 10000
 const LIVE_LIMIT = 12000
+const FRAME_BUDGET = 40
+const SUSPENDED_MS = 450
 const STREAM = '[data-bt-streaming]'
+const FRESH = '[data-bt-reveal-fresh]'
 const KEY = 'data-bt-stream-key'
+const REVEAL_KEY = 'data-bt-reveal-key'
 const INK = '--bt-reveal-ink'
 const PREFIX = 'bt-reveal-'
 const documents = new WeakMap()
 
 // Highlight ranges change paint only: Markdown keeps its nodes, selection,
 // layout and complete text while each new character settles to its own ink.
-export const STREAM_REVEAL_CSS = `::highlight(${PREFIX}pending){color:transparent}\n` + Array.from({ length: STEPS }, (_, step) =>
+export const STREAM_REVEAL_CSS = `::highlight(${PREFIX}pending){color:color-mix(in srgb,var(${INK},currentColor) 20%,transparent)}\n` + Array.from({ length: STEPS }, (_, step) =>
   `::highlight(${PREFIX}${step}){color:color-mix(in srgb,var(${INK},currentColor) ${Math.round(20 + step * 80 / (STEPS - 1))}%,transparent)}`,
 ).join('\n')
 
@@ -57,6 +61,9 @@ function registryFor(document, view) {
         if (!groups[step]?.length) continue
         if (!highlight) {
           highlight = new view.Highlight()
+          // This plugin owns these private bubbles. A global skin may also
+          // highlight their host ancestor; registration order must not win.
+          try { highlight.priority = 1 } catch { /* older Highlight implementations ignore priority */ }
           highlights.set(step, highlight)
           registry.set(PREFIX + step, highlight)
         }
@@ -121,28 +128,38 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
   const owner = {}, states = new Map(), dirty = new Set()
   const motion = reducedMotion ?? view.matchMedia?.('(prefers-reduced-motion: reduce)')
   const segmenter = typeof view.Intl?.Segmenter === 'function' ? new view.Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
-  let frame = 0, stopped = false, lastPaint = 0
+  let frame = 0, stopped = false, lastPaint = 0, slowFrames = 0, quietUntil = 0
   manager.attach(owner)
   const paused = () => document.hidden || motion?.matches
-  const active = node => scope.contains(node) && node.matches(STREAM)
-  const enroll = (node, historical = false) => {
-    if (!active(node) || states.has(node)) return
-    states.set(node, { snapshot: historical || paused() ? snapshot(node, document) : { text: '', entries: [] }, runs: [], quietUntil: 0, key: node.getAttribute(KEY) })
+  const keyOf = node => node.getAttribute(KEY) ?? node.getAttribute(REVEAL_KEY)
+  const seenKeys = new Set()
+  const active = (node, state = states.get(node)) => scope.contains(node) && (node.matches(STREAM) || state?.fresh === true)
+  const enroll = (node, historical = false, fresh = false) => {
+    if (!scope.contains(node) || states.has(node) || (!node.matches(STREAM) && !fresh)) return
+    const key = keyOf(node)
+    if (fresh && (!key || seenKeys.has(key))) return
+    if (key) seenKeys.add(key)
+    states.set(node, { snapshot: historical || paused() ? snapshot(node, document) : { text: '', entries: [] }, runs: [], quietUntil: 0, key, fresh })
     if (!historical && !paused()) dirty.add(node)
   }
   const discover = (node, historical = false) => {
     if (node.nodeType !== 1) return
     if (node.matches(STREAM)) enroll(node, historical)
-    for (const child of node.querySelectorAll(STREAM)) enroll(child, historical)
+    if (node.matches(FRESH)) enroll(node, historical, !historical)
+    for (const child of node.querySelectorAll(`${STREAM},${FRESH}`)) {
+      if (child.matches(STREAM)) enroll(child, historical)
+      if (child.matches(FRESH)) enroll(child, historical, !historical)
+    }
   }
-  const schedule = () => { if (!stopped && !paused() && !frame) frame = view.requestAnimationFrame(paint) }
+  const schedule = () => { if (!stopped && !paused() && !frame) frame = view.requestAnimationFrame(now => paint(now, true)) }
   const clear = () => {
     view.cancelAnimationFrame(frame)
-    frame = 0; lastPaint = 0; dirty.clear()
+    frame = 0; lastPaint = 0; slowFrames = 0; quietUntil = 0; dirty.clear()
     for (const [node, state] of states) {
       if (!active(node)) { states.delete(node); continue }
       state.runs = []; state.snapshot = snapshot(node, document)
     }
+    quietUntil = 0
     manager.update(owner, [])
   }
   const scan = (container, now) => {
@@ -150,7 +167,7 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
     if (!state) return
     if (!scope.contains(container)) { states.delete(container); return }
     const next = snapshot(container, document)
-    state.key = container.getAttribute(KEY)
+    state.key = keyOf(container)
     const before = state.snapshot.text
     const change = difference(before, next.text)
     const shift = change.end - change.oldEnd
@@ -161,7 +178,7 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
     })
     const count = change.end - change.start
     const folded = container.matches('details:not([open])') || container.closest('details:not([open])')
-    const allowed = !folded && now >= state.quietUntil && count > 0 && count <= BURST_LIMIT
+    const allowed = !folded && now >= state.quietUntil && now >= quietUntil && count > 0 && count <= BURST_LIMIT
       && (change.start === before.length || count <= 64)
     if (allowed) {
       const tail = next.text.slice(change.start, change.end)
@@ -177,14 +194,23 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
     }
     state.snapshot = next
   }
-  function paint(now) {
+  function paint(now, fromFrame = false) {
     // A frame timestamp can precede a mutation checkpoint in that same frame.
     now = Math.max(now, view.performance.now(), lastPaint)
     view.cancelAnimationFrame(frame)
     frame = 0
     if (stopped || paused()) { clear(); return }
-    // A suspended tab or long main-thread pause must never replay old tokens.
-    if (lastPaint && now - lastPaint > 450) for (const state of states.values()) state.runs = []
+    const gap = lastPaint ? now - lastPaint : 0
+    if (fromFrame) slowFrames = gap > 65 && gap < SUSPENDED_MS ? slowFrames + 1 : 0
+    // One skipped frame should not consume the entire fade unseen. Repeated
+    // slow frames yield instead of keeping a costly animation alive forever.
+    if (gap >= SUSPENDED_MS || slowFrames >= 4) {
+      for (const state of states.values()) state.runs = []
+      if (slowFrames >= 4) quietUntil = now + 1500
+      slowFrames = 0
+    } else if (gap > FRAME_BUDGET) {
+      for (const state of states.values()) for (const run of state.runs) run.born += gap - 16
+    }
     lastPaint = now
     for (const node of dirty) scan(node, now)
     dirty.clear()
@@ -225,11 +251,15 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
     let touched = false
     for (const record of records) {
       const element = record.target.nodeType === 1 ? record.target : record.target.parentElement
-      let container = element?.closest(STREAM)
+      let container = element?.closest(`${STREAM},${FRESH}`)
       if (!container) for (let at = element; at && scope.contains(at); at = at.parentElement) {
         if (states.has(at)) { container = at; break }
       }
-      if (container && scope.contains(container)) { enroll(container); dirty.add(container); touched = true }
+      if (container && scope.contains(container)) {
+        if (container.matches(FRESH)) enroll(container, false, true)
+        else enroll(container)
+        dirty.add(container); touched = true
+      }
       if (record.type === 'attributes' && states.has(element)) { dirty.add(element); touched = true }
       if (record.type === 'childList') {
         for (const added of record.addedNodes) discover(added)
@@ -247,7 +277,7 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
     if (!paused() && (dirty.size || touched)) paint(view.performance.now())
     else if (paused()) clear()
   })
-  observer.observe(scope, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['data-bt-streaming', KEY] })
+  observer.observe(scope, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['data-bt-streaming', 'data-bt-reveal-fresh', KEY, REVEAL_KEY] })
   const settleMotion = () => { clear() }
   const fold = event => {
     const target = event.target?.closest?.('summary,[aria-expanded]')

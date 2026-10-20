@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
+import { COMPOSER_CARET_CSS, observeComposerCaret } from './composer-caret.js'
 
 const EDITOR = '[data-composer-input],textarea[data-bt-home-input],input[data-bt-home-input]'
 const PRIMARY = 'button[class*="_primary"],button[type="submit"]'
@@ -93,6 +94,7 @@ export function observeComposerMotion(card, { reducedMotion } = {}) {
     const editorHeight = editor?.offsetHeight ?? 0
     const nextGeometry = [card.offsetWidth, editorHeight, ...[...card.children].map(child => child.offsetHeight)].join(':')
     mark(card, 'data-bt-composer-lines', editorHeight > 44 ? 'multiple' : 'single')
+    caret.refresh()
     if (shape && geometry === nextGeometry) return
     geometry = nextGeometry
     const before = shape ? card.offsetHeight : targetHeight
@@ -119,6 +121,7 @@ export function observeComposerMotion(card, { reducedMotion } = {}) {
     schedule()
   }
   const changeMotion = () => { if (motion?.matches) cancelAnimations(); schedule() }
+  const caret = observeComposerCaret(card, { reducedMotion: motion, requestUpdate: schedule })
   resize = typeof view.ResizeObserver === 'function' ? new view.ResizeObserver(schedule) : null
   const mutations = new view.MutationObserver(schedule)
   mutations.observe(card, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'data-phase', 'aria-busy'] })
@@ -134,6 +137,7 @@ export function observeComposerMotion(card, { reducedMotion } = {}) {
     view.cancelAnimationFrame(frame)
     mutations.disconnect()
     resize?.disconnect()
+    caret()
     cancelAnimations()
     for (const type of ['input', 'change']) card.removeEventListener(type, schedule)
     for (const type of ['focusin', 'focusout']) card.removeEventListener(type, focus)
@@ -163,7 +167,7 @@ export function useComposerMotion(anchor, value) {
 // legacy control rules even when a later slot installs those styles after us.
 const SURFACE = ':is([data-composer-card],.bt-qibit-search)[data-bt-composer-motion]'
 
-export const COMPOSER_MOTION_CSS = `
+export const COMPOSER_MOTION_CSS = COMPOSER_CARET_CSS + `
 [data-composer-card][data-bt-composer-motion],.bt-qibit-search[data-bt-composer-motion]{
   position:relative;isolation:isolate;outline:none!important;
   transition:border-color 210ms ease,background-color 230ms ease,box-shadow 260ms cubic-bezier(.2,.75,.25,1),border-radius 210ms ease!important;

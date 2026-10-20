@@ -39,6 +39,7 @@ import { CanvasWorkspace } from './canvas-workspace.js'
 import { canvasStyles } from './canvas-styles.js'
 import { COMPOSER_MOTION_CSS } from './composer-motion.js'
 import { STREAM_REVEAL_CSS } from './stream-reveal.js'
+import { REASONING_STREAM_CSS } from './reasoning-stream.js'
 import { canvasReading, watchCompletions } from './completion-unread.js'
 import { createTaskNotices } from './task-notice-state.js'
 import { TaskNotifications, TASK_NOTICE_CSS } from './task-notices.js'
@@ -1005,7 +1006,7 @@ export function apply(ctx) {
     shadow('sidebar.footer.action', { id: 'bot-canvas', order: -250, inject: face }, CanvasLauncher),
   ]
   const installConversation = () => [
-    installCompiledStyles(CONVERSATION_CSS, 'conversation'),
+    installCompiledStyles(CONVERSATION_CSS + REASONING_STREAM_CSS, 'conversation'),
     installCompiledStyles(COMPOSER_MOTION_CSS + STREAM_REVEAL_CSS, 'interaction'),
     installMentions(),
     installAtMenu(),

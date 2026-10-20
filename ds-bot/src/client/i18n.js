@@ -17,6 +17,7 @@ const ZH = {
   'Could not load progress. Retrying…': '暂未获取到进度，正在重新连接…',
   'This turn has ended': '本轮执行已结束',
   'Model reasoning': '模型返回的思考内容',
+  'Follow latest': '跟随最新内容',
   'No reasoning text has been returned yet. The progress above reflects actual execution.': '模型暂未返回思考文字，以上展示实际执行状态。',
   'Task collaboration': '任务协作',
   'Result saved. The coordinator could not be reached; you can read it here.': '结果已保留，暂未联系上负责人，可在这里查看。',

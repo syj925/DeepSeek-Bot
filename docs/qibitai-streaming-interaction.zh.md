@@ -1,4 +1,4 @@
-# 0.1.56 输入与流式交互维护说明
+# 0.1.57 输入与流式交互维护说明
 
 本版保留员工、群聊、任务队列和权限逻辑，调整模型入口、输入框反馈和流式文字绘制。参考界面用于理解交互节奏，未复制其实现。
 
@@ -17,10 +17,10 @@
 
 ## 流式文字渐显
 
-[stream-reveal.js](../ds-bot/src/client/stream-reveal.js) 观察本窗口正在输出的文本，只为新增或小幅改写的字符创建 Range。
-CSS Custom Highlights 为尚未到时的字符绘制透明遮罩，随后按 24 个阶段从 20% 墨色过渡到正常墨色，单字持续 120 ms；同批字符依顺序最多错开 120 ms。
+[stream-reveal.js](../ds-bot/src/client/stream-reveal.js) 观察本窗口正在输出的文本，只为新增或小幅改写的字符创建 Range。宿主有时会把很快完成的回复直接挂成 settled 行而不暴露流式标记；私聊会为进入当前会话后新产生、带稳定 turn 标识的完成行加一次受限渐入，历史重载不播放。
+CSS Custom Highlights 为尚未到时的字符绘制 20% 墨色，随后按 24 个阶段过渡到正常墨色，单字持续 120 ms；同批字符依顺序最多错开 120 ms。
 MutationObserver 在当前微任务内扫描并立即绘制首态，防止先全亮一帧再变淡。rAF 使用单调时间，避免同一帧内回退。
-高亮改变绘制，不包装文字、不分割文本节点、不替换 Markdown 元素，不延迟真正收到的正文，也不以额外打字队列拖慢完成。
+高亮改变绘制，不包装文字、不分割文本节点、不替换 Markdown 元素，不延迟真正收到的正文，也不以额外打字队列拖慢完成。自有高亮设置优先级并对掉帧做时间补偿；连续低帧时让出绘制，避免动画反过来拖慢界面。
 支持时使用字素分段，避免把组合字符或 emoji 按 UTF-16 单元拆开；观察器安装前的已有内容、折叠内容及超过 10000 字符的增量直接显示；正常实时首包不因较大而跳过。
 同节点同阶段的相邻字素合并成 StaticRange，并二分查找文本节点，避免每字创建跟踪 DOM 的 Range；缺少 StaticRange 时保留 Range 回退。
 结束标记移除后保留剩余渐显，最后一批最多约 240 ms 内结束。群聊用窗口内稳定 data-bt-stream-key 移交临时与正式气泡的剩余范围；历史重载不补播。
@@ -28,7 +28,7 @@ MutationObserver 在当前微任务内扫描并立即绘制首态，防止先全
 
 ## 输入框与中文输入法
 
-[composer-motion.js](../ds-bot/src/client/composer-motion.js) 为单个输入表面添加聚焦、背景、发送/语音状态过渡和约 210 ms 的多行高度变化。
+[composer-motion.js](../ds-bot/src/client/composer-motion.js) 为单个输入表面添加聚焦、背景、发送/语音状态过渡和约 210 ms 的多行高度变化；[composer-caret.js](../ds-bot/src/client/composer-caret.js) 在真实折叠选区可测时绘制约 80 ms 的跟随光标，测量失败、非折叠选区、失焦、中文候选输入、隐藏页面或减少动态效果时恢复原生光标。
 宿主继续拥有 contenteditable、选区、输入法和发送动作。不要逐键改写 innerHTML、包裹输入字符、缩放文字或重设选区来制造动画。
 组合输入开始时停止尺寸动画；组合输入期间不对首页 textarea 执行自适应高度写入，结束后再测量。
 [qibit-command-center.js](../ds-bot/src/client/qibit-command-center.js) 的首页输入支持 Enter 发送和 Shift+Enter 换行；composition 与 keyCode 229 不触发发送。

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { turnReasoning } from '../src/client/turn-reasoning.js'
+import { turnReasoning, turnReasoningState } from '../src/client/turn-reasoning.js'
 
 const step = (n, blocks, status = 'settled') => ({ turn: 1, step: n, status, blocks })
 const think = text => ({ kind: 'reasoning', text })
@@ -18,12 +18,21 @@ test('the row sits on the first step with reasoning', () => {
   assert.deepEqual(steps.map(current => turnReasoning(steps, current)), ['', 'B\n\nC', ''])
 })
 
-test('reasoning still in progress stays out until its step settles', () => {
+test('public reasoning streams once while a later step runs, after its first owner has settled', () => {
   const steps = [step(1, [think('A'), tool]), step(2, [think('B')], 'running')]
-  assert.equal(turnReasoning(steps, steps[0]), 'A')
-  assert.equal(turnReasoning([step(1, [think('A')], 'running')], step(1, [think('A')], 'running')), '')
+  assert.deepEqual(turnReasoningState(steps, steps[0]), { text: 'A\n\nB', streaming: true })
+  assert.deepEqual(turnReasoningState(steps, steps[1]), { text: '', streaming: false })
+  steps[1].blocks[0].text += ' continues'
+  assert.equal(turnReasoning(steps, steps[0]), 'A\n\nB continues')
   steps[1].blocks.push({ kind: 'text', text: 'Reply' })
-  assert.equal(turnReasoning(steps, steps[0]), 'A\n\nB')
+  assert.deepEqual(turnReasoningState(steps, steps[0]), { text: 'A\n\nB continues', streaming: false })
+})
+
+test('first public reasoning is available during generation, without inventing missing model text', () => {
+  const current = step(1, [think('A')], 'running')
+  assert.deepEqual(turnReasoningState([current], current), { text: 'A', streaming: true })
+  const privateOnly = step(2, [{ kind: 'reasoning', text: '', encryptedContent: 'opaque' }], 'running')
+  assert.deepEqual(turnReasoningState([privateOnly], privateOnly), { text: '', streaming: false })
 })
 
 test('a step outside the loaded Turn list shows only its own reasoning', () => {

@@ -118,6 +118,17 @@ test('temporary and durable group bubbles retain the same per-message stream key
   assert.equal(ordinary.props.children[0][0].props['data-bt-stream-key'], undefined)
 })
 
+test('a newly completed private reply carries a stable fresh reveal marker only when requested', () => {
+  const fresh = expand(Bubbles({ texts: ['Fast reply'], roster: team(), selfId: 'writer', actions: {}, revealFresh: true, revealKey: 'writer:8:n3' }))
+  const freshMessage = find(fresh, node => node.props?.className === 'bt-msg')
+  assert.equal(freshMessage.props['data-bt-reveal-fresh'], '')
+  assert.equal(freshMessage.props['data-bt-reveal-key'], 'writer:8:n3')
+  const history = expand(Bubbles({ texts: ['History'], roster: team(), selfId: 'writer', actions: {} }))
+  const historyMessage = find(history, node => node.props?.className === 'bt-msg')
+  assert.equal(historyMessage.props['data-bt-reveal-fresh'], undefined)
+  assert.equal(historyMessage.props['data-bt-reveal-key'], undefined)
+})
+
 test('a durable background group post carries its stream identity onto the visible bubble', () => {
   const streamId = JSON.stringify(['room', 'writer', 'exchange'])
   const input = {

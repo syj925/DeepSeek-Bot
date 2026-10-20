@@ -22,7 +22,7 @@ function fixture({ supported = true } = {}) {
   let nextFrame = 0, now = 0, walks = 0, hidden = false
   window.requestAnimationFrame = run => { const id = ++nextFrame; frames.set(id, run); return id }
   window.cancelAnimationFrame = id => frames.delete(id)
-  window.Highlight = supported ? class extends Set {} : undefined
+  window.Highlight = supported ? class extends Set { priority = 0 } : undefined
   window.CSS = { highlights: registry, supports: () => true }
   window.performance.now = () => now
   Object.defineProperty(document, 'hidden', { get: () => hidden })
@@ -66,6 +66,14 @@ function fixture({ supported = true } = {}) {
       for (const [, run] of pending) run(now)
       await settle()
     },
+    async elapse(duration) {
+      let remaining = duration
+      while (remaining > 0) {
+        const step = Math.min(16, remaining)
+        await this.paint(step)
+        remaining -= step
+      }
+    },
     async flush() { await settle() },
     reduce(value) { motion.matches = value; for (const change of changes) change() },
     hide(value) { hidden = value; document.dispatchEvent(new window.Event('visibilitychange')) },
@@ -92,7 +100,7 @@ test('only appended characters fade through paint stages, leaving old text, sele
     assert.equal(selection.toString(), 'Exis')
     await page.paint(40)
     assert.ok(page.stages().every(stage => stage > 0 && stage < 24))
-    await page.paint(240)
+    await page.elapse(240)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
     assert.equal(surface.bubble.style.getPropertyValue('--bt-reveal-ink'), '')
@@ -116,7 +124,7 @@ test('new live streams animate even in a large first batch while pre-existing tr
     surface.scope.appendChild(bulk)
     await page.flush()
     assert.equal(page.ranges().map(range => range.toString()).join(''), 'Hello' + 'new live '.repeat(100))
-    await page.paint(260)
+    await page.elapse(260)
     assert.equal(page.ranges().length, 0)
     bulk.firstChild.appendData('now')
     await page.paint()
@@ -136,7 +144,7 @@ test('a completed tail can shrink or reparse during settling without stale range
     surface.bubble.innerHTML = '重新<strong>排版</strong>'
     await page.flush()
     assert.equal(page.ranges().map(range => range.toString()).join(''), '重新排版')
-    await page.paint(260)
+    await page.elapse(260)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
   } finally { stop(); page.close() }
@@ -156,7 +164,7 @@ test('Markdown node replacements retain old reveals and animate only the newly a
     assert.equal(visible.includes('Prefix'), false)
     assert.equal(visible, 'bold and link')
     assert.equal(surface.bubble.querySelector('a').getAttribute('href'), 'https://example.com')
-    await page.paint(400)
+    await page.elapse(400)
     assert.equal(page.ranges().length, 0)
   } finally { stop(); page.close() }
 })
@@ -172,7 +180,7 @@ test('completion including a final text batch lets the last letters settle befor
     await page.paint()
     assert.equal(surface.bubble.textContent, 'live and complete')
     assert.equal(page.ranges().map(range => range.toString()).join(''), 'live and complete')
-    await page.paint(260)
+    await page.elapse(260)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
     assert.equal(surface.bubble.style.getPropertyValue('--bt-reveal-ink'), '')
@@ -225,7 +233,7 @@ test('temporary group tails hand the remaining sweep to the matching durable mes
     assert.equal(page.ranges().map(range => range.toString()).join(''), durable.textContent)
     assert.ok(page.ranges().every(range => durable.contains(range.startContainer)))
     assert.ok(page.pending().length)
-    await page.paint(250)
+    await page.elapse(250)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
     assert.equal(durable.textContent, '回复开始，这是最后几个字')
@@ -257,6 +265,86 @@ test('mutation batches paint before the next frame and ignore unrelated composer
     await page.paint()
     assert.equal(page.walks, initialWalks + 1)
     assert.equal(first.input.textContent, '拼音')
+  } finally { stop(); page.close() }
+})
+
+test('one 100 ms main-thread task preserves a visible fade on the next frame and then settles normally', async () => {
+  const page = fixture(), surface = page.surface(), stop = page.observeStreamReveal(surface.scope)
+  try {
+    surface.bubble.textContent = '文字渐入仍然跟随'
+    await page.paint()
+    await page.paint(100)
+    assert.ok(page.ranges().length, 'one long task must not consume an unseen fade')
+    assert.ok(page.stages().some(stage => stage > 0 && stage < 23))
+    assert.equal(surface.bubble.textContent, '文字渐入仍然跟随')
+    await page.elapse(260)
+    assert.equal(page.ranges().length, 0)
+    assert.equal(page.frames.size, 0)
+    assert.equal(surface.bubble.style.getPropertyValue('--bt-reveal-ink'), '')
+  } finally { stop(); page.close() }
+})
+
+test('four consecutive 80 ms frames yield reveals for 1.5 seconds and later deltas resume without replay', async () => {
+  const page = fixture(), surface = page.surface(), stop = page.observeStreamReveal(surface.scope)
+  try {
+    surface.bubble.textContent = 'a'.repeat(100)
+    await page.paint()
+    for (let index = 0; index < 3; index++) {
+      await page.paint(80)
+      assert.ok(page.ranges().length, 'the first slow frames retain their reveal')
+    }
+    await page.paint(80)
+    assert.equal(page.ranges().length, 0)
+    assert.equal(page.frames.size, 0, 'yielding must stop the animation loop')
+    surface.bubble.firstChild.appendData(' during cooldown')
+    await page.flush()
+    assert.equal(page.ranges().length, 0)
+    await page.elapse(1499)
+    surface.bubble.firstChild.appendData(' still quiet')
+    await page.flush()
+    assert.equal(page.ranges().length, 0)
+    await page.elapse(2)
+    surface.bubble.firstChild.appendData(' resumes')
+    await page.flush()
+    assert.equal(page.ranges().map(range => range.toString()).join(''), ' resumes')
+    await page.elapse(260)
+    assert.equal(page.ranges().length, 0)
+    assert.equal(page.frames.size, 0)
+  } finally { stop(); page.close() }
+})
+
+test('pending letters retain 20 percent ink rather than becoming fully transparent', () => {
+  const page = fixture()
+  try {
+    const pending = page.STREAM_REVEAL_CSS.match(/::highlight\(bt-reveal-pending\)\{([^}]+)\}/)?.[1]
+    assert.ok(pending)
+    assert.match(pending, /color:color-mix\(in srgb,var\(--bt-reveal-ink,currentColor\) 20%,transparent\)/)
+    assert.doesNotMatch(pending, /color:\s*transparent(?:;|$)/)
+  } finally { page.close() }
+})
+
+test('private bubbles use priority one while an independent priority-zero highlight remains untouched', async () => {
+  const page = fixture(), surface = page.surface('Existing ')
+  const externalRange = page.document.createRange()
+  externalRange.selectNodeContents(surface.bubble)
+  const external = new page.window.Highlight([externalRange])
+  page.registry.set('external-skin', external)
+  const stop = page.observeStreamReveal(surface.scope)
+  try {
+    surface.bubble.firstChild.appendData('private reveal')
+    await page.flush()
+    const own = [...page.registry].filter(([name, highlight]) => name.startsWith('bt-reveal-') && highlight.size)
+    assert.ok(own.length)
+    assert.ok(own.every(([, highlight]) => highlight.priority === 1))
+    assert.equal(page.registry.get('external-skin'), external)
+    assert.equal(external.priority, 0)
+    assert.equal(external.size, 1)
+    assert.equal([...external][0], externalRange)
+    await page.elapse(260)
+    stop()
+    assert.deepEqual([...page.registry.keys()], ['external-skin'])
+    assert.equal(external.priority, 0)
+    assert.equal([...external][0], externalRange)
   } finally { stop(); page.close() }
 })
 
