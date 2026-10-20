@@ -26,7 +26,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { groupModels, ModelChoiceDock, effortRows } = module.exports
+const { groupModels, ModelChoiceDock, effortRows, filterModels, menuPlacement } = module.exports
 
 function menuRuntime({ width = 1024, height = 768 } = {}) {
   const hooks = []
@@ -197,4 +197,64 @@ test('a group thinking-level change clears only the selected employee override',
   assert.equal(changed[0][1].effort, null)
   assert.equal(Object.hasOwn(changed[0][1], 'model'), false)
   assert.equal(bot.model, models[1].ref)
+})
+
+test('the compact trigger and model rows pass model identities to real logo artwork', () => {
+  const page = menuRuntime()
+  const catalog = [
+    { ref: 'reseller/claude-haiku-4-5', provider: 'reseller', providerName: 'QibitAI CodingPlan', name: 'Claude Haiku 4.5' },
+    { ref: 'reseller/MiniMax-M2.7', provider: 'reseller', providerName: 'QibitAI CodingPlan', name: 'MiniMax M2.7' },
+  ]
+  let tree = page.render(page.ModelMenu, { bot: { id: 'chief', name: 'Chief', model: catalog[0].ref }, roster: { models: catalog }, actions: {}, compact: true })
+  const trigger = nodes(tree, node => node.type === 'button')[0]
+  const glyph = trigger.children[0]
+  const icon = glyph.type(glyph.props)
+  assert.equal(icon.type(icon.props).props['data-vendor'], 'anthropic')
+  trigger.props.ref.current = { getBoundingClientRect: () => ({ left: 20, right: 48, top: 400, bottom: 428, width: 28 }) }
+  trigger.props.onClick()
+  tree = page.render()
+  const rows = nodes(tree, node => typeof node.type === 'function' && node.props.roster && node.props.onPick)[0]
+  const rowTree = menuRuntime().render(rows.type, rows.props)
+  const buttons = nodes(rowTree, node => node.props.role === 'menuitemradio')
+  assert.deepEqual(buttons.map(button => button.children[0].type(button.children[0].props).props['data-vendor']), ['anthropic', 'minimax'])
+})
+
+test('model search finds vendor identities across custom routes and keeps all query words', () => {
+  const catalog = [
+    { ref: 'qibitai/claude-opus-4-6', name: 'Powerful', providerName: 'Team route' },
+    { ref: 'qibitai/MiniMax-M2.7', name: 'MiniMax M2.7', providerName: 'Team route' },
+  ]
+  assert.deepEqual(Array.from(filterModels(catalog, 'anthropic'), entry => entry.ref), [catalog[0].ref])
+  assert.deepEqual(Array.from(filterModels(catalog, 'team minimax'), entry => entry.ref), [catalog[1].ref])
+  assert.equal(filterModels(catalog, 'minimax opus').length, 0)
+})
+
+test('the model menu remains inside a small viewport and a scrolled-off trigger cannot produce negative height', () => {
+  for (const rect of [
+    { left: 12, right: 40, top: 260, bottom: 288, width: 28 },
+    { left: -100, right: -72, top: -20, bottom: 8, width: 28 },
+    { left: 500, right: 528, top: 500, bottom: 528, width: 28 },
+  ]) {
+    const place = menuPlacement(rect, { width: 220, height: 300 })
+    assert.equal(place.width, 204)
+    assert.equal(place.left, 8)
+    assert.ok(place.maxHeight >= 0)
+    if (place.top !== undefined) assert.ok(place.top + place.maxHeight <= 292)
+    else assert.ok(place.bottom + place.maxHeight <= 292)
+  }
+})
+
+test('search fields receive pointer focus while model choices preserve composer focus', () => {
+  const page = menuRuntime()
+  let tree = page.render(page.ModelMenu, { bot: { id: 'chief', name: 'Chief', model: models[0].ref }, roster: { models }, actions: {}, compact: true })
+  const trigger = nodes(tree, node => node.type === 'button')[0]
+  trigger.props.ref.current = { getBoundingClientRect: () => ({ left: 20, right: 48, top: 400, bottom: 428, width: 28 }) }
+  trigger.props.onClick()
+  tree = page.render()
+  const menu = nodes(tree, node => node.props.role === 'menu')[0]
+  let prevented = 0
+  menu.props.onMouseDown({ target: { closest: () => ({ tagName: 'INPUT' }) }, preventDefault: () => { prevented++ } })
+  assert.equal(prevented, 0)
+  menu.props.onMouseDown({ target: { closest: () => null }, preventDefault: () => { prevented++ } })
+  assert.equal(prevented, 1)
 })

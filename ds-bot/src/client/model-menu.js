@@ -6,6 +6,7 @@ import { BotMark } from './mark.js'
 import { openHarnessOnboarding, openHarnessSettings } from './sidebar.js'
 import { SPRING_POP, SPRING_SHAPE, spring, useLinger } from './motion.js'
 import { t } from './i18n.js'
+import { modelVendor, ProviderIcon } from './provider-icons.js'
 
 const MENU_EXIT_MS = 120
 
@@ -84,26 +85,63 @@ function EffortRows({ reasoning, current, onPick }) {
     h('span', { className: 'bt-model-tick', 'aria-hidden': true }, row.effort === current ? h(CheckIcon) : null))))
 }
 
+export function filterModels(models, query) {
+  const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  return (models ?? []).filter(model => {
+    const text = `${model.name ?? ''} ${model.id ?? ''} ${model.ref ?? ''} ${model.providerName ?? ''} ${modelVendor(model) ?? ''}`.toLocaleLowerCase()
+    return words.every(word => text.includes(word))
+  })
+}
+
 function ModelRows({ roster, current, onPick }) {
-  return groupModels(roster.models).map(([provider, list]) => h(Fragment, { key: list[0].provider ?? provider },
+  const [query, setQuery] = useState('')
+  const models = filterModels(roster.models, query)
+  return h(Fragment, null,
+    (roster.models ?? []).length >= 8 ? h('input', {
+      className: 'bt-model-search', type: 'search', value: query, spellCheck: false,
+      placeholder: t('Search'), 'aria-label': t('Search'),
+      onChange: event => setQuery(event.target.value),
+      onKeyDown: (event) => {
+        if (event.key === 'ArrowDown' && !event.nativeEvent?.isComposing) {
+          event.preventDefault()
+          event.currentTarget.closest('[role=menu]')?.querySelector('[role=menuitemradio]')?.focus()
+        }
+      },
+    }) : null,
+    models.length === 0 ? h('div', { className: 'bt-model-none', role: 'status' }, t('No results')) : null,
+    groupModels(models).map(([provider, list]) => h(Fragment, { key: list[0].provider ?? provider },
     h('div', { className: 'bt-model-group', role: 'presentation' }, provider),
     list.map(model => h('button', {
       key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
       onClick: () => onPick(model.ref),
     },
+    h(ProviderIcon, { model }),
     h('span', { className: 'bt-menu-label' }, model.name),
     model.ref === roster.defaultModel ? h('span', { className: 'bt-menu-hint' }, t('Default')) : null,
-    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, model.ref === current ? h(CheckIcon) : null)))))
+    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, model.ref === current ? h(CheckIcon) : null))))))
 }
 
 export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, height: 12, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M5.5 8l4.5 4.5L14.5 8' }))
 
-// A local provider mark stays readable for custom routes without fetching a logo.
-export function ModelGlyph({ provider }) {
-  const label = (provider ?? '').trim()
-  const letter = Array.from(label)[0]?.toLocaleUpperCase() ?? '◇'
-  const hue = Array.from(label).reduce((value, char) => (value * 31 + char.codePointAt(0)) % 360, 0)
-  return h('span', { className: 'bt-model-glyph', 'aria-hidden': true, style: { '--bt-provider-hue': hue } }, letter)
+export function ModelGlyph({ model }) {
+  return h(ProviderIcon, { model })
+}
+
+export function menuPlacement(rect, { width: viewportWidth, height: viewportHeight }) {
+  const edge = 8
+  const width = Math.max(0, Math.min(Math.max(304, rect.width), viewportWidth - edge * 2))
+  const left = Math.max(edge, Math.min(rect.right - width, viewportWidth - width - edge))
+  const top = Math.max(edge, Math.min(rect.top, viewportHeight - edge))
+  const bottom = Math.max(edge, Math.min(rect.bottom, viewportHeight - edge))
+  const below = viewportHeight - bottom - edge - 4
+  const above = top - edge - 4
+  return below >= 260 || below >= above
+    ? { left, width, top: bottom + 4, maxHeight: Math.max(0, below), '--bt-origin': 'top right' }
+    : { left, width, bottom: viewportHeight - top + 4, maxHeight: Math.max(0, above), '--bt-origin': 'bottom right' }
+}
+
+const keepComposerMouseDown = (event) => {
+  if (!event.target?.closest?.('input,textarea,[contenteditable=true]')) event.preventDefault()
 }
 
 // A menu that opens under its trigger, or above when the window has no room below. A
@@ -132,13 +170,8 @@ export function useAnchoredMenu() {
     }
   }, [place])
   const open = () => {
-    const rect = button.current.getBoundingClientRect()
-    const width = Math.min(Math.max(240, rect.width), Math.max(0, window.innerWidth - 16))
-    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
-    const below = window.innerHeight - rect.bottom
-    setPlace(below >= 260 || below >= rect.top
-      ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': 'top right' }
-      : { left, width, bottom: window.innerHeight - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': 'bottom right' })
+    if (!button.current) return
+    setPlace(menuPlacement(button.current.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }))
   }
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
 }
@@ -189,13 +222,13 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, compact = f
       onMouseDown: compact ? event => event.preventDefault() : undefined,
       'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick: toggle,
     },
-    compact ? h(ModelGlyph, { provider: shown?.provider }) : h('span', { className: 'bt-model-copy' },
+    compact ? h(ModelGlyph, { model: { ref: shown?.ref, name: shown?.name } }) : h('span', { className: 'bt-model-copy' },
       h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
       shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
         ? (effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
         : t('{provider} · not available', { provider: shown.provider })) : null),
     compact ? null : h(Caret)),
-    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined, onMouseDown: compact ? event => event.preventDefault() : undefined },
+    shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined, onMouseDown: compact ? keepComposerMouseDown : undefined },
       models.length > 0 ? h(ModelRows, { roster, current, onPick: pick })
         : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
       effortRows(reasoning).length > 0 ? h(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
@@ -226,13 +259,13 @@ export function RoomModelMenu({ room, roster, actions, run }) {
     shownPlace ? createPortal(h('div', {
       ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`,
       role: 'menu', 'aria-label': bot ? t('Model for {name}', { name: bot.name }) : t('Member models'), style: shownPlace,
-      'data-leaving': leaving || undefined, onMouseDown: event => event.preventDefault(),
+      'data-leaving': leaving || undefined, onMouseDown: keepComposerMouseDown,
     }, bot ? h(Fragment, null,
       h('button', { type: 'button', role: 'menuitem', onClick: () => setSelected(null) }, h('span', { 'aria-hidden': true }, '‹'), h('span', { className: 'bt-menu-label' }, bot.name)),
       h('div', { className: 'bt-menu-sep', role: 'separator' }),
       h(MemberModelRows, { bot, roster, actions, run, close, restoreFocus }))
       : members.map(member => h('button', { key: member.id, type: 'button', role: 'menuitem', 'aria-haspopup': 'menu', onClick: () => setSelected(member.id) },
-        h(ModelGlyph, { provider: modelOf(member, roster)?.provider }),
+        h(ModelGlyph, { model: modelOf(member, roster) }),
         h('span', { className: 'bt-model-member' }, h('span', { className: 'bt-menu-label' }, member.name), h('small', null, modelOf(member, roster)?.name ?? t('Choose a model'))),
         h('span', { 'aria-hidden': true }, '›')))), document.body) : null)
 }
@@ -343,7 +376,11 @@ export const MODEL_CSS = `
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-compact]{flex:none;justify-content:center;width:28px;height:28px;min-height:28px;padding:0;margin-left:5px;border-radius:9px;background:transparent}
-.bt-model-glyph{display:grid;place-items:center;flex:none;width:23px;height:23px;border-radius:7px;background:hsl(var(--bt-provider-hue) 42% 50% / .13);box-shadow:inset 0 0 0 .5px hsl(var(--bt-provider-hue) 42% 45% / .18);color:hsl(var(--bt-provider-hue) 45% 34%);font:600 12px/1 system-ui}
+.bt-model-glyph{display:inline-flex;align-items:center;justify-content:center;flex:none;width:23px;height:23px;color:var(--bt-provider-color,var(--bt-ink));line-height:1}
+.bt-model-glyph svg{display:block;width:20px;height:20px;flex:none}
+.bt-model-menu button{gap:8px;flex-shrink:0}
+.bt-model-menu button .bt-model-glyph svg{width:19px;height:19px;margin:0}
+.bt-model-glyph[data-vendor=unknown]{color:var(--bt-ink-3)}
 .bt-model-member{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0}.bt-model-member small{font-size:11px;line-height:14px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-model-trigger[data-compact][data-missing]{box-shadow:inset 0 0 0 1px #c21d2e}
 .bt-model-trigger[data-missing] .bt-model-provider{color:#c21d2e}
@@ -355,6 +392,8 @@ export const MODEL_CSS = `
 .bt-model-caret{flex:none;color:var(--bt-ink-3);transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-model-trigger[aria-expanded=true] .bt-model-caret{transform:rotate(180deg)}
 .bt-model-menu{min-width:0;max-width:calc(100vw - 16px);overflow-y:auto;scrollbar-width:thin}
+.bt-model-search{position:sticky;top:0;flex:none;width:100%;min-height:34px;margin:0 0 3px;padding:6px 9px;border:1px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;box-sizing:border-box;outline:none;z-index:1}
+.bt-model-search:focus{border-color:var(--bt-accent)}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}

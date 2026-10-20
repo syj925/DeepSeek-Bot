@@ -1,4 +1,4 @@
-The QibitAI 0.1.54 source adds live group replies, responsive member mentions, a floating composer and employee model controls. Source integration is separate from publication; the stable install address serves the latest published release.
+The QibitAI 0.1.55 source adds real model-maker icons, soft composer focus and multiline transitions, and a 240 ms fade for newly streamed characters while keeping Markdown labels stable. Source integration is separate from publication; the stable install address serves the latest published release.
 
 QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
 
@@ -77,7 +77,7 @@ Group membership and canvas arrangement never change team affiliation, private c
 
 Floating components leave desktop Agent positions unchanged. Team-list drags follow a compact avatar and name; selected Agents show only a soft highlight and expose their management menu on right-click. Widgets expand toward the canvas interior and temporarily avoid overlap, returning to their saved position when collapsed. Manual placement remains free; click a widget to bring it forward. Conversations open in a consistent area beside the left team rail and can still be moved manually.
 
-The glass message box stays at the bottom of each chat while its history scrolls. Its compact model entry changes that employee's saved model or thinking level. In a group, choose a member first: every employee keeps an independent model. New settings apply to subsequent turns; work already running keeps its model.
+The glass message box stays at the bottom of each chat while its history scrolls. Home and chat inputs gain soft focus, background and send-button transitions; multiline drafts resize smoothly without moving the caret or interfering with Chinese IME. The home box uses Enter to send and Shift+Enter for a new line. Its compact model entry shows the model maker's icon, using the model identity rather than a gateway name, and changes that employee's saved model or thinking level. Unknown models use a neutral icon. In a group, choose a member first: every employee keeps an independent model. New settings apply to subsequent turns; work already running keeps its model.
 
 When you explicitly ask a Main Bot to delete an employee it may manage, it uses `delete_bot`: active work and scheduled activity are stopped, membership is removed, and conversations and memory are archived. Group history remains readable. This does not retire the employee temporarily; another Main Bot, another leader's employee and a leader whose role has not been handed over remain protected.
 
@@ -122,7 +122,7 @@ DS Bot has group chats. A group chat is a great way to get several bots to work 
 
 Any bot can hand work to another bot with @. That bot does the work on its own, and the group goes on. While it works, the group, the sidebar and the bot's own chat show what it is doing. When it is done, it posts the result in the group, and the bot that asked for the work answers. To stop the work, open the group's details.
 
-Replies stream into the speaking employee's bubble as text arrives, including while other work continues. The view follows new text only while you are near the bottom; scrolling back lets you read history. A new plain-text `@Name` request can schedule an idle member even while an earlier member is still working. It does not cancel that work; requests to a busy employee remain queued, and messages with attachments or chat references keep their normal processing order.
+Replies stream into the speaking employee's bubble as text arrives, including while other work continues. Newly arriving characters fade to full ink over 240 ms, with brief staggering; Markdown labels, text layout and selection stay intact. Small transcript growth is eased only while following the latest reply, so scrolling back lets you read history. Reduced-motion users and browsers without the text-highlight API see the text immediately; hidden tabs do not replay old fades on return. A new plain-text `@Name` request can schedule an idle member even while an earlier member is still working. It does not cancel that work; requests to a busy employee remain queued, and messages with attachments or chat references keep their normal processing order.
 
 ![Group chat: the admin, Chief, hands the work to Writer and Coder](docs/images/group.png)
 

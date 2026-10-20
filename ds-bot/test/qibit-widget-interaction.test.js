@@ -129,7 +129,7 @@ test('a selected overview does not overwrite or prepend instructions to the user
   app.props.actions.send = async (...args) => app.calls.push(['send', ...args])
   let tree = app.draw()
   byClass(tree, 'bt-qibit-functions').children[0].props.onClick()
-  find(tree, node => node.type === 'input').props.onChange({ target: { value: '帮我写一份产品报告' } })
+  find(tree, node => node.type === 'textarea').props.onChange({ target: { value: '帮我写一份产品报告' } })
   tree = app.draw()
   await find(tree, node => node.type === 'form').props.onSubmit({ preventDefault() {} })
   assert.deepEqual(app.calls, [['send', 'chief', '帮我写一份产品报告'], ['entity', 'chief']])
@@ -159,7 +159,7 @@ test('pointer cancellation rolls back its temporary transform and never saves a 
 test('folding hides the command body while preserving the query, selected function and character timeline', () => {
   const app = fixture()
   let tree = app.draw()
-  find(tree, node => node.type === 'input' && ['search', 'text'].includes(node.props.type)).props.onChange({ target: { value: 'Quarterly work plan' } })
+  find(tree, node => node.type === 'textarea').props.onChange({ target: { value: 'Quarterly work plan' } })
   byClass(tree, 'bt-qibit-functions').children[0].props.onClick()
   tree = app.draw()
   const original = anchor(tree), replay = character(tree).props.triggerKey
@@ -171,7 +171,7 @@ test('folding hides the command body while preserving the query, selected functi
   assert.equal(find(tree, node => node.props.id === 'bt-qibit-command-body').props.hidden, true)
   assert.equal(byClass(tree, 'bt-qibit-drag').props['aria-expanded'], false)
   assert.equal(find(tree, node => node.type?.name === 'FeatureCards'), undefined)
-  assert.equal(find(tree, node => node.type === 'input' && ['search', 'text'].includes(node.props.type)).props.value, 'Quarterly work plan')
+  assert.equal(find(tree, node => node.type === 'textarea').props.value, 'Quarterly work plan')
   assert.equal(byClass(tree, 'bt-qibit-functions').children[0].props['aria-pressed'], true)
   assert.deepEqual(anchor(tree), original)
   assert.equal(character(tree).props.triggerKey, replay)
@@ -181,7 +181,7 @@ test('folding hides the command body while preserving the query, selected functi
   assert.equal(find(tree, node => node.props.id === 'bt-qibit-command-body').props.hidden, false)
   assert.equal(byClass(tree, 'bt-qibit-drag').props['aria-expanded'], true)
   assert.ok(find(tree, node => node.type?.name === 'FeatureCards'))
-  assert.equal(find(tree, node => node.type === 'input' && ['search', 'text'].includes(node.props.type)).props.value, 'Quarterly work plan')
+  assert.equal(find(tree, node => node.type === 'textarea').props.value, 'Quarterly work plan')
   assert.deepEqual(anchor(tree), original)
   assert.equal(character(tree).props.triggerKey, replay)
   assert.deepEqual(app.calls, [])
@@ -242,7 +242,7 @@ test('the default home input sends once to Chief and search stays separate', asy
   let finish
   app.props.actions.send = (id, text) => { app.calls.push(['send', id, text]); return new Promise(resolve => { finish = resolve }) }
   let tree = app.draw()
-  find(tree, node => node.type === 'input').props.onChange({ target: { value: 'Make a quarterly report' } })
+  find(tree, node => node.type === 'textarea').props.onChange({ target: { value: 'Make a quarterly report' } })
   tree = app.draw()
   const submit = find(tree, node => node.type === 'form').props.onSubmit
   const first = submit({ preventDefault() {} })
@@ -250,7 +250,7 @@ test('the default home input sends once to Chief and search stays separate', asy
   assert.deepEqual(app.calls, [['send', 'chief', 'Make a quarterly report']])
   finish(); await first
   tree = app.draw()
-  assert.equal(find(tree, node => node.type === 'input').props.value, '')
+  assert.equal(find(tree, node => node.type === 'textarea').props.value, '')
   assert.deepEqual(app.calls[1], ['entity', 'chief'])
   byClass(tree, 'bt-qibit-search-entry').props.onClick()
   assert.deepEqual(app.calls[2], ['search', ''])
@@ -261,13 +261,30 @@ test('failed home submission preserves the request for retry', async () => {
   app.props.roster.bots = [{ id: 'chief', generalAssistant: true }]
   app.props.actions.send = async () => { throw new Error('offline') }
   let tree = app.draw()
-  find(tree, node => node.type === 'input').props.onChange({ target: { value: 'Weather today' } })
+  find(tree, node => node.type === 'textarea').props.onChange({ target: { value: 'Weather today' } })
   tree = app.draw()
   await find(tree, node => node.type === 'form').props.onSubmit({ preventDefault() {} })
   tree = app.draw()
-  assert.equal(find(tree, node => node.type === 'input').props.value, 'Weather today')
+  assert.equal(find(tree, node => node.type === 'textarea').props.value, 'Weather today')
   assert.equal(byClass(tree, 'bt-qibit-send-error').children[0], 'offline')
   assert.deepEqual(app.calls, [])
+})
+
+test('home Enter submits while Shift+Enter and IME confirmation retain native editing', () => {
+  const app = fixture(), tree = app.draw(), input = find(tree, node => node.type === 'textarea')
+  let submitted = 0, prevented = 0
+  const key = extra => ({ key: 'Enter', nativeEvent: {}, preventDefault() { prevented++ }, currentTarget: { form: { requestSubmit() { submitted++ } } }, ...extra })
+  input.props.onKeyDown(key({ shiftKey: true }))
+  input.props.onCompositionStart()
+  input.props.onKeyDown(key({}))
+  input.props.onCompositionEnd()
+  input.props.onKeyDown(key({ nativeEvent: { isComposing: true } }))
+  input.props.onKeyDown(key({ nativeEvent: { keyCode: 229 } }))
+  assert.equal(submitted, 0)
+  assert.equal(prevented, 0)
+  input.props.onKeyDown(key({}))
+  assert.equal(submitted, 1)
+  assert.equal(prevented, 1)
 })
 
 test('clicking a character without moving never freezes automatic centering', () => {

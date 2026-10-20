@@ -9,6 +9,7 @@ import { TaskGroupJourney, TaskGroupNavigation } from './task-groups.js'
 import { ExecutionStatus, EXECUTION_STATUS_CSS } from './execution-status.js'
 import { RoomStreams } from './room-streams.js'
 import { StreamFollow } from './stream-follow.js'
+import { StreamReveal } from './stream-reveal.js'
 
 export const CANVAS_PANEL = 'ds-bot-canvas'
 export const CANVAS_CONVERSATION = 'ds-bot.canvas.conversation'
@@ -115,6 +116,7 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useWork, 
   h(ExecutionStatus, { sessionId, useRoster, useWork, useSessionStatus, useSession, useLive, actions }),
   h(ActivityIndicator, { key: sessionId, sessionId, useRoster, useSessionStatus, useSession, useLive, actions, rootRef: root }),
   ownsEditor && editorReady ? h(StreamFollow, { key: `follow:${sessionId}`, sessionId, rootRef: root }) : null,
+  ownsEditor && editorReady ? h(StreamReveal, { key: `reveal:${sessionId}`, sessionId, rootRef: root }) : null,
   roster.roomsById[sessionId] && ownsEditor && editorReady ? h(RoomStreams, { key: `streams:${sessionId}`, sessionId, roster, actions, useUi, rootRef: root }) : null))
 }
 

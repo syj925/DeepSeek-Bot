@@ -17,7 +17,15 @@ import { subscribeRoomProgress } from './room-progress.js'
 // -------------------------------------------------------------------------
 // Chat cells
 
-const mdLabels = () => ({ code: { copyLabel: t('Copy'), copiedLabel: t('Copied') }, footnotes: t('Footnotes') })
+let markdownLabels
+const mdLabels = () => {
+  const copyLabel = t('Copy'), copiedLabel = t('Copied'), footnotes = t('Footnotes')
+  // MarkdownText resets its streaming cache whenever labels changes identity.
+  if (!markdownLabels || markdownLabels.code.copyLabel !== copyLabel || markdownLabels.code.copiedLabel !== copiedLabel || markdownLabels.footnotes !== footnotes) {
+    markdownLabels = { code: { copyLabel, copiedLabel }, footnotes }
+  }
+  return markdownLabels
+}
 
 // The sender avatar starts the first bubble; following bubbles retain its gutter.
 export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions }) {
@@ -38,7 +46,7 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
       return h('div', { key: index, className: 'bt-msg', 'data-bt-streaming': live ? '' : undefined },
         h('div', { className: 'bt-msg-line' },
           lead && index === 0 ? lead : null,
-          h('div', { className: 'bt-bubble' },
+          h('div', { className: 'bt-bubble', 'data-bt-reveal-text': '' },
             h(MarkdownText, { text: linkMentions(text, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })),
           live ? null : h(MessageTools, { text, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions })),
         picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
@@ -102,10 +110,10 @@ function MessageTools({ text, name, sessionId, react, actions }) {
       item(t('Copy'), CopyIcon, copy), item(t('Download'), DownloadIcon, download)), document.body) : null)
 }
 
-function ThinkingRow({ text }) {
-  return h('details', { className: 'bt-think' },
+function ThinkingRow({ text, streaming }) {
+  return h('details', { className: 'bt-think', 'data-bt-streaming': streaming ? '' : undefined },
     h('summary', null, t('Thought it through')),
-    h('div', { className: 'bt-think-text' }, text))
+    h('div', { className: 'bt-think-text', 'data-bt-reveal-text': '' }, text))
 }
 
 // The files a finished turn changed or delivered, linked from inline code in its
@@ -152,7 +160,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
         whole: true,
       })
     }),
-    reasoning ? h(ThinkingRow, { text: reasoning }) : null,
+    reasoning ? h(ThinkingRow, { text: reasoning, streaming: running }) : null,
     texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions }) : null)
 }
 

@@ -4,6 +4,7 @@ import { ChatsIcon, ClockIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, Wav
 import { BotMark } from './mark.js'
 import { useLinger } from './motion.js'
 import { ModelMenu, RoomModelMenu } from './model-menu.js'
+import { useComposerMotion } from './composer-motion.js'
 import { currentPart } from './text.js'
 import { t } from './i18n.js'
 
@@ -115,6 +116,7 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
   const [shown, leaving] = useLinger(open, 120)
   const button = useRef(null)
   const menu = useRef(null)
+  useComposerMotion(button)
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => { if (![button.current, menu.current].some(node => node?.contains(event.target))) setOpen(null) }

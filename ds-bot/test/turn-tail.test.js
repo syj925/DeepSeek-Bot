@@ -68,6 +68,18 @@ function cellProps({ closingSeq = 10, turn = finished } = {}) {
 }
 const markdownOf = props => find(expand(AssistantCell(props), ['Bubbles']), node => node.type === MarkdownText)
 
+test('successive streamed chunks preserve Markdown labels identity so the host retains its incremental cache', () => {
+  const { props } = cellProps({ turn: { turn: 3, status: 'open' } })
+  props.node.data.status = 'running'
+  const first = markdownOf(props)[0]
+  props.node.data.blocks[0].text += ' More text.'
+  const next = markdownOf(props)[0]
+  assert.equal(first.props.streaming, true)
+  assert.equal(next.props.streaming, true)
+  assert.equal(next.props.labels, first.props.labels)
+  assert.notEqual(next.props.text, first.props.text)
+})
+
 test('a reply that closes its turn links the files the turn changed or delivered', () => {
   const { props, asked, links } = cellProps()
   const [markdown] = markdownOf(props)

@@ -9,6 +9,7 @@ import { t } from './i18n.js'
 import { TaskGroupJourney } from './task-groups.js'
 import { RoomStreams } from './room-streams.js'
 import { StreamFollow } from './stream-follow.js'
+import { StreamReveal } from './stream-reveal.js'
 
 // -------------------------------------------------------------------------
 // Conversation header
@@ -107,6 +108,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
     h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, actions }),
     h(StreamFollow, { key: `follow:${sessionId}`, sessionId }),
+    h(StreamReveal, { key: `reveal:${sessionId}`, sessionId }),
     room ? h(RoomStreams, { key: `streams:${sessionId}`, sessionId, roster, actions, useUi }) : null))
 }
 

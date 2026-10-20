@@ -4,6 +4,7 @@ import { language, t } from './i18n.js'
 import { readSpatialWidget, writeSpatialWidget } from './spatial-widgets.js'
 import { useSchedules } from './schedules.js'
 import { qibitWorkSummary } from './qibit-work-summary.js'
+import { useComposerMotion } from './composer-motion.js'
 
 const copy = (en, zh) => language().startsWith('zh') ? zh : en
 const FEATURES = [
@@ -182,6 +183,9 @@ export function QiBitCommandCenter({ actions, roster, work = {}, searchIcon: Sea
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   const pending = useRef(false)
+  const composer = useRef(null)
+  const composing = useRef(false)
+  useComposerMotion(composer, query)
   const [replay, setReplay] = useState(0)
   const [reduced, setReduced] = useState(false)
   const [visible, setVisible] = useState(true)
@@ -286,17 +290,26 @@ export function QiBitCommandCenter({ actions, roster, work = {}, searchIcon: Sea
     !layout.folded && feature ? h(FeatureCards, { feature, roster, work, actions }) : null),
   h('div', { id: 'bt-qibit-command-body', hidden: layout.folded },
   h('form', {
+    ref: composer,
     className: 'bt-qibit-search bt-qibit-glass',
     onSubmit: submit
   },
     h('button', { type: 'button', className: 'bt-qibit-search-entry', title: t('Search Bots, chats and messages'), 'aria-label': t('Search Bots, chats and messages'), onClick: () => searchFromHome(actions, '') }, h(SearchIcon)),
-    h('input', {
-      type: 'text',
+    h('textarea', {
+      rows: 1,
+      'data-bt-home-input': '',
       value: query,
       'aria-label': copy('Message the General Assistant', '与总助理对话'),
       placeholder: copy('Tell the General Assistant what you want to get done', '告诉总助理，你想完成什么事…'),
       onChange: event => setQuery(event.target.value),
-      onKeyDown: event => { if (event.nativeEvent.isComposing && event.key === 'Enter') event.preventDefault() }
+      onCompositionStart: () => { composing.current = true },
+      onCompositionEnd: () => { composing.current = false },
+      onKeyDown: event => {
+        if (event.key !== 'Enter' || event.shiftKey) return
+        if (composing.current || event.nativeEvent?.isComposing || event.nativeEvent?.keyCode === 229) return
+        event.preventDefault()
+        event.currentTarget.form?.requestSubmit()
+      },
     }),
     h('button', { type: 'submit', className: 'bt-action-primary', disabled: !bot || !query.trim() || sending, 'aria-label': t('Send'), title: t('Send') }, sending ? '…' : '↗')),
   h('div', { className: 'bt-qibit-functions', role: 'group', 'aria-label': copy('Quick functions', '常用功能') }, FEATURES.map(([id, en, zh, icon]) => h('button', { key: id, type: 'button', className: 'bt-qibit-glass', 'aria-pressed': feature === id, 'aria-controls': 'bt-qibit-feature-cards', onClick: () => choose(id) }, h('span', { 'aria-hidden': true }, icon), copy(en, zh)))),

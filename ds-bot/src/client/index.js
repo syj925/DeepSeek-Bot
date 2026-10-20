@@ -37,6 +37,8 @@ import { noticeApprovals } from './approval-notices.js'
 import { CANVAS_PANEL, CANVAS_CONVERSATION, CanvasConversation, CanvasLauncher, canvasSessionId } from './canvas-session.js'
 import { CanvasWorkspace } from './canvas-workspace.js'
 import { canvasStyles } from './canvas-styles.js'
+import { COMPOSER_MOTION_CSS } from './composer-motion.js'
+import { STREAM_REVEAL_CSS } from './stream-reveal.js'
 import { canvasReading, watchCompletions } from './completion-unread.js'
 import { createTaskNotices } from './task-notice-state.js'
 import { TaskNotifications, TASK_NOTICE_CSS } from './task-notices.js'
@@ -1004,6 +1006,7 @@ export function apply(ctx) {
   ]
   const installConversation = () => [
     installCompiledStyles(CONVERSATION_CSS, 'conversation'),
+    installCompiledStyles(COMPOSER_MOTION_CSS + STREAM_REVEAL_CSS, 'interaction'),
     installMentions(),
     installAtMenu(),
     shadow('conversation.session.header', { priority: -10, inject: face }, HeaderPill),
