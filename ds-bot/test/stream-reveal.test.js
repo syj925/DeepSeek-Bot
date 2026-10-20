@@ -24,6 +24,7 @@ function fixture({ supported = true } = {}) {
   window.cancelAnimationFrame = id => frames.delete(id)
   window.Highlight = supported ? class extends Set {} : undefined
   window.CSS = { highlights: registry, supports: () => true }
+  window.performance.now = () => now
   Object.defineProperty(document, 'hidden', { get: () => hidden })
   const walk = document.createTreeWalker.bind(document)
   document.createTreeWalker = (...args) => { walks++; return walk(...args) }
@@ -48,10 +49,15 @@ function fixture({ supported = true } = {}) {
     ...module.exports, window, document, registry, frames, changes, surface,
     get walks() { return walks },
     ranges() {
-      return [...registry.values()].flatMap(highlight => [...highlight])
+      return [...registry.values()].flatMap(highlight => [...highlight]).map(bounds => {
+        const range = document.createRange()
+        range.setStart(bounds.startContainer, bounds.startOffset); range.setEnd(bounds.endContainer, bounds.endOffset)
+        return range
+      })
         .sort((left, right) => left.compareBoundaryPoints(window.Range.START_TO_START, right))
     },
-    stages() { return [...registry].filter(([, highlight]) => highlight.size).map(([name]) => Number(name.split('-').at(-1))) },
+    stages() { return [...registry].filter(([name, highlight]) => highlight.size && !name.endsWith('pending')).map(([name]) => Number(name.split('-').at(-1))) },
+    pending() { return [...(registry.get('bt-reveal-pending') ?? [])] },
     async paint(advance = 16) {
       await settle()
       now += advance
@@ -81,11 +87,11 @@ test('only appended characters fade through paint stages, leaving old text, sele
     assert.equal(surface.bubble.textContent, 'Existing 新的回复')
     assert.equal(page.ranges().map(range => range.toString()).join(''), '新的回复')
     assert.equal(page.ranges().every(range => range.startOffset >= 9), true)
-    assert.equal(page.stages()[0], 0)
+    assert.ok(page.stages()[0] > 0)
     assert.ok(surface.bubble.style.getPropertyValue('--bt-reveal-ink'))
     assert.equal(selection.toString(), 'Exis')
-    await page.paint(130)
-    assert.ok(page.stages().every(stage => stage > 0 && stage < 20))
+    await page.paint(40)
+    assert.ok(page.stages().every(stage => stage > 0 && stage < 24))
     await page.paint(240)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
@@ -93,7 +99,7 @@ test('only appended characters fade through paint stages, leaving old text, sele
   } finally { stop(); page.close() }
 })
 
-test('new short streams animate while pre-existing and bulk-loaded transcript text never replays', async () => {
+test('new live streams animate even in a large first batch while pre-existing transcript text never replays', async () => {
   const page = fixture(), surface = page.surface('History'), stop = page.observeStreamReveal(surface.scope)
   try {
     await page.paint()
@@ -106,13 +112,33 @@ test('new short streams animate while pre-existing and bulk-loaded transcript te
     assert.equal(page.ranges().map(range => range.toString()).join(''), 'Hello')
     const bulk = page.document.createElement('div')
     bulk.setAttribute('data-bt-streaming', '')
-    bulk.textContent = 'history '.repeat(100)
+    bulk.textContent = 'new live '.repeat(100)
     surface.scope.appendChild(bulk)
-    await page.paint(400)
+    await page.flush()
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'Hello' + 'new live '.repeat(100))
+    await page.paint(260)
     assert.equal(page.ranges().length, 0)
     bulk.firstChild.appendData('now')
     await page.paint()
     assert.equal(page.ranges().map(range => range.toString()).join(''), 'now')
+  } finally { stop(); page.close() }
+})
+
+test('a completed tail can shrink or reparse during settling without stale ranges or missing cleanup', async () => {
+  const page = fixture(), surface = page.surface(), stop = page.observeStreamReveal(surface.scope)
+  try {
+    surface.bubble.textContent = '重新排版中的回复文字'
+    await page.flush()
+    surface.stream.removeAttribute('data-bt-streaming')
+    await page.flush()
+    surface.bubble.firstChild.deleteData(4, 6)
+    await page.flush()
+    surface.bubble.innerHTML = '重新<strong>排版</strong>'
+    await page.flush()
+    assert.equal(page.ranges().map(range => range.toString()).join(''), '重新排版')
+    await page.paint(260)
+    assert.equal(page.ranges().length, 0)
+    assert.equal(page.frames.size, 0)
   } finally { stop(); page.close() }
 })
 
@@ -135,42 +161,82 @@ test('Markdown node replacements retain old reveals and animate only the newly a
   } finally { stop(); page.close() }
 })
 
-test('completion including a final text batch shows every character and removes all active paint', async () => {
+test('completion including a final text batch lets the last letters settle before releasing paint', async () => {
   const page = fixture(), surface = page.surface(), stop = page.observeStreamReveal(surface.scope)
   try {
     surface.bubble.textContent = 'live'
     await page.paint()
-    assert.equal(page.ranges().length, 4)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'live')
     surface.bubble.textContent = 'live and complete'
     surface.stream.removeAttribute('data-bt-streaming')
     await page.paint()
     assert.equal(surface.bubble.textContent, 'live and complete')
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'live and complete')
+    await page.paint(260)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
     assert.equal(surface.bubble.style.getPropertyValue('--bt-reveal-ink'), '')
   } finally { stop(); page.close() }
 })
 
-test('burst and active-run budgets reveal excessive batches immediately without queuing hundreds of frames', async () => {
+test('large live batches sweep in compressed ranges and oversized batches remain readable immediately', async () => {
   const page = fixture(), surface = page.surface('prefix'), stop = page.observeStreamReveal(surface.scope)
   try {
     surface.bubble.firstChild.appendData('a'.repeat(600))
     await page.paint()
-    assert.equal(page.ranges().length, 0)
-    assert.equal(page.frames.size, 0)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'a'.repeat(600))
+    assert.ok(page.ranges().length < 30)
+    assert.ok(page.pending().length)
     for (let index = 0; index < 4; index++) {
       surface.bubble.firstChild.appendData('b'.repeat(300))
       await page.paint()
-      assert.ok(page.ranges().length <= 800)
+      assert.ok(page.ranges().length < 100)
     }
     await page.paint(1000)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
     assert.equal(surface.bubble.textContent.length, 1806)
+    surface.bubble.firstChild.appendData('x'.repeat(11000))
+    await page.flush()
+    assert.equal(page.ranges().length, 0)
+    assert.equal(page.frames.size, 0)
   } finally { stop(); page.close() }
 })
 
-test('updates batch per animation frame and unrelated composers, IME and other streams do not rescan', async () => {
+test('temporary group tails hand the remaining sweep to the matching durable message only', async () => {
+  const page = fixture(), surface = page.surface('History '), stop = page.observeStreamReveal(surface.scope)
+  try {
+    surface.stream.setAttribute('data-bt-stream-key', 'group:employee:1:0')
+    // Keys are set when a stream mounts; observe a new live row in this fixture.
+    surface.stream.remove()
+    const stream = page.document.createElement('div')
+    stream.setAttribute('data-bt-streaming', '')
+    stream.setAttribute('data-bt-stream-key', 'group:employee:2:0')
+    stream.textContent = '回复开始'
+    surface.scope.prepend(stream)
+    await page.flush()
+    assert.ok(page.pending().length)
+    await page.paint(30)
+    const durable = page.document.createElement('div')
+    durable.setAttribute('data-bt-stream-key', 'group:employee:2:0')
+    durable.innerHTML = '<strong>回复开始</strong>，这是最后几个字'
+    stream.replaceWith(durable)
+    await page.flush()
+    assert.equal(page.ranges().map(range => range.toString()).join(''), durable.textContent)
+    assert.ok(page.ranges().every(range => durable.contains(range.startContainer)))
+    assert.ok(page.pending().length)
+    await page.paint(250)
+    assert.equal(page.ranges().length, 0)
+    assert.equal(page.frames.size, 0)
+    assert.equal(durable.textContent, '回复开始，这是最后几个字')
+    // Reloading an already completed row does not replay it.
+    durable.replaceWith(durable.cloneNode(true))
+    await page.flush()
+    assert.equal(page.ranges().length, 0)
+  } finally { stop(); page.close() }
+})
+
+test('mutation batches paint before the next frame and ignore unrelated composers, IME and other streams', async () => {
   const page = fixture(), first = page.surface('one'), other = page.surface('two'), stop = page.observeStreamReveal(first.scope)
   try {
     const initialWalks = page.walks
@@ -184,9 +250,12 @@ test('updates batch per animation frame and unrelated composers, IME and other s
     for (let index = 0; index < 20; index++) first.bubble.firstChild.appendData('字')
     await page.flush()
     assert.equal(page.frames.size, 1)
+    assert.equal(page.walks, initialWalks + 1)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), '字'.repeat(20))
+    assert.equal(page.stages()[0], 0)
+    assert.equal(page.pending().map(range => range.endOffset - range.startOffset).reduce((a, b) => a + b, 0), 19)
     await page.paint()
     assert.equal(page.walks, initialWalks + 1)
-    assert.equal(page.ranges().length, 20)
     assert.equal(first.input.textContent, '拼音')
   } finally { stop(); page.close() }
 })
@@ -206,7 +275,7 @@ test('reduced motion and hidden tabs clear paint immediately and resume without 
     assert.equal(page.ranges().length, 0)
     surface.bubble.firstChild.appendData(' new')
     await page.paint()
-    assert.equal(page.ranges().length, 4)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), ' new')
     page.hide(true)
     assert.equal(page.ranges().length, 0)
     assert.equal(page.frames.size, 0)
@@ -217,7 +286,7 @@ test('reduced motion and hidden tabs clear paint immediately and resume without 
     assert.equal(page.ranges().length, 0)
     surface.bubble.firstChild.appendData(' visible')
     await page.paint()
-    assert.equal(page.ranges().length, 8)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), ' visible')
   } finally { stop(); page.close() }
 })
 
@@ -228,15 +297,14 @@ test('separate canvas windows share highlight groups without clearing or stealin
     first.bubble.textContent = 'first'
     other.bubble.textContent = 'other'
     await page.paint()
-    assert.equal(page.ranges().length, 10)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'firstother')
     stopFirst()
-    assert.equal(page.ranges().length, 5)
     assert.equal(page.ranges().map(range => range.toString()).join(''), 'other')
     assert.equal(first.bubble.style.getPropertyValue('--bt-reveal-ink'), '')
     assert.ok(other.bubble.style.getPropertyValue('--bt-reveal-ink'))
     other.bubble.firstChild.appendData(' live')
     await page.paint()
-    assert.equal(page.ranges().length, 10)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'other live')
   } finally { stopFirst(); stopOther(); page.close() }
   assert.equal(page.registry.size, 0)
   assert.equal(page.frames.size, 0)
@@ -247,8 +315,10 @@ test('grapheme ranges keep emoji and combining marks intact and ignore copy butt
   const page = fixture(), surface = page.surface(), stop = page.observeStreamReveal(surface.scope)
   try {
     surface.bubble.innerHTML = '<code>👨‍👩‍👧‍👦é你好</code><button>Copy</button>'
-    await page.paint()
-    assert.deepEqual(page.ranges().map(range => range.toString()), ['👨‍👩‍👧‍👦', 'é', '你', '好'])
+    await page.flush()
+    assert.deepEqual(page.ranges().map(range => range.toString()), ['👨‍👩‍👧‍👦', 'é你好'])
+    await page.paint(3)
+    assert.deepEqual(page.ranges().map(range => range.toString()), ['👨‍👩‍👧‍👦é', '你好'])
     assert.equal(surface.bubble.querySelector('button').textContent, 'Copy')
   } finally { stop(); page.close() }
 })
@@ -281,12 +351,12 @@ test('a stopped observer cannot clear a newly mounted observer after repeated cl
   try {
     surface.bubble.textContent = 'active'
     await page.paint()
-    assert.equal(page.ranges().length, 6)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'active')
     old()
-    assert.equal(page.ranges().length, 6)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'active')
     surface.bubble.firstChild.appendData(' new')
     await page.paint()
-    assert.equal(page.ranges().length, 10)
+    assert.equal(page.ranges().map(range => range.toString()).join(''), 'active new')
   } finally { stop(); page.close() }
 })
 
@@ -296,7 +366,7 @@ test('removed streams, teardown and unsupported browsers release observers and l
     try {
       surface.bubble.textContent = 'reply'
       await page.paint()
-      assert.equal(page.ranges().length, supported ? 5 : 0)
+      assert.equal(page.ranges().map(range => range.toString()).join(''), supported ? 'reply' : '')
       surface.stream.remove()
       await page.paint()
       assert.equal(page.ranges().length, 0)

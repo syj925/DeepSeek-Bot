@@ -4704,7 +4704,7 @@ var mdLabels = () => {
   }
   return markdownLabels;
 };
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, streamId, sessionId, msgKey, useUi, lead, mentions }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -4723,7 +4723,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
       const live = streaming && last;
       return (0, import_react9.createElement)(
         "div",
-        { key: index, className: "bt-msg", "data-bt-streaming": live ? "" : void 0 },
+        { key: index, className: "bt-msg", "data-bt-streaming": live ? "" : void 0, "data-bt-stream-key": streamId ? `${streamId}:${index}` : void 0 },
         (0, import_react9.createElement)(
           "div",
           { className: "bt-msg-line" },
@@ -4919,7 +4919,7 @@ function GroupMessage({ bot, text: text2, room: room2, roster, actions, msgKey, 
       bot.name,
       room2?.admin === bot.id ? (0, import_react9.createElement)("span", { className: "bt-group-role" }, t("Admin")) : null
     ),
-    (0, import_react9.createElement)(Bubbles, { texts: [text2], roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead, streaming })
+    (0, import_react9.createElement)(Bubbles, { texts: [text2], roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead, streaming, streamId })
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -5957,6 +5957,7 @@ function RoomStreams({ sessionId, roster, actions, useUi, rootRef }) {
     (0, import_react13.createElement)("span", { ref: anchor, hidden: true, "data-bt-room-stream-anchor": sessionId }),
     host && room2 ? (0, import_react_dom3.createPortal)((0, import_react13.createElement)("div", { className: "bt-group-replies" }, visible.map((stream) => (0, import_react13.createElement)(GroupMessage, {
       key: stream.streamId,
+      streamId: stream.streamId,
       bot: replyIdentity(stream, roster),
       text: stream.text,
       room: room2,
@@ -6088,19 +6089,20 @@ function StreamFollow({ sessionId, rootRef }) {
 
 // src/client/stream-reveal.js
 var import_react15 = require("react");
-var STEPS = 20;
-var FADE_MS = 240;
-var STAGGER_MS = 90;
-var FIRST_LIMIT = 140;
-var BURST_LIMIT = 480;
-var LIVE_LIMIT = 800;
+var STEPS = 24;
+var FADE_MS = 120;
+var STAGGER_MS = 120;
+var BURST_LIMIT = 1e4;
+var LIVE_LIMIT = 12e3;
 var STREAM = "[data-bt-streaming]";
+var KEY = "data-bt-stream-key";
 var INK = "--bt-reveal-ink";
 var PREFIX = "bt-reveal-";
 var documents = /* @__PURE__ */ new WeakMap();
-var STREAM_REVEAL_CSS = Array.from(
+var STREAM_REVEAL_CSS = `::highlight(${PREFIX}pending){color:transparent}
+` + Array.from(
   { length: STEPS },
-  (_, step) => `::highlight(${PREFIX}${step}){color:color-mix(in srgb,var(${INK},currentColor) ${Math.round(16 + step * 84 / STEPS)}%,transparent)}`
+  (_, step) => `::highlight(${PREFIX}${step}){color:color-mix(in srgb,var(${INK},currentColor) ${Math.round(20 + step * 80 / (STEPS - 1))}%,transparent)}`
 ).join("\n");
 function registryFor(document2, view) {
   let manager = documents.get(document2);
@@ -6137,7 +6139,7 @@ function registryFor(document2, view) {
         }
         ink.owners.add(owner);
       }
-      for (let step = 0; step < STEPS; step++) {
+      for (const step of ["pending", ...Array.from({ length: STEPS }, (_, index) => index)]) {
         let highlight = highlights.get(step);
         for (const range of previous.groups[step] ?? []) highlight?.delete(range);
         if (!groups[step]?.length) continue;
@@ -6182,14 +6184,19 @@ function difference(before, after) {
   while (suffix < limit - start && before.charCodeAt(before.length - suffix - 1) === after.charCodeAt(after.length - suffix - 1)) suffix++;
   return { start, oldEnd: before.length - suffix, end: after.length - suffix };
 }
-function textRange(document2, entries2, start, end) {
-  const first = entries2.find((entry) => entry.end > start);
-  const last = entries2.find((entry) => entry.end >= end);
-  if (!first || !last || !first.node.isConnected || !last.node.isConnected) return null;
-  const range = document2.createRange();
-  range.setStart(first.node, start - first.start);
-  range.setEnd(last.node, end - last.start);
-  return range;
+function segmentsFor(entries2, start, end) {
+  let low = 0, high = entries2.length;
+  while (low < high) {
+    const middle = low + high >>> 1;
+    if (entries2[middle].end <= start) low = middle + 1;
+    else high = middle;
+  }
+  const segments = [];
+  for (let index = low; index < entries2.length && entries2[index].start < end; index++) {
+    const entry = entries2[index];
+    if (entry.node.isConnected) segments.push({ node: entry.node, start: Math.max(0, start - entry.start), end: Math.min(entry.end, end) - entry.start });
+  }
+  return segments;
 }
 function observeStreamReveal(scope, { reducedMotion: reducedMotion3 } = {}) {
   const document2 = scope.ownerDocument, view = document2.defaultView;
@@ -6205,7 +6212,7 @@ function observeStreamReveal(scope, { reducedMotion: reducedMotion3 } = {}) {
   const active = (node) => scope.contains(node) && node.matches(STREAM);
   const enroll = (node, historical = false) => {
     if (!active(node) || states.has(node)) return;
-    states.set(node, { snapshot: historical || paused() ? snapshot(node, document2) : { text: "", entries: [] }, runs: [], first: !historical, quietUntil: 0 });
+    states.set(node, { snapshot: historical || paused() ? snapshot(node, document2) : { text: "", entries: [] }, runs: [], quietUntil: 0, key: node.getAttribute(KEY) });
     if (!historical && !paused()) dirty.add(node);
   };
   const discover = (node, historical = false) => {
@@ -6222,25 +6229,28 @@ function observeStreamReveal(scope, { reducedMotion: reducedMotion3 } = {}) {
     lastPaint = 0;
     dirty.clear();
     for (const [node, state] of states) {
+      if (!active(node)) {
+        states.delete(node);
+        continue;
+      }
       state.runs = [];
       state.snapshot = snapshot(node, document2);
-      state.first = false;
     }
     manager.update(owner, []);
   };
   const scan = (container, now) => {
     const state = states.get(container);
     if (!state) return;
-    if (!active(container)) {
+    if (!scope.contains(container)) {
       states.delete(container);
       return;
     }
     const next = snapshot(container, document2);
+    state.key = container.getAttribute(KEY);
     const before = state.snapshot.text;
     const change = difference(before, next.text);
     const shift = change.end - change.oldEnd;
     state.runs = state.runs.filter((run) => {
-      run.range = null;
       if (run.end <= change.start) return true;
       if (run.start >= change.oldEnd) {
         run.start += shift;
@@ -6251,23 +6261,24 @@ function observeStreamReveal(scope, { reducedMotion: reducedMotion3 } = {}) {
     });
     const count = change.end - change.start;
     const folded = container.matches("details:not([open])") || container.closest("details:not([open])");
-    const allowed = !folded && now >= state.quietUntil && count > 0 && count <= (state.first ? FIRST_LIMIT : BURST_LIMIT) && (change.start === before.length || count <= 64);
+    const allowed = !folded && now >= state.quietUntil && count > 0 && count <= BURST_LIMIT && (change.start === before.length || count <= 64);
     if (allowed) {
       const tail = next.text.slice(change.start, change.end);
       const characters = segmenter ? [...segmenter.segment(tail)].map((part) => part.segment) : Array.from(tail);
       if (state.runs.length + characters.length <= LIVE_LIMIT) {
         let offset = change.start;
-        const stagger = Math.min(6, STAGGER_MS / Math.max(1, characters.length - 1));
+        const stagger = Math.min(2.4, STAGGER_MS / Math.max(1, characters.length - 1));
         characters.forEach((character, index) => {
-          state.runs.push({ start: offset, end: offset + character.length, born: now + index * stagger, range: null });
+          state.runs.push({ start: offset, end: offset + character.length, born: now + index * stagger });
           offset += character.length;
         });
       }
     }
     state.snapshot = next;
-    state.first = false;
   };
   function paint(now) {
+    now = Math.max(now, view.performance.now(), lastPaint);
+    view.cancelAnimationFrame(frame);
     frame = 0;
     if (stopped || paused()) {
       clear();
@@ -6278,22 +6289,43 @@ function observeStreamReveal(scope, { reducedMotion: reducedMotion3 } = {}) {
     for (const node of dirty) scan(node, now);
     dirty.clear();
     const groups = Array.from({ length: STEPS }, () => []), elements = /* @__PURE__ */ new Set();
+    groups.pending = [];
     let live = false;
     for (const [node, state] of states) {
-      if (!active(node)) {
+      if (!scope.contains(node)) {
         states.delete(node);
         continue;
       }
       state.runs = state.runs.filter((run) => now - run.born < FADE_MS);
+      const buckets = /* @__PURE__ */ new Map();
       for (const run of state.runs) {
-        const range = run.range ??= textRange(document2, state.snapshot.entries, run.start, run.end);
-        if (!range) continue;
-        const stage = Math.max(0, Math.min(STEPS - 1, Math.floor((now - run.born) / FADE_MS * STEPS)));
+        const age = now - run.born;
+        const stage = age < 0 ? "pending" : Math.min(STEPS - 1, Math.floor(age / FADE_MS * STEPS));
+        let bucket = buckets.get(stage);
+        if (!bucket) {
+          bucket = [];
+          buckets.set(stage, bucket);
+        }
+        for (const segment of segmentsFor(state.snapshot.entries, run.start, run.end)) {
+          const previous = bucket.at(-1);
+          if (previous?.node === segment.node && previous.end === segment.start) previous.end = segment.end;
+          else bucket.push(segment);
+        }
+      }
+      for (const [stage, bucket] of buckets) for (const segment of bucket) {
+        const bounds = { startContainer: segment.node, startOffset: segment.start, endContainer: segment.node, endOffset: segment.end };
+        let range;
+        if (typeof view.StaticRange === "function") range = new view.StaticRange(bounds);
+        else {
+          range = document2.createRange();
+          range.setStart(segment.node, segment.start);
+          range.setEnd(segment.node, segment.end);
+        }
         groups[stage].push(range);
-        if (range.startContainer.parentElement) elements.add(range.startContainer.parentElement);
-        if (range.endContainer.parentElement) elements.add(range.endContainer.parentElement);
+        if (segment.node.parentElement) elements.add(segment.node.parentElement);
         live = true;
       }
+      if (!state.runs.length && !node.matches(STREAM)) states.delete(node);
     }
     manager.update(owner, groups, elements);
     if (live) schedule();
@@ -6303,29 +6335,40 @@ function observeStreamReveal(scope, { reducedMotion: reducedMotion3 } = {}) {
     let touched = false;
     for (const record2 of records) {
       const element = record2.target.nodeType === 1 ? record2.target : record2.target.parentElement;
-      const container = element?.closest(STREAM);
+      let container = element?.closest(STREAM);
+      if (!container) for (let at = element; at && scope.contains(at); at = at.parentElement) {
+        if (states.has(at)) {
+          container = at;
+          break;
+        }
+      }
       if (container && scope.contains(container)) {
         enroll(container);
         dirty.add(container);
         touched = true;
       }
-      if (record2.type === "attributes" && states.has(element) && !element.matches(STREAM)) {
-        states.delete(element);
+      if (record2.type === "attributes" && states.has(element)) {
+        dirty.add(element);
         touched = true;
       }
       if (record2.type === "childList") {
         for (const added of record2.addedNodes) discover(added);
-        if (record2.removedNodes.length) {
-          for (const [node] of states) if (!active(node)) {
-            states.delete(node);
-            touched = true;
-          }
-        }
       }
     }
-    if (!paused() && (dirty.size || touched)) schedule();
+    for (const [node, state] of states) if (!scope.contains(node)) {
+      const replacement = state.key && [...scope.querySelectorAll(`[${KEY}]`)].find((candidate) => candidate.getAttribute(KEY) === state.key);
+      states.delete(node);
+      dirty.delete(node);
+      touched = true;
+      if (replacement) {
+        states.set(replacement, state);
+        dirty.add(replacement);
+      }
+    }
+    if (!paused() && (dirty.size || touched)) paint(view.performance.now());
+    else if (paused()) clear();
   });
-  observer.observe(scope, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["data-bt-streaming"] });
+  observer.observe(scope, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["data-bt-streaming", KEY] });
   const settleMotion = () => {
     clear();
   };
@@ -18397,7 +18440,7 @@ var MAX_EDGE = 2560;
 var TYPES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
 var DATABASE = "ds-bot:wallpaper";
 var STORE = "images";
-var KEY = "canvas";
+var KEY2 = "canvas";
 function failure(message, cause) {
   return new Error(message, cause ? { cause } : void 0);
 }
@@ -18585,7 +18628,7 @@ function accessWallpaper(operation, blob) {
         transaction.onerror = () => fail(transaction.error);
         transaction.onabort = () => fail(transaction.error);
         const store = transaction.objectStore(STORE);
-        const result = operation === "put" ? store.put(blob, KEY) : operation === "delete" ? store.delete(KEY) : store.get(KEY);
+        const result = operation === "put" ? store.put(blob, KEY2) : operation === "delete" ? store.delete(KEY2) : store.get(KEY2);
         result.onerror = () => fail(result.error);
         if (operation === "get") result.onsuccess = () => {
           if (result.result == null) value = null;
@@ -23871,19 +23914,19 @@ function watchCompletions({ sessions, roster, canvas, panels, completions, readi
 }
 
 // src/client/task-notice-state.js
-var KEY2 = "ds-bot:task-notifications";
+var KEY3 = "ds-bot:task-notifications";
 function createTaskNotices({ storage = globalThis.localStorage, page = globalThis.document, since: since2 = Date.now(), reading = () => false, systemNotify = () => {
 }, sound = () => {
 } } = {}) {
   let saved;
   try {
-    saved = JSON.parse(storage?.getItem(KEY2) ?? "{}");
+    saved = JSON.parse(storage?.getItem(KEY3) ?? "{}");
   } catch {
   }
   const source = createSource({ items: [], toasts: [], seen: Array.isArray(saved?.seen) ? saved.seen.slice(-200) : [], read: Array.isArray(saved?.read) ? saved.read.slice(-200) : [], enabled: saved?.enabled !== false, sound: saved?.sound === true, open: false });
   const persist = (state) => {
     try {
-      storage?.setItem(KEY2, JSON.stringify({ seen: state.seen, read: state.read, enabled: state.enabled, sound: state.sound }));
+      storage?.setItem(KEY3, JSON.stringify({ seen: state.seen, read: state.read, enabled: state.enabled, sound: state.sound }));
     } catch {
     }
   };
@@ -23902,7 +23945,7 @@ function createTaskNotices({ storage = globalThis.localStorage, page = globalThi
       receivedKey = key;
       const state = source.getSnapshot(), seen = new Set(state.seen), read = new Set(state.read);
       try {
-        for (const id of JSON.parse(storage?.getItem(KEY2) ?? "{}").seen ?? []) seen.add(id);
+        for (const id of JSON.parse(storage?.getItem(KEY3) ?? "{}").seen ?? []) seen.add(id);
       } catch {
       }
       const fresh = items.filter((item) => typeof item?.id === "string" && !seen.has(item.id) && item.at >= since2);

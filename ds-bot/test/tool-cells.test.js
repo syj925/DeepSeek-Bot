@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, TriggerCell, callTree } from './src/client/cells.js'",
+      "export { Bubbles, GroupMessage, ToolCell, TriggerCell, callTree } from './src/client/cells.js'",
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
@@ -44,7 +44,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, QuestionDock, SecretDock, countCards } = module.exports
+const { Bubbles, GroupMessage, ToolCell, TriggerCell, callTree, QuestionDock, SecretDock, countCards } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -98,6 +98,26 @@ const show = (root, options) => {
 }
 const shown = (root, options) => text(show(root, options))
 
+test('temporary and durable group bubbles retain the same per-message stream key', () => {
+  const streamId = JSON.stringify(['room', 'writer', 'exchange'])
+  const base = { bot: writer, text: 'The result', room, roster: team(), actions: {}, streamId }
+  const live = expand(GroupMessage({ ...base, streaming: true }))
+  const done = expand(GroupMessage({ ...base, text: 'The result is ready.', streaming: false }))
+  effects = []
+  for (const tree of [live, done]) {
+    const bubble = find(tree, node => node.props?.className === 'bt-msg')
+    assert.equal(bubble.props['data-bt-stream-key'], `${streamId}:0`)
+  }
+  assert.equal(find(live, node => node.props?.className === 'bt-msg').props['data-bt-streaming'], '')
+  assert.equal(find(done, node => node.props?.className === 'bt-msg').props['data-bt-streaming'], undefined)
+
+  const many = Bubbles({ texts: ['First', 'Second'], roster: team(), selfId: 'writer', actions: {}, streamId })
+  const rows = many.props.children[0]
+  assert.deepEqual(Array.from(rows, node => node.props['data-bt-stream-key']), [`${streamId}:0`, `${streamId}:1`])
+  const ordinary = Bubbles({ texts: ['History'], roster: team(), selfId: 'writer', actions: {} })
+  assert.equal(ordinary.props.children[0][0].props['data-bt-stream-key'], undefined)
+})
+
 test('a durable background group post carries its stream identity onto the visible bubble', () => {
   const streamId = JSON.stringify(['room', 'writer', 'exchange'])
   const input = {
@@ -112,11 +132,13 @@ test('a durable background group post carries its stream identity onto the visib
   effects = []
   const bubble = find(posted, node => node.props?.['data-bt-stream-id'] === streamId)
   assert.ok(bubble, 'the persisted post must replace the same temporary background stream')
+  assert.equal(find(posted, node => node.props?.className === 'bt-msg').props['data-bt-stream-key'], `${streamId}:0`)
   assert.match(text(posted), /Writer.*The completed result\./)
   assert.doesNotMatch(text(posted), /Group post from/)
   const reloaded = expand(TriggerCell({ ...input, node: plainClone(input.node) }))
   effects = []
   assert.equal(find(reloaded, node => node.props?.['data-bt-stream-id'] === streamId)?.props['data-bt-stream-id'], streamId)
+  assert.equal(find(reloaded, node => node.props?.className === 'bt-msg').props['data-bt-stream-key'], `${streamId}:0`)
 })
 
 const plainClone = value => JSON.parse(JSON.stringify(value))

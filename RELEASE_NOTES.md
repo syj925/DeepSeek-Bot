@@ -1,6 +1,6 @@
-QibitAI canvas plugin 0.1.55
+QibitAI canvas plugin 0.1.56
 
-- Show recognizable model-maker artwork in the compact model button and model rows. Infer the maker from the model itself, so Claude and MiniMax do not inherit the gateway's icon; unknown models use a neutral fallback. Group chats still choose an employee before editing that employee's model.
-- Add soft focus, background and send-control transitions to home and chat composers. Multiline drafts expand and contract smoothly; the home box supports Shift+Enter for a new line. Keep the shell editor, caret and Chinese IME intact, and keep chat input floating while history scrolls.
-- Fade newly streamed characters to full ink over 240 ms, with brief staggering, without wrapping text or replacing Markdown nodes. Keep Markdown labels and text selection stable. Smooth small transcript growth only while following the latest reply; scrolling history keeps control with the reader.
-- Honor reduced motion, pause visual work in hidden tabs and clean up each window independently. Browsers without the text-highlight API show streamed text immediately. Employee ownership, permissions, queues and hosted update behavior are unchanged.
+- Make new reply characters appear in order, then settle from 20% to full ink over 120 ms. Apply the initial paint inside the mutation checkpoint so an arriving batch cannot flash at full strength before fading. Keep the full Markdown DOM, selection and input intact.
+- Animate live first batches and larger group polling batches. Compress adjacent characters into shared highlight ranges, use static ranges and binary text lookup, and keep timestamps monotonic so the reveal cannot move backwards within a frame. Oversized batches remain immediately readable.
+- Let the last letters finish their short sweep when generation ends. Carry the remaining animation from a temporary group reply to its matching durable message in the same window; do not replay loaded history.
+- Keep employee ownership, permissions, task queues, model-maker icons and the floating composer unchanged. Reduced motion, hidden tabs, unsupported browsers and closed windows release visual work immediately.

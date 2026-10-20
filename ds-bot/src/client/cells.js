@@ -28,7 +28,7 @@ const mdLabels = () => {
 }
 
 // The sender avatar starts the first bubble; following bubbles retain its gutter.
-export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions }) {
+export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, sessionId, msgKey, useUi, lead, mentions }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -43,7 +43,7 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
       const picked = key ? reactions?.[index] ?? [] : []
       const last = index === texts.length - 1
       const live = streaming && last
-      return h('div', { key: index, className: 'bt-msg', 'data-bt-streaming': live ? '' : undefined },
+      return h('div', { key: index, className: 'bt-msg', 'data-bt-streaming': live ? '' : undefined, 'data-bt-stream-key': streamId ? `${streamId}:${index}` : undefined },
         h('div', { className: 'bt-msg-line' },
           lead && index === 0 ? lead : null,
           h('div', { className: 'bt-bubble', 'data-bt-reveal-text': '' },
@@ -187,7 +187,7 @@ export function GroupMessage({ bot, text, room, roster, actions, msgKey, useUi, 
   return h('div', { className: 'bt-group-msg', 'data-bt-stream-id': streamId },
     h('span', { className: 'bt-group-name', style: { color: inkText(colorOf(bot)) } }, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null),
-    h(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead, streaming }))
+    h(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead, streaming, streamId }))
 }
 
 // A centered event line that names a group chat and opens it.

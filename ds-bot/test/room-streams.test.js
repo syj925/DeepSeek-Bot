@@ -63,6 +63,7 @@ function createRoot(mount) {
         const node = host.ownerDocument.createElement('div')
         node.className = 'bt-group-msg'
         node.textContent = row.props.text
+        if (row.props.streamId) node.setAttribute('data-test-stream-id', row.props.streamId)
         if (row.props.streaming) node.setAttribute('data-test-streaming', '')
         host.appendChild(node)
       }
@@ -194,6 +195,7 @@ test('background bubbles keep streaming after the round ends, share the room pol
     assert.match(second.flow.textContent, /Other reply/)
     assert.doesNotMatch(second.flow.textContent, /Chief is answering|Partial/)
     assert.equal(first.flow.querySelectorAll('[data-test-streaming]').length, 2)
+    assert.deepEqual([...first.flow.querySelectorAll('[data-test-stream-id]')].map(node => node.getAttribute('data-test-stream-id')), ['w', 'c'])
     progress.ops[0].streams[0].text = 'Partial grows without a running relay'
     await act(async () => { await page.tick() })
     assert.match(first.flow.textContent, /Partial grows without a running relay/)
@@ -218,6 +220,7 @@ test('a durable reply replaces its temporary bubble only in its own room and nev
   try {
     await act(async () => { root.render(h(page.RoomStreams, { sessionId: 'ops', roster, actions })); await settle() })
     assert.match(first.flow.textContent, /Complete answer/)
+    assert.equal(first.flow.querySelector('[data-test-stream-id]')?.getAttribute('data-test-stream-id'), 'same')
     const elsewhere = page.document.createElement('div')
     elsewhere.dataset.btStreamId = 'same'
     second.flow.appendChild(elsewhere)

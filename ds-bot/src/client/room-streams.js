@@ -88,7 +88,7 @@ export function RoomStreams({ sessionId, roster, actions, useUi, rootRef }) {
   const visible = streams.filter(stream => !committedIds.has(stream.streamId))
   return h(Fragment, null, h('span', { ref: anchor, hidden: true, 'data-bt-room-stream-anchor': sessionId }),
     host && room ? createPortal(h('div', { className: 'bt-group-replies' }, visible.map(stream => h(GroupMessage, {
-      key: stream.streamId, bot: replyIdentity(stream, roster), text: stream.text, room, roster, actions, useUi,
+      key: stream.streamId, streamId: stream.streamId, bot: replyIdentity(stream, roster), text: stream.text, room, roster, actions, useUi,
       streaming: stream.status === 'active',
     }))), host) : null)
 }

@@ -1,21 +1,21 @@
 import { createElement as h, useLayoutEffect, useRef } from 'react'
 import { roomContentRoot } from './room-streams.js'
 
-const STEPS = 20
-const FADE_MS = 240
-const STAGGER_MS = 90
-const FIRST_LIMIT = 140
-const BURST_LIMIT = 480
-const LIVE_LIMIT = 800
+const STEPS = 24
+const FADE_MS = 120
+const STAGGER_MS = 120
+const BURST_LIMIT = 10000
+const LIVE_LIMIT = 12000
 const STREAM = '[data-bt-streaming]'
+const KEY = 'data-bt-stream-key'
 const INK = '--bt-reveal-ink'
 const PREFIX = 'bt-reveal-'
 const documents = new WeakMap()
 
 // Highlight ranges change paint only: Markdown keeps its nodes, selection,
 // layout and complete text while each new character settles to its own ink.
-export const STREAM_REVEAL_CSS = Array.from({ length: STEPS }, (_, step) =>
-  `::highlight(${PREFIX}${step}){color:color-mix(in srgb,var(${INK},currentColor) ${Math.round(16 + step * 84 / STEPS)}%,transparent)}`,
+export const STREAM_REVEAL_CSS = `::highlight(${PREFIX}pending){color:transparent}\n` + Array.from({ length: STEPS }, (_, step) =>
+  `::highlight(${PREFIX}${step}){color:color-mix(in srgb,var(${INK},currentColor) ${Math.round(20 + step * 80 / (STEPS - 1))}%,transparent)}`,
 ).join('\n')
 
 function registryFor(document, view) {
@@ -51,7 +51,7 @@ function registryFor(document, view) {
         }
         ink.owners.add(owner)
       }
-      for (let step = 0; step < STEPS; step++) {
+      for (const step of ['pending', ...Array.from({ length: STEPS }, (_, index) => index)]) {
         let highlight = highlights.get(step)
         for (const range of previous.groups[step] ?? []) highlight?.delete(range)
         if (!groups[step]?.length) continue
@@ -99,14 +99,19 @@ function difference(before, after) {
   return { start, oldEnd: before.length - suffix, end: after.length - suffix }
 }
 
-function textRange(document, entries, start, end) {
-  const first = entries.find(entry => entry.end > start)
-  const last = entries.find(entry => entry.end >= end)
-  if (!first || !last || !first.node.isConnected || !last.node.isConnected) return null
-  const range = document.createRange()
-  range.setStart(first.node, start - first.start)
-  range.setEnd(last.node, end - last.start)
-  return range
+function segmentsFor(entries, start, end) {
+  let low = 0, high = entries.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (entries[middle].end <= start) low = middle + 1
+    else high = middle
+  }
+  const segments = []
+  for (let index = low; index < entries.length && entries[index].start < end; index++) {
+    const entry = entries[index]
+    if (entry.node.isConnected) segments.push({ node: entry.node, start: Math.max(0, start - entry.start), end: Math.min(entry.end, end) - entry.start })
+  }
+  return segments
 }
 
 export function observeStreamReveal(scope, { reducedMotion } = {}) {
@@ -122,7 +127,7 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
   const active = node => scope.contains(node) && node.matches(STREAM)
   const enroll = (node, historical = false) => {
     if (!active(node) || states.has(node)) return
-    states.set(node, { snapshot: historical || paused() ? snapshot(node, document) : { text: '', entries: [] }, runs: [], first: !historical, quietUntil: 0 })
+    states.set(node, { snapshot: historical || paused() ? snapshot(node, document) : { text: '', entries: [] }, runs: [], quietUntil: 0, key: node.getAttribute(KEY) })
     if (!historical && !paused()) dirty.add(node)
   }
   const discover = (node, historical = false) => {
@@ -134,43 +139,48 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
   const clear = () => {
     view.cancelAnimationFrame(frame)
     frame = 0; lastPaint = 0; dirty.clear()
-    for (const [node, state] of states) { state.runs = []; state.snapshot = snapshot(node, document); state.first = false }
+    for (const [node, state] of states) {
+      if (!active(node)) { states.delete(node); continue }
+      state.runs = []; state.snapshot = snapshot(node, document)
+    }
     manager.update(owner, [])
   }
   const scan = (container, now) => {
     const state = states.get(container)
     if (!state) return
-    if (!active(container)) { states.delete(container); return }
+    if (!scope.contains(container)) { states.delete(container); return }
     const next = snapshot(container, document)
+    state.key = container.getAttribute(KEY)
     const before = state.snapshot.text
     const change = difference(before, next.text)
     const shift = change.end - change.oldEnd
     state.runs = state.runs.filter(run => {
-      run.range = null
       if (run.end <= change.start) return true
       if (run.start >= change.oldEnd) { run.start += shift; run.end += shift; return true }
       return false
     })
     const count = change.end - change.start
     const folded = container.matches('details:not([open])') || container.closest('details:not([open])')
-    const allowed = !folded && now >= state.quietUntil && count > 0 && count <= (state.first ? FIRST_LIMIT : BURST_LIMIT)
+    const allowed = !folded && now >= state.quietUntil && count > 0 && count <= BURST_LIMIT
       && (change.start === before.length || count <= 64)
     if (allowed) {
       const tail = next.text.slice(change.start, change.end)
       const characters = segmenter ? [...segmenter.segment(tail)].map(part => part.segment) : Array.from(tail)
       if (state.runs.length + characters.length <= LIVE_LIMIT) {
         let offset = change.start
-        const stagger = Math.min(6, STAGGER_MS / Math.max(1, characters.length - 1))
+        const stagger = Math.min(2.4, STAGGER_MS / Math.max(1, characters.length - 1))
         characters.forEach((character, index) => {
-          state.runs.push({ start: offset, end: offset + character.length, born: now + index * stagger, range: null })
+          state.runs.push({ start: offset, end: offset + character.length, born: now + index * stagger })
           offset += character.length
         })
       }
     }
     state.snapshot = next
-    state.first = false
   }
   function paint(now) {
+    // A frame timestamp can precede a mutation checkpoint in that same frame.
+    now = Math.max(now, view.performance.now(), lastPaint)
+    view.cancelAnimationFrame(frame)
     frame = 0
     if (stopped || paused()) { clear(); return }
     // A suspended tab or long main-thread pause must never replay old tokens.
@@ -179,19 +189,33 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
     for (const node of dirty) scan(node, now)
     dirty.clear()
     const groups = Array.from({ length: STEPS }, () => []), elements = new Set()
+    groups.pending = []
     let live = false
     for (const [node, state] of states) {
-      if (!active(node)) { states.delete(node); continue }
+      if (!scope.contains(node)) { states.delete(node); continue }
       state.runs = state.runs.filter(run => now - run.born < FADE_MS)
+      const buckets = new Map()
       for (const run of state.runs) {
-        const range = run.range ??= textRange(document, state.snapshot.entries, run.start, run.end)
-        if (!range) continue
-        const stage = Math.max(0, Math.min(STEPS - 1, Math.floor((now - run.born) / FADE_MS * STEPS)))
+        const age = now - run.born
+        const stage = age < 0 ? 'pending' : Math.min(STEPS - 1, Math.floor(age / FADE_MS * STEPS))
+        let bucket = buckets.get(stage)
+        if (!bucket) { bucket = []; buckets.set(stage, bucket) }
+        for (const segment of segmentsFor(state.snapshot.entries, run.start, run.end)) {
+          const previous = bucket.at(-1)
+          if (previous?.node === segment.node && previous.end === segment.start) previous.end = segment.end
+          else bucket.push(segment)
+        }
+      }
+      for (const [stage, bucket] of buckets) for (const segment of bucket) {
+        const bounds = { startContainer: segment.node, startOffset: segment.start, endContainer: segment.node, endOffset: segment.end }
+        let range
+        if (typeof view.StaticRange === 'function') range = new view.StaticRange(bounds)
+        else { range = document.createRange(); range.setStart(segment.node, segment.start); range.setEnd(segment.node, segment.end) }
         groups[stage].push(range)
-        if (range.startContainer.parentElement) elements.add(range.startContainer.parentElement)
-        if (range.endContainer.parentElement) elements.add(range.endContainer.parentElement)
+        if (segment.node.parentElement) elements.add(segment.node.parentElement)
         live = true
       }
+      if (!state.runs.length && !node.matches(STREAM)) states.delete(node)
     }
     manager.update(owner, groups, elements)
     if (live) schedule()
@@ -201,17 +225,29 @@ export function observeStreamReveal(scope, { reducedMotion } = {}) {
     let touched = false
     for (const record of records) {
       const element = record.target.nodeType === 1 ? record.target : record.target.parentElement
-      const container = element?.closest(STREAM)
+      let container = element?.closest(STREAM)
+      if (!container) for (let at = element; at && scope.contains(at); at = at.parentElement) {
+        if (states.has(at)) { container = at; break }
+      }
       if (container && scope.contains(container)) { enroll(container); dirty.add(container); touched = true }
-      if (record.type === 'attributes' && states.has(element) && !element.matches(STREAM)) { states.delete(element); touched = true }
+      if (record.type === 'attributes' && states.has(element)) { dirty.add(element); touched = true }
       if (record.type === 'childList') {
         for (const added of record.addedNodes) discover(added)
-        if (record.removedNodes.length) for (const [node] of states) if (!active(node)) { states.delete(node); touched = true }
       }
     }
-    if (!paused() && (dirty.size || touched)) schedule()
+    // Durable group rows can replace a temporary tail while its last letters
+    // are still settling. Transfer only the matching stream in this window.
+    for (const [node, state] of states) if (!scope.contains(node)) {
+      const replacement = state.key && [...scope.querySelectorAll(`[${KEY}]`)].find(candidate => candidate.getAttribute(KEY) === state.key)
+      states.delete(node); dirty.delete(node); touched = true
+      if (replacement) { states.set(replacement, state); dirty.add(replacement) }
+    }
+    // Apply the initial mask inside the mutation checkpoint. Waiting for rAF
+    // could paint new text at full ink before making it faint on the next frame.
+    if (!paused() && (dirty.size || touched)) paint(view.performance.now())
+    else if (paused()) clear()
   })
-  observer.observe(scope, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['data-bt-streaming'] })
+  observer.observe(scope, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['data-bt-streaming', KEY] })
   const settleMotion = () => { clear() }
   const fold = event => {
     const target = event.target?.closest?.('summary,[aria-expanded]')

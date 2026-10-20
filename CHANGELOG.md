@@ -6,6 +6,13 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.56] - 2026-10-20
+
+### Fixed
+
+- Reveal new live reply characters in order without flashing a whole batch at full ink first. Use a short 120 ms fade, compressed static highlight ranges, and monotonic paint timestamps.
+- Keep the remaining character reveal through group completion and temporary-to-durable message replacement. Animate larger live first batches without replaying loaded history; release all visual work on reduced motion, hidden tabs and teardown.
+
 ## [0.1.6] - 2026-10-15
 
 ### Added
