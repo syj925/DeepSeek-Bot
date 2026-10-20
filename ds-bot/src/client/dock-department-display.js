@@ -1,4 +1,4 @@
-import COMPANY_PORTRAITS from './company-dock-portraits.json' with { type: 'json' }
+import COMPANY_PORTRAITS from '../shared/company-dock-portraits.json' with { type: 'json' }
 
 // Presentation only. Actual membership and all action IDs come from the roster.
 const SKINS = [

@@ -38,6 +38,7 @@ import * as recovery from './src/host/recovery.js'
 import * as taskGroups from './src/host/task-groups.js'
 import * as employeePortraits from './src/host/employee-portraits.js'
 import * as taskContext from './src/host/task-context.js'
+import * as presetOrganization from './src/host/preset-organization.js'
 
 export { COLORS } from './src/host/constants.js'
 
@@ -68,6 +69,6 @@ export function createRuntime(ctx, config = {}) {
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of [...MODULES, taskGroups, taskContext, employeePortraits]) module.install(rt)
+  for (const module of [...MODULES, taskGroups, taskContext, employeePortraits, presetOrganization]) module.install(rt)
   return rt
 }

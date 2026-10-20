@@ -11,7 +11,7 @@ import { requestProblem, ownerOf } from '../src/host/ownership.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
-function start(team, { models = [], reasoning = {}, archiveError } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, presetOrganization = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext()
@@ -55,7 +55,7 @@ function start(team, { models = [], reasoning = {}, archiveError } = {}) {
     route = options
     return register(options)
   }
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { home, presetOrganization })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -70,6 +70,59 @@ function start(team, { models = [], reasoning = {}, archiveError } = {}) {
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 
 const departmentPlan = () => ({ name: 'Design department', purpose: 'Maintain the product design', leader: { name: 'Design lead', role: 'Lead', instructions: 'Coordinate product design and review deliverables.' }, members: [{ name: 'Designer', role: 'Designer', instructions: 'Produce interface designs.' }, { name: 'Reviewer', role: 'Reviewer', instructions: 'Review usability and accessibility.' }] })
+
+test('installed presets create real departments without model calls and preserve deletions on restart', async t => {
+  const h = start(undefined, { presetOrganization: true })
+  t.after(h.stop)
+  await Promise.all([h.rt.bootstrap(), h.rt.bootstrap()])
+  const s = h.rt.state
+  assert.equal(Object.keys(s.bots).length, 21)
+  assert.equal(Object.keys(s.teams).length, 6)
+  assert.equal(Object.keys(s.rooms).length, 0)
+  assert.equal(h.sent.length, 0)
+  assert.equal(s.presetOrganization.version, 1)
+  assert.deepEqual(Object.values(s.teams).map(team => team.members.length), [1, 4, 6, 4, 4, 1])
+  for (const bot of Object.values(s.bots).filter(bot => !bot.generalAssistant)) {
+    assert.match(bot.avatar.image, /^data:image\/webp;base64,/)
+    assert.equal(bot.kickoff, undefined)
+    assert.equal(bot.employment, 'long-term')
+  }
+  const team = Object.values(s.teams).find(team => team.name === '产品部')
+  await h.rt.deleteBot(team.members.at(-1))
+  const restored = start(JSON.parse(readFileSync(join(h.home, 'state.json'))), { presetOrganization: true })
+  t.after(restored.stop)
+  await restored.rt.bootstrap()
+  assert.equal(Object.keys(restored.rt.state.bots).length, 20, 'deleted presets do not return')
+})
+
+test('preset upgrade preserves existing departments and colliding employee names', async t => {
+  const h = start()
+  t.after(h.stop)
+  await h.rt.bootstrap()
+  const existing = await h.rt.createBot({ name: '人事负责人', role: 'Custom role', avatar: { shape: 'star' }, quiet: true })
+  const sales = await h.rt.createBot({ name: 'Sales lead', quiet: true })
+  const team = await h.rt.createTeam({ name: '销售部', purpose: 'User responsibilities', leaderId: sales.id, members: [sales.id] })
+  const before = JSON.stringify([existing, sales, team])
+  h.rt.config.presetOrganization = true
+  await h.rt.bootstrap()
+  assert.equal(JSON.stringify([existing, sales, team]), before)
+  assert.equal(Object.values(h.rt.state.teams).filter(team => team.name === '销售部').length, 1)
+  assert.ok(h.rt.findBot('人事负责人 2'))
+  assert.equal(Object.keys(h.rt.state.teams).length, 6)
+})
+
+test('preset initialization resumes after interruption without duplicate employees', async t => {
+  const h = start(undefined, { presetOrganization: true })
+  t.after(h.stop)
+  const createTeam = h.rt.createTeam
+  h.rt.createTeam = async () => { throw Error('Simulated storage failure') }
+  await assert.rejects(h.rt.bootstrap(), /Simulated storage failure/)
+  assert.equal(Object.keys(h.rt.state.bots).length, 2)
+  h.rt.createTeam = createTeam
+  await h.rt.bootstrap()
+  assert.equal(Object.keys(h.rt.state.bots).length, 21)
+  assert.equal(Object.keys(h.rt.state.teams).length, 6)
+})
 
 test('lasting teams reuse employees; collaborative groups never change affiliation, history or permissions', async t => {
   const bench = start()

@@ -61,7 +61,7 @@ export function install(rt) {
 
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
   // greeting waits until a model is chosen. So does a Bot made when no model is served.
-  async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, teamId = null, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, quiet = false, generalAssistant = false, employment = 'long-term' }) {
+  async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, teamId = null, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, quiet = false, generalAssistant = false, employment = 'long-term', presetKey }) {
     const cleanName = String(botName ?? '').trim().slice(0, 40)
     const cleanRole = String(role).trim().slice(0, 24)
     const problem = nameProblem(cleanName) ?? assistantIdentityProblem({ name: cleanName, role: cleanRole })
@@ -95,6 +95,7 @@ export function install(rt) {
         employment: cleanEmployment,
         teamId: null,
         capabilities: [],
+        ...(presetKey ? { presetKey } : {}),
       }
       if (main) state.mainBotIds.push(id)
       if (teamId !== null) await rt.setTeam(id, teamId)
@@ -560,6 +561,7 @@ export function install(rt) {
     void rt.syncModels()
     if (state.mainBotIds.some(id => rt.botOf(id))) {
       if (rt.reconcileGeneralAssistant()) await rt.save()
+      await rt.ensurePresetOrganization()
       return
     }
     // Only the team's first Main Bot is stored as the DeepSeek whale; other Bots get a
@@ -568,6 +570,7 @@ export function install(rt) {
       .finally(() => { bootstrapping = null })
     await bootstrapping
     if (rt.reconcileGeneralAssistant()) await rt.save()
+    await rt.ensurePresetOrganization()
   }
 
   Object.assign(rt, {

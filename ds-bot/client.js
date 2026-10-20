@@ -18121,7 +18121,7 @@ function chatMessages(list, entity, roster) {
   ]);
 }
 
-// src/client/company-dock-portraits.json
+// src/shared/company-dock-portraits.json
 var company_dock_portraits_default = {
   management: {
     purpose: "负责全局方向、目标协调和跨部门决策。",
