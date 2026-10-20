@@ -5,6 +5,12 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Widget options': '组件选项',
+  'Reset canvas view': '重置画布视角',
+  'Restore widget': '恢复组件',
+  'Remove widget': '删除组件',
+  'Remove from desktop': '从桌面移除',
+  'Restore {name}': '恢复{name}',
   'Desktop tools': '桌面工具',
   'Change appearance': '换肤',
   'Temporary collaboration': '临时员工部',
@@ -638,8 +644,14 @@ const ZH = {
   'Try a Bot name or words from a message': '试试 Bot 名字或消息里的词',
 
   // Bot exchange
-  'Bot exchange': 'Bot 间对话',
-  'Bot exchange transcript': 'Bot 间对话记录',
+  'Bot exchange': '协作记录',
+  'Bot exchange transcript': '协作记录',
+  'Collaboration record': '协作记录',
+  'View collaboration with {name}': '查看与 {name} 的协作记录',
+  'No collaboration messages yet': '暂时还没有协作消息',
+  'Could not load collaboration messages. Retrying…': '协作记录加载失败，正在重试…',
+  'No employee is currently working': '当前没有员工正在处理任务',
+  'View new messages': '查看新消息',
   'No messages yet': '还没有消息',
   'Close Chat': '关闭',
 

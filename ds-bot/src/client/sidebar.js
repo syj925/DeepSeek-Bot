@@ -17,6 +17,7 @@ import { useFloatingTeam, FLOATING_TEAM_CSS } from './floating-team.js'
 import { TeamAgentChat, TEAM_AGENT_CHAT_CSS } from './team-agent-chat.js'
 import { useMainAgentDrag } from './main-agent-drag.js'
 import { useChatPopoutDrag, stageChatPopout, takeChatPopout, CHAT_POPOUT_CSS } from './chat-popout.js'
+import { conversationTimes, teamConversationOrder } from './team-order.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -289,6 +290,7 @@ export function TeamSidebar(props) {
   const listId = useId()
   const roster = useRoster(value => value)
   const markedUnread = useUi(value => value.unread)
+  const completions = props.useCompletions(value => value)
   const canvasActive = props.usePanelInfo(value => value.activePanelId === CANVAS_PANEL)
   const wide = canvasActive || props.wide
   const [teamChatId, setTeamChatId] = useState(null)
@@ -298,21 +300,12 @@ export function TeamSidebar(props) {
   const floating = useFloatingTeam(canvasActive, root, Boolean(teamChatId), chatClosing)
   const canvasEntity = props.useCanvas(value => value.windows.find(window => window.id === value.active && window.open))
   props.useRegistry(value => value)
+  const conversationStamps = useRef({})
   const updated = useSessions(list => {
-    const stamps = {}
-    for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
-    return JSON.stringify(stamps)
+    conversationStamps.current = conversationTimes(list, roster, conversationStamps.current)
+    return JSON.stringify(conversationStamps.current)
   })
-  const order = useMemo(() => {
-    const stamps = JSON.parse(updated)
-    const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.filter(room => room.task?.status !== 'completed').map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
-      // The Agent sorts by its most recent Session, falling back to when it was added.
-      ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
-    ]
-    return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
-  }, [roster, updated])
+  const order = useMemo(() => teamConversationOrder(roster, JSON.parse(updated), markedUnread, completions), [roster, updated, markedUnread, completions])
   const main = roster.byId[roster.mainBotId]
   useListGlide(listRef, `${wide}:${Boolean(teamChatId && !chatClosing)}:${floating.folded}`, order.map(entry => entry.item.id).join(','))
   useLandOnMainBot(roster, useSessions, actions, canvasActive)

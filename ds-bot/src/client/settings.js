@@ -17,6 +17,7 @@ import { FeedbackIcon, FeedbackPage } from './feedback.js'
 import { AboutPage } from './about.js'
 import { t } from './i18n.js'
 import { QIBITAI_LOGO } from './qibitai-brand.js'
+import { DESKTOP_WIDGETS, hiddenWidgets, setWidgetHidden } from './desktop-widgets.js'
 
 // Settings dialog: a 198px page list beside the page. Bots and group chats each list
 // their members, and one opens on its own settings form. Usage widens the dialog.
@@ -46,10 +47,13 @@ function SetRow({ label, hint, children }) {
 }
 
 function GeneralPage({ roster, actions, run }) {
+  const [hidden, setHidden] = useState(hiddenWidgets)
   return [
     h(SetSection, { key: 'canvas', title: t('Desktop appearance') },
       h(SetRow, { label: t('Canvas wallpaper'), hint: t('Choose a local image as your desktop background.') },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { actions.closeSettings(); window.dispatchEvent(new Event('ds-bot:open-wallpaper')) } }, t('Change wallpaper')))),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { actions.closeSettings(); window.dispatchEvent(new Event('ds-bot:open-wallpaper')) } }, t('Change wallpaper'))),
+      ...hidden.map(id => h(SetRow, { key: id, label: t(DESKTOP_WIDGETS[id]) },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setWidgetHidden(id, false); setHidden(hiddenWidgets()) } }, t('Restore widget'))))),
     h(MotionSection, { key: 'motion', roster, actions, run }),
     h(SetSection, { key: 'mode', title: t('Mode') },
       h(SetRow, { label: t('Classic Agent mode') },

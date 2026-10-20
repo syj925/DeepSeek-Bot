@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { createCanvasState, openWindow } from '../src/client/canvas-state.js'
 
 const { outputFiles } = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/context-menu.js', import.meta.url))],
@@ -34,13 +35,13 @@ function nodes(tree, match) {
   return [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))]
 }
 
-function fixture({ room = false, memory, browser, bridge = true, main = false, kind } = {}) {
+function fixture({ room = false, memory, browser, bridge = true, main = false, kind, canvasWindowId } = {}) {
   const bot = { id: 'writer', sessionId: 'writer-current', name: 'Writer', role: 'Writing' }
   const group = { id: 'planning', name: 'Planning', members: ['writer'] }
   const calls = []
   const actions = Object.fromEntries([
     'closeMenu', 'showDetails', 'openMemory', 'openSettings', 'openBrowser', 'setFlags', 'markUnread', 'renameBot',
-    'duplicateBot', 'openSession', 'setMain', 'deleteBot', 'deleteRoom', 'reportError',
+    'duplicateBot', 'openSession', 'setMain', 'deleteBot', 'deleteRoom', 'reportError', 'updateCanvas',
   ].map(name => [name, (...args) => { calls.push([name, ...args]) }]))
   if (!bridge) delete actions.openBrowser
   const roster = {
@@ -49,7 +50,7 @@ function fixture({ room = false, memory, browser, bridge = true, main = false, k
     agentsById: { agent: { id: 'agent' } },
   }
   const tree = module.exports.ContextMenu({
-    menu: { kind: kind ?? (room ? 'room' : 'bot'), id: kind === 'agent' ? 'agent' : room ? 'planning' : 'writer', x: 10, y: 20 },
+    menu: { kind: kind ?? (room ? 'room' : 'bot'), id: kind === 'agent' ? 'agent' : room ? 'planning' : 'writer', x: 10, y: 20, canvasWindowId },
     roster, actions,
   })
   const buttons = nodes(tree, node => node.type === 'button' && node.props.role === 'menuitem')
@@ -76,6 +77,22 @@ test('Bot management opens employee settings, memory, schedules, and browser wit
     ['closeMenu'], ['openSettings', 'schedules', 'writer'],
     ['closeMenu'], ['openBrowser', 'writer'],
   ])
+})
+
+test('canvas removal closes only the requested card and leaves employee and room data alone', () => {
+  for (const room of [false, true]) {
+    const entity = { id: room ? 'planning' : 'writer', kind: room ? 'room' : 'bot' }
+    const state = openWindow(createCanvasState(), entity)
+    const window = state.windows[0]
+    const data = fixture({ room, canvasWindowId: window.id })
+    data.click('Remove from desktop')
+    assert.deepEqual(data.calls.map(call => call[0]), ['closeMenu', 'updateCanvas'])
+    const next = data.calls[1][1](state)
+    assert.equal(next.windows[0].open, false)
+    assert.equal(state.windows[0].open, true)
+    assert.equal(next.windows[0].entityId, entity.id)
+  }
+  assert.ok(!fixture().labels.includes('Remove from desktop'), 'sidebar menus must not remove unrelated canvas cards')
 })
 
 test('outside pointer presses dismiss menus even when the target stops bubbling', () => {

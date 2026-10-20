@@ -3,6 +3,7 @@ import { BotAvatar } from './mark.js'
 import { ArrowUpIcon, ChatsIcon, ClockIcon } from './icons.js'
 import { useSchedules, timingText } from './schedules.js'
 import { dateLocale, hostText, t } from './i18n.js'
+import { hiddenWidgets, setWidgetHidden } from './desktop-widgets.js'
 
 const WIDGET_KEY = 'ds-bot:spatial-widgets'
 const DRAFT_KEY = 'ds-bot:canvas-quick-drafts'
@@ -61,6 +62,7 @@ export function anchorSpatialWidget(id, panel, area) {
 }
 
 export function toggleSpatialWidget(id) {
+  if (hiddenWidgets().includes(id)) { setWidgetHidden(id, false); return }
   window.dispatchEvent(new CustomEvent(TOGGLE_EVENT, { detail: id }))
 }
 

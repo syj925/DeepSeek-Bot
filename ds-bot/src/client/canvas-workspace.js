@@ -1,4 +1,5 @@
 import { QiBitCommandCenter } from './qibit-command-center.js'
+import { DesktopWidget } from './desktop-widgets.js'
 import { dragGeometry } from './canvas-drag.js'
 import { RESTORED_CHAT_CSS } from './restored-chat-styles.js'
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -293,7 +294,7 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
     event.preventDefault()
     event.stopPropagation()
     const box = event.currentTarget.getBoundingClientRect()
-    actions.openMenu({ id: entity.id, x: event.type === 'contextmenu' ? event.clientX : box.right, y: event.type === 'contextmenu' ? event.clientY : box.bottom })
+    actions.openMenu({ id: entity.id, canvasWindowId: window.id, x: event.type === 'contextmenu' ? event.clientX : box.right, y: event.type === 'contextmenu' ? event.clientY : box.bottom })
   }
   const select = event => {
     if (event.target.closest('input[type=checkbox],.bt-canvas-window-title,.bt-canvas-avatar-open')) return
@@ -1391,7 +1392,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       h(CanvasWallpaper, { canvasRef: root }),
       button(t('Settings'), () => actions.openSettings(), GearIcon),
       button(t('Classic view'), () => actions.openClassicSession())),
-    h(CanvasGlobalSearch, { actions, roster, work }),
+    h(DesktopWidget, { id: 'qibit-command', actions }, h(CanvasGlobalSearch, { actions, roster, work })),
     h('main', {
       className: 'bt-canvas-stage',
       onContextMenu: onCanvasContextMenu,
@@ -1493,8 +1494,8 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
       visible.length === 0 ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
     visible.filter(window => !window.compact).sort((a, b) => a.z - b.z).map((window, order) => h(CanvasChatWindow, { key: window.id, window, active: state.active === window.id, order, size, roster, actions, useSessions, SessionProvider, renderSlot })),
     mergePair ? h(MergeHint, { pair: mergePair, viewport: state.viewport, canvasRef: root }) : null,
-    h(CanvasQuickMessage, { bot: quickBot, actions }),
-    h(CanvasAgenda, { roster, actions }),
+    h(DesktopWidget, { id: 'quick', actions }, h(CanvasQuickMessage, { bot: quickBot, actions })),
+    h(DesktopWidget, { id: 'agenda', actions }, h(CanvasAgenda, { roster, actions })),
     marquee ? h('div', { className: 'bt-canvas-marquee', style: marquee }) : null,
     h(CanvasDepartmentDock, {
       roster, work, useSessions, actions, size, canvasRoot: root,

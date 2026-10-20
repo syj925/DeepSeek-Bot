@@ -1,8 +1,10 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
-import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, MemoryIcon, ClockIcon, PlusIcon, ChatsIcon, PeopleIcon, CalendarIcon, ChevronRightIcon, SwitchIcon, SlidersIcon } from './icons.js'
+import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, MemoryIcon, ClockIcon, PlusIcon, ChatsIcon, PeopleIcon, CalendarIcon, ChevronRightIcon, SlidersIcon } from './icons.js'
 import { toggleSpatialWidget } from './spatial-widgets.js'
+import { setWidgetHidden } from './desktop-widgets.js'
+import { collapseWindow } from './canvas-state.js'
 import { GlobeIcon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
@@ -12,10 +14,6 @@ const RefreshIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20'
   h('path', { d: 'M17 3v4.5h-4.5' }),
   h('path', { d: 'M16.5 10a6.5 6.5 0 0 1-11.5 4.2L3 12.5' }),
   h('path', { d: 'M3 17v-4.5h4.5' }))
-
-const EyeIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-  h('path', { d: 'M2 10s3.5-6 8-6 8 6 8 6-3.5 6-8 6-8-6-8-6z' }),
-  h('circle', { cx: 10, cy: 10, r: 2.5 }))
 
 const WallpaperIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('rect', { x: 3, y: 3, width: 14, height: 14, rx: 2.5 }),
@@ -28,7 +26,6 @@ function CanvasContextMenu({ menu, actions, leaving }) {
   const [activeSubmenu, setActiveSubmenu] = useState(null)
   const timeoutRef = useRef(null)
   const submenuRef = useRef(null)
-  const viewRef = useRef(null)
   const newRef = useRef(null)
   const [submenuPlace, setSubmenuPlace] = useState({ left: '100%', top: 0 })
 
@@ -36,7 +33,7 @@ function CanvasContextMenu({ menu, actions, leaving }) {
   useLayoutEffect(() => {
     const parent = ref.current
     const submenu = submenuRef.current
-    const trigger = activeSubmenu === 'new' ? newRef.current : viewRef.current
+    const trigger = newRef.current
     if (!parent || !submenu || !trigger) return
     const box = parent.getBoundingClientRect()
     const width = submenu.offsetWidth, height = submenu.offsetHeight
@@ -71,10 +68,6 @@ function CanvasContextMenu({ menu, actions, leaving }) {
     if (fn) fn()
   }
 
-  const viewItems = [
-    [t('Collapse all'), SlidersIcon, () => actions.compactCanvasConversations()],
-  ]
-
   const newItems = [
     [t('Create employee'), PlusIcon, () => actions.openNewChat('create')],
     [t(menu.createSelectedGroup ? 'Create group with selected' : 'Create group chat'), ChatsIcon, menu.createSelectedGroup ?? (() => actions.openNewChat('group'))],
@@ -92,121 +85,20 @@ function CanvasContextMenu({ menu, actions, leaving }) {
     onMouseLeave: delayedCloseSubmenu,
   },
     h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      'data-active': activeSubmenu === 'view' || undefined,
-      ref: viewRef,
-      onMouseEnter: () => setSubmenu('view'),
-      onClick: () => setActiveSubmenu(v => v === 'view' ? null : 'view'),
-    },
-      h(EyeIcon),
-      h('span', { className: 'bt-menu-label' }, t('View')),
-      h(ChevronRightIcon, { className: 'bt-menu-chevron' })),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      onMouseEnter: () => setSubmenu(null),
-      onClick: () => run(() => actions.arrangeCanvasCards()),
-    },
-      h(SlidersIcon),
-      h('span', { className: 'bt-menu-label' }, t('Auto arrange cards'))),
-
-    h('div', { className: 'bt-menu-sep', role: 'separator' }),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      onMouseEnter: () => setSubmenu(null),
-      onClick: () => run(() => actions.updateCanvas(c => ({ ...c, viewport: { x: 0, y: 0, zoom: 1 } }))),
-    },
-      h(RefreshIcon),
-      h('span', { className: 'bt-menu-label' }, t('Refresh'))),
-
-    h('div', { className: 'bt-menu-sep', role: 'separator' }),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
+      type: 'button', role: 'menuitem', className: 'bt-menu-item', ref: newRef,
       'data-active': activeSubmenu === 'new' || undefined,
-      ref: newRef,
-      onMouseEnter: () => setSubmenu('new'),
-      onClick: () => setActiveSubmenu(v => v === 'new' ? null : 'new'),
-    },
-      h(PlusIcon),
-      h('span', { className: 'bt-menu-label' }, t('New…')),
-      h(ChevronRightIcon, { className: 'bt-menu-chevron' })),
-
-    h('div', { className: 'bt-menu-sep', role: 'separator' }),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      onMouseEnter: () => setSubmenu(null),
-      onClick: () => run(() => toggleSpatialWidget('quick')),
-    },
-      h(ChatsIcon),
-      h('span', { className: 'bt-menu-label' }, t('Quick message'))),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      onMouseEnter: () => setSubmenu(null),
-      onClick: () => run(() => toggleSpatialWidget('agenda')),
-    },
-      h(CalendarIcon),
-      h('span', { className: 'bt-menu-label' }, t('Agenda'))),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      onMouseEnter: () => setSubmenu(null),
-      onClick: () => run(() => window.dispatchEvent(new CustomEvent('ds-bot:open-wallpaper'))),
-    },
-      h(WallpaperIcon),
-      h('span', { className: 'bt-menu-label' }, t('Personalize'))),
-
-    h('div', { className: 'bt-menu-sep', role: 'separator' }),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      onMouseEnter: () => setSubmenu(null),
-      onClick: () => run(() => actions.openSettings()),
-    },
-      h(GearIcon),
-      h('span', { className: 'bt-menu-label' }, t('Display settings'))),
-
-    h('button', {
-      type: 'button',
-      role: 'menuitem',
-      className: 'bt-menu-item',
-      onMouseEnter: () => setSubmenu(null),
-      onClick: () => run(() => actions.openClassicSession()),
-    },
-      h(SwitchIcon),
-      h('span', { className: 'bt-menu-label' }, t('Classic view'))),
-
-    activeSubmenu === 'view' ? h('div', {
-      className: 'bt-menu bt-canvas-menu-submenu',
-      ref: submenuRef, style: submenuPlace,
-      onMouseEnter: () => setSubmenu('view'),
-      onMouseLeave: delayedCloseSubmenu,
-    },
-      viewItems.map(([label, Icon, action]) => h('button', {
-        key: label,
-        type: 'button',
-        className: 'bt-menu-item',
-        onClick: () => run(action),
-      }, h(Icon), h('span', { className: 'bt-menu-label' }, label)))) : null,
+      onMouseEnter: () => setSubmenu('new'), onClick: () => setActiveSubmenu(v => v === 'new' ? null : 'new'),
+    }, h(PlusIcon), h('span', { className: 'bt-menu-label' }, t('New…')), h(ChevronRightIcon, { className: 'bt-menu-chevron' })),
+    ...[
+      [t('Auto arrange cards'), SlidersIcon, () => actions.arrangeCanvasCards()],
+      [t('Reset canvas view'), RefreshIcon, () => actions.updateCanvas(c => ({ ...c, viewport: { x: 0, y: 0, zoom: 1 } }))],
+      [t('Agenda'), CalendarIcon, () => toggleSpatialWidget('agenda')],
+      [t('Personalize'), WallpaperIcon, () => window.dispatchEvent(new CustomEvent('ds-bot:open-wallpaper'))],
+      [t('Display settings'), GearIcon, () => actions.openSettings()],
+    ].map(([label, Icon, action], index) => h(Fragment, { key: label },
+      index === 2 || index === 4 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
+      h('button', { type: 'button', role: 'menuitem', className: 'bt-menu-item', onMouseEnter: () => setSubmenu(null), onClick: () => run(action) },
+        h(Icon), h('span', { className: 'bt-menu-label' }, label)))),
 
     activeSubmenu === 'new' ? h('div', {
       className: 'bt-menu bt-canvas-menu-submenu',
@@ -239,6 +131,8 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
   }, [menu.x, menu.y])
   if (menu.kind === 'canvas') return h(CanvasContextMenu, { menu, roster, actions, leaving })
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
+  if (menu.kind === 'widget') return h('div', { ref, className: 'bt-menu', role: 'menu', style: place, 'aria-label': t('Widget options'), 'data-leaving': leaving || undefined },
+    h('button', { type: 'button', role: 'menuitem', onClick: () => { actions.closeMenu(); setWidgetHidden(menu.id, true) } }, h(TrashIcon), t('Remove widget')))
   if (menu.kind === 'team-new') {
     const items = [
       [t('Create employee'), PlusIcon, () => actions.openNewChat('create')],
@@ -273,6 +167,7 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
   const isTile = roster.mainBotId === menu.id
   const mainCount = (roster.mainBotIds ?? []).length
   const groups = [
+    ...(menu.canvasWindowId ? [[[t('Remove from desktop'), TrashIcon, () => actions.updateCanvas(state => collapseWindow(state, menu.canvasWindowId))]]] : []),
     [
       [t(bot ? 'Employee settings' : 'Group settings'), GearIcon, () => actions.openSettings(bot ? 'bots' : 'groups', entry.id)],
       bot && roster.memory !== false ? [t('Memory'), MemoryIcon, () => actions.openMemory(bot.id)] : null,
