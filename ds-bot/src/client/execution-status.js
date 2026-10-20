@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import { currentPart } from './text.js'
 import { conversationFailures } from './recovery-state.js'
 import { t } from './i18n.js'
+import { workPhrase } from './cells.js'
 
 export function executionState({ sessionId, roster, work, running, entries, pending }) {
   const bot = roster.byId[sessionId] ?? roster.bots?.find(item => currentPart(item) === sessionId)
@@ -13,11 +14,12 @@ export function executionState({ sessionId, roster, work, running, entries, pend
   const doing = room ? work.rooms?.[room.id] ?? [] : work.bots?.[bot?.id] && !work.bots[bot.id].roomId ? [work.bots[bot.id]] : []
   if (!running && !doing.length) return pending ? { kind: 'queued', label: 'Request submitted · waiting to start' } : null
   const tools = entries.filter(item => !item.text && !item.relay).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
-  const tool = tools.at(-1)?.label ?? doing.find(item => item.tool)?.tool
+  const rawTool = tools.at(-1)?.label ?? doing.find(item => item.tool)?.tool
+  const tool = rawTool ? (tools.at(-1)?.label ?? workPhrase(rawTool)) : tools.length ? t('Running tool') : undefined
   const since = Math.min(...doing.map(item => item.since).filter(Number.isFinite))
   return { kind: entries.some(item => item.text) ? 'reply' : tool ? 'tool' : 'waiting',
     label: entries.some(item => item.text) ? 'Writing reply' : tool ? 'Running tool' : 'Waiting for model response',
-    tool, since: Number.isFinite(since) ? since : undefined }
+    tool, activity: doing.map(item => [item.botId, item.tool, item.since]), since: Number.isFinite(since) ? since : undefined }
 }
 
 export function ExecutionStatus({ sessionId, useRoster, useWork, useSessionStatus, useLive, useSession, actions }) {
@@ -27,9 +29,11 @@ export function ExecutionStatus({ sessionId, useRoster, useWork, useSessionStatu
   const liveKey = useLive(value => JSON.stringify(value[sessionId] ?? {}))
   const pending = useSession(value => (value?.pendingSubmissions?.length ?? 0) > 0)
   const state = executionState({ sessionId, roster, work, running, entries: Object.values(JSON.parse(liveKey)), pending })
-  const signal = JSON.stringify([state?.kind, state?.tool, state?.since, liveKey])
+  const signal = JSON.stringify([sessionId, state?.kind, state?.tool, state?.activity, state?.since, liveKey])
   const activity = useRef({ signal, at: Date.now() })
   if (activity.current.signal !== signal) activity.current = { signal, at: Date.now() }
+  const run = useRef({ sessionId, active: !!state, at: Date.now() })
+  if (run.current.sessionId !== sessionId || run.current.active !== !!state) run.current = { sessionId, active: !!state, at: Date.now() }
   const [now, setNow] = useState(Date.now)
   const active = !!state
   useEffect(() => {
@@ -40,12 +44,12 @@ export function ExecutionStatus({ sessionId, useRoster, useWork, useSessionStatu
   }, [active, sessionId])
   if (!state) return null
   const working = ['waiting', 'tool', 'reply', 'queued'].includes(state.kind)
-  const seconds = Math.max(0, Math.floor((now - (state.since ?? activity.current.at)) / 1000))
+  const seconds = Math.max(0, Math.floor((now - (state.since ?? run.current.at)) / 1000))
   const elapsed = seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`
   const slow = working && now - activity.current.at >= 45000
   return h('div', { className: 'bt-execution-status', 'data-state': state.kind },
     h('span', { className: 'bt-execution-status-dot', 'aria-hidden': true }),
-    h('span', { role: 'status' }, t(state.label), state.tool && state.kind === 'tool' ? ` · ${state.tool}` : ''),
+    h('span', { role: 'status' }, state.kind === 'tool' ? state.tool : t(state.label)),
     working ? h('span', { className: 'bt-execution-elapsed', 'aria-label': t('Elapsed time') }, elapsed) : null,
     slow ? h('span', { className: 'bt-execution-slow' }, t('No new progress yet · check execution details')) : null,
     h('button', { type: 'button', onClick: () => actions.showExecution(sessionId) }, t('Execution details')))

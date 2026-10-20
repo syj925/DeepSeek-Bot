@@ -110,8 +110,8 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useWork, 
     ? renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false }, { slots: CONTENT_SLOTS })
     : h('div', { className: 'bt-canvas-session-error' }, h('p', null, t('This conversation is open in another window.')),
       h('button', { type: 'button', className: 'bt-canvas-button', onClick: () => surface.current?.activate() }, t('Continue here'))),
-  h(ExecutionStatus, { sessionId, useRoster, useWork, useSessionStatus, useSession, useLive, actions }),
-  h(ActivityIndicator, { key: sessionId, sessionId, useRoster, useSessionStatus, useSession, useLive, actions, rootRef: root })))
+  h(ActivityIndicator, { key: sessionId, sessionId, useRoster, useWork, useSessionStatus, useSession, useLive, actions, rootRef: root, inline: true, enabled: ownsEditor && editorReady }),
+  h(ExecutionStatus, { sessionId, useRoster, useWork, useSessionStatus, useSession, useLive, actions })))
 }
 
 export function CanvasLauncher({ useSurface, usePanelInfo, actions }) {

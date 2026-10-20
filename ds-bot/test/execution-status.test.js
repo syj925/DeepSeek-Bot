@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
-const { outputFiles } = await build({ entryPoints: [fileURLToPath(new URL('../src/client/execution-status.js', import.meta.url))], bundle: true, format: 'cjs', platform: 'browser', write: false, external: ['react'] })
+const { outputFiles } = await build({ entryPoints: [fileURLToPath(new URL('../src/client/execution-status.js', import.meta.url))], bundle: true, format: 'cjs', platform: 'browser', write: false, external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'] })
 const module = { exports: {} }
-runInNewContext(outputFiles[0].text, { module, exports: module.exports, require: () => ({}) })
+runInNewContext(outputFiles[0].text, { module, exports: module.exports, require: () => ({ createContext: value => ({ value }) }) })
 const state = module.exports.executionState
 const bot = { id: 'b', sessionId: 'part' }
 const base = { sessionId: 'part', roster: { bots: [bot], byId: { b: bot }, roomsById: {}, questions: {} }, work: { bots: {}, approvals: [] }, running: false, entries: [], pending: false }
@@ -20,6 +20,16 @@ test('actual execution separates pending, model wait, tool, streaming and idle',
   assert.equal(state({ ...base, work }).since, 123)
   assert.equal(state({ ...base, work, entries: [{ text: 'Answer' }] }).kind, 'reply')
   assert.equal(state({ ...base, work: { bots: { b: { since: 123, roomId: 'other' } } } }), null)
+})
+
+test('known tool identifiers become readable action labels', () => {
+  const work = { bots: { b: { since: 123, tool: 'read_file' } } }
+  const result = state({ ...base, work, running: true })
+  assert.equal(result.kind, 'tool')
+  assert.equal(result.tool, 'Opening a file')
+  assert.equal(state({ ...base, work: { bots: { b: { tool: 'create_group' } } } }).tool, 'Creating a group')
+  assert.equal(state({ ...base, running: true, entries: [{ label: 'Asking Writer', at: 1 }] }).tool, 'Asking Writer')
+  assert.equal(state({ ...base, running: true, entries: [{ label: null, at: 1 }] }).kind, 'tool')
 })
 
 test('questions and approvals override running, without leaking unrelated group status', () => {

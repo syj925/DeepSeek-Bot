@@ -15,10 +15,13 @@ import { CanvasWallpaper } from './canvas-wallpaper.js'
 import { CANVAS_LIMITS, collapseWindow, groupWindows, moveWindow, openWindow, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact, ungroupWindows, windowHeight, windowWidth } from './canvas-state.js'
 import { t } from './i18n.js'
 import { departmentFor, managerFor, reportsFor } from './designer-data.js'
+import { departmentDisplay, independentDockDisplay, orderDockGroups, temporaryDockRepresentative } from './dock-department-display.js'
+import { AppearanceIcon } from './dock-tool-icons.js'
 import { Dock, DockIcon, DockItem } from './dock.js'
 import { overlapMain, groupDropTarget, selectedMains, canvasPoint, canvasDropPoint, mergeHintPosition, MERGE_PREVIEW_DISTANCE, MERGE_COMMIT_DISTANCE } from './canvas-collaboration.js'
 import { addDraftMembers, createEmptyGroup } from './canvas-state.js'
 import { fitChat, resizeChat } from './chat-geometry.js'
+import { takeChatPopout, CHAT_POPOUT_EVENT } from './chat-popout.js'
 import { MAIN_AGENT_POINTER } from './main-agent-drag.js'
 import { MainAgentGroup, MAIN_GROUP_CSS } from './main-agent-group.js'
 
@@ -435,13 +438,25 @@ function WindowCard({ window, roster, selected, active, actions, useSessions, us
 
 
 export function getDepartmentForEntity(entity, roster) {
-  return departmentFor(entity, roster)
+  if (entity?.generalAssistant) {
+    const leaders = new Set((roster.teams ?? []).map(team => team.leaderId))
+    return { key: `bot:${entity.id}`, name: t('Executive office'), title: t('Executive office'), dockSkinKey: 'management',
+      desc: t('Chief and department heads coordinate goals, resources and cross-department work.'),
+      agents: [entity, ...(roster.bots ?? []).filter(bot => bot.id !== entity.id && !bot.hidden && !bot.retiredAt && leaders.has(bot.id))]
+        .map(bot => ({ ...bot, isLead: true })) }
+  }
+  return departmentDisplay(departmentFor(entity, roster))
 }
 
 export function getCollaboratorBots(department, roster, customTempBots = []) {
   const available = new Map((roster.bots ?? []).filter(bot => !bot.hidden).map(bot => [bot.id, bot]))
+  const displayed = agent => agent.dockPortraitAssetId ? agent
+    : getDepartmentForEntity(available.get(agent.id), roster)?.agents.find(bot => bot.id === agent.id) ?? independentDockDisplay(available.get(agent.id))
   const agents = [...new Map([...(department?.agents ?? []), ...customTempBots]
-    .filter(agent => available.has(agent.id)).map(agent => [agent.id, { ...agent, ...available.get(agent.id) }])).values()]
+    .filter(agent => available.has(agent.id)).map(agent => {
+      const appearance = displayed(agent)
+      return [agent.id, { ...agent, ...available.get(agent.id), ...(appearance?.dockPortraitAssetId ? { avatar: appearance.avatar, color: appearance.color, dockPortraitAssetId: appearance.dockPortraitAssetId } : {}) }]
+    })).values()]
   const regular = agents.filter(agent => agent.employment !== 'temporary')
   const temporary = agents.filter(agent => agent.employment === 'temporary')
   return [...regular, ...temporary]
@@ -450,27 +465,39 @@ export function getCollaboratorBots(department, roster, customTempBots = []) {
 export function groupDockEntities(entities, roster) {
   const seen = new Set(), groups = []
   const available = new Set((roster.bots ?? []).map(bot => bot.id))
+  const temporary = entities.filter(entity => available.has(entity.id) && !entity.hidden && !entity.retiredAt && !entity.generalAssistant && entity.employment === 'temporary')
+  let temporaryDepartment = null
   for (const entity of entities) {
     const isRoom = Boolean(roster.roomsById?.[entity.id])
-    if (!isRoom && !available.has(entity.id)) continue
-    const dept = isRoom ? null : getDepartmentForEntity(entity, roster)
+    if (entity.hidden || entity.retiredAt || isRoom || !available.has(entity.id) || temporary.includes(entity)) continue
+    const dept = getDepartmentForEntity(entity, roster)
+    if (dept?.dockSkinKey === 'temporary') { temporaryDepartment = dept; continue }
+    if (!dept && !entity.generalAssistant) continue
     const key = dept?.key ?? `${isRoom ? 'room' : 'bot'}:${entity.id}`
     if (seen.has(key)) continue
     seen.add(key)
-    const leadEntity = dept ? roster.byId[dept.agents.find(agent => agent.isLead)?.id] ?? entity : entity
+    const leadEntity = dept ? dept.agents.find(agent => agent.isLead) ?? entity : independentDockDisplay(entity)
+    const label = dept?.name ?? (entity.generalAssistant ? '总裁办' : entity.name)
     groups.push({ key, leadEntity, dept, deptBadge: dept?.name ?? null,
-      deptTitle: dept?.title ?? entity.name, name: dept?.name ?? entity.name })
+      deptTitle: dept?.title ?? label, name: label })
   }
-  return groups
+  if (temporary.length || temporaryDepartment) {
+    const agents = [...new Map([...(temporaryDepartment?.agents ?? []), ...temporary].map(bot => [bot.id, bot])).values()]
+    const dept = { key: 'dock:temporary', name: t('Temporary collaboration'), title: t('Temporary collaboration'), dockSkinKey: 'temporary', collection: true,
+      desc: temporaryDepartment?.desc ?? t('A permanent coordinator supports temporary employees, who leave the active roster after their tasks.'), agents }
+    groups.push({ key: dept.key, leadEntity: agents.find(agent => agent.isLead) ?? temporaryDockRepresentative(agents[0]), dept, deptBadge: dept.name, deptTitle: dept.title, name: dept.name })
+  }
+  return orderDockGroups(groups)
 }
 
-export function DockCollaborationPopover({ entity, department: initialDept, pos, roster, work = { bots: {}, rooms: {} }, useSessions, actions, size, onMouseEnter, onMouseLeave, onClose }) {
+export function DockCollaborationPopover({ entity, department: initialDept, pos, roster, work = { bots: {}, rooms: {} }, actions, size, onMouseEnter, onMouseLeave, onClose }) {
   if (!entity || !pos) return null
   const department = initialDept || getDepartmentForEntity(entity, roster)
+  const collection = department?.collection === true
   const isRoom = Boolean(roster.roomsById?.[entity.id])
+  const displayEntity = department?.agents?.find(agent => agent.id === entity.id) ?? independentDockDisplay(entity)
   const isMain = !isRoom && isMainOf(roster, entity.id)
   const sessionId = isRoom ? entity.id : (entity.sessionId ?? entity.id)
-  const preview = useSessions ? useSessions(list => previewOf(list, sessionId, roster.exchangeTurns?.[sessionId])) : ''
   const manager = !isRoom ? managerFor(entity, roster) : null
   const reports = !isRoom ? reportsFor(entity, roster) : []
   const roomActivity = isRoom ? busyMembers(entity, work, roster) : []
@@ -510,23 +537,23 @@ export function DockCollaborationPopover({ entity, department: initialDept, pos,
 
   return h('div', {
     className: 'bt-dock-popover glass-card', style: { left: `${pos.x}px`, bottom: `${pos.bottom}px` },
-    onMouseEnter, onMouseLeave, role: 'dialog', 'aria-label': `${entity.name} · ${t('Collaboration Progress')}`,
+    onMouseEnter, onMouseLeave, role: 'dialog', 'aria-label': `${collection ? department.name : entity.name} · ${t('Collaboration Progress')}`,
     'data-room-drop-id': isRoom ? entity.id : undefined,
   },
     h('div', { className: 'bt-dock-popover-header' },
       h('div', { className: 'bt-dock-popover-header-left' },
-        isRoom ? h(RoomAvatar, { room: entity, roster, size: 40 }) : h(BotAvatar, { bot: entity, size: 40, main: isMain }),
+        isRoom ? h(RoomAvatar, { room: entity, roster, size: 40 }) : h(BotAvatar, { bot: displayEntity, size: 40, main: isMain }),
         h('div', { className: 'bt-dock-popover-meta' },
           h('div', { className: 'bt-dock-popover-title-row' },
-            h('span', { className: 'bt-dock-popover-name' }, entity.name),
-            department ? h('span', { className: 'bt-dock-dept-badge' }, department.name) : null,
-            h('span', { className: `bt-dock-status-pill bt-dock-status-${statusKind}` }, statusLabel)),
-          h('div', { className: 'bt-dock-popover-role-desc' }, role))),
+            h('span', { className: 'bt-dock-popover-name' }, collection ? department.name : entity.name),
+            department && !collection ? h('span', { className: 'bt-dock-dept-badge' }, department.name) : null,
+            collection ? null : h('span', { className: `bt-dock-status-pill bt-dock-status-${statusKind}` }, statusLabel)),
+          h('div', { className: 'bt-dock-popover-role-desc' }, collection ? t('Temporary employees across current tasks') : role))),
       department?.agents.length > 1 ? h('button', { type: 'button', className: 'bt-dock-popover-close',
         onClick: event => { event.stopPropagation(); placeDepartment() }, title: t('Place department on canvas'), 'aria-label': t('Place department on canvas') }, h(FolderIcon)) : null,
       h('button', { type: 'button', className: 'bt-dock-popover-close',
         onClick: event => { event?.stopPropagation?.(); onClose?.() }, title: t('Close'), 'aria-label': t('Close') }, h(CloseIcon))),
-    !isRoom && manager && manager.id !== entity.id ? h('div', { className: 'bt-dock-supervision-chain' },
+    !collection && !isRoom && manager && manager.id !== entity.id ? h('div', { className: 'bt-dock-supervision-chain' },
       h('span', null, t('Supervised by {name}', { name: manager.name }))) : null,
     isRoom ? h('div', { className: 'bt-dock-room-chain' },
       h('span', { className: 'bt-dock-room-admin-tag' }, roster.byId[entity.admin] ? t('Admin: {name}', { name: roster.byId[entity.admin].name }) : t('No admin')),
@@ -535,7 +562,7 @@ export function DockCollaborationPopover({ entity, department: initialDept, pos,
       h('div', { className: 'bt-dock-section-title' }, h('span', null, department ? t('Department Members') : isRoom ? t('Members · {count}', { count: entity.members.length }) : t('Supervision & Sub-Agent Network'))),
       collaborators.length ? h('div', { className: 'bt-dock-collab-grid', style: { maxHeight: 'min(280px, 40vh)', overflowY: 'auto' } }, collaborators.map(agent => {
         const temporary = agent.employment === 'temporary'
-        const badge = isRoom && entity.admin === agent.id ? t('Admin') : agent.isLead ? t('Team leader') : temporary ? t('Temporary employee') : t('Employee')
+        const badge = agent.generalAssistant ? t('General Assistant') : isRoom && entity.admin === agent.id ? t('Admin') : agent.isLead ? t('Team leader') : temporary ? t('Temporary employee') : t('Employee')
         return h('div', { key: agent.id, className: `bt-collab-card${temporary ? ' bt-collab-card--temp' : ''}`, title: `${agent.name} · ${agent.role || ''}`, draggable: true,
           onDragStart: event => {
             try { event.dataTransfer.setData('application/x-ds-bot', JSON.stringify({ id: agent.id, kind: 'bot' })); event.dataTransfer.effectAllowed = 'copyMove' } catch { /* dataTransfer */ }
@@ -549,10 +576,9 @@ export function DockCollaborationPopover({ entity, department: initialDept, pos,
             h('button', { type: 'button', className: 'bt-collab-mini-btn bt-collab-chat-btn', onClick: event => { event.stopPropagation(); openChat(agent) }, title: t('Open chat') }, h(ChatsIcon), t('Chat')),
             h('button', { type: 'button', className: 'bt-collab-mini-btn bt-collab-more-btn', onClick: event => { event.stopPropagation(); place(agent) }, title: t('Place on canvas') }, '…')))
       })) : h('div', { className: 'bt-dock-subagents-empty' }, t('No sub-agents in team yet'))),
-    h('div', { className: 'bt-dock-task-preview' }, work.bots?.[entity.id]?.tool
-      ? t('Working on: {tool}', { tool: work.bots[entity.id].tool })
-      : preview ? preview.slice(0, 90) : department?.desc || ''),
-    h('div', { className: 'bt-dock-popover-actions' },
+    h('div', { className: 'bt-dock-task-preview', 'aria-label': t('Department introduction') },
+      department?.desc || t('No department introduction yet. Ask Chief to add its responsibilities.')),
+    collection ? null : h('div', { className: 'bt-dock-popover-actions' },
       h('button', { type: 'button', className: 'bt-dock-action-btn bt-dock-action-chat', onClick: () => openChat(entity) }, h(ChatsIcon), t('Open chat')),
       h('button', { type: 'button', className: 'bt-dock-action-btn bt-dock-action-primary', onClick: () => place(entity) }, h(PlusIcon), t('Place on canvas'))))
 }
@@ -679,12 +705,16 @@ export function CanvasDepartmentDock({ roster, work, useSessions, actions, size,
     h(Dock, {
       role: 'toolbar',
       className: 'bt-canvas-dock agent-dock',
-      'aria-label': t('Employees and group chats'),
+      'aria-label': t('Department contacts'),
       hoverRegionRef,
       hoverLift: 30,
       focusedIconSize: 52,
       hoverExitDelay: 240,
     },
+      h('div', { className: 'bt-dock-tools', role: 'group', 'aria-label': t('Desktop tools'), onMouseEnter: closeHover },
+        h('button', { type: 'button', className: 'bt-canvas-button bt-dock-tool', 'data-dock-tool': 'settings', title: t('Settings'), 'aria-label': t('Settings'), onClick: () => { closeHover(); actions.openSettings() } }, h(GearIcon)),
+        h('button', { type: 'button', className: 'bt-canvas-button bt-dock-tool', 'data-dock-tool': 'appearance', title: t('Change appearance'), 'aria-label': t('Change appearance'), onClick: () => { closeHover(); window.dispatchEvent(new Event('ds-bot:open-wallpaper')) } }, h(AppearanceIcon))),
+      h('span', { className: 'bt-dock-tools-separator', 'aria-hidden': true }),
       h('div', {
         ref: dockScrollRef,
         className: 'bt-dock-scroll-wrap',
@@ -707,11 +737,15 @@ export function CanvasDepartmentDock({ roster, work, useSessions, actions, size,
               const tab = dockScrollRef.current?.querySelector(`[data-dept-key="${group.key}"]`) || event.currentTarget
               showGroup(group, tab, true)
             },
-            onPointerDown: event => startDrag(event, entity),
+            onPointerDown: event => {
+              if (group.dept?.collection) { setSelectedDeptKey(group.key); showGroup(group, event.currentTarget, true); return }
+              startDrag(event, entity)
+            },
             onMouseEnter: event => showGroup(group, event.currentTarget),
             onMouseLeave: scheduleClose,
-            draggable: true,
+            draggable: !group.dept?.collection,
             onDragStart: event => {
+              if (group.dept?.collection) { event.preventDefault(); return }
               closeHover()
               try {
                 event.dataTransfer.setData('application/x-ds-bot', JSON.stringify({ id: entity.id, kind: roster.roomsById[entity.id] ? 'room' : 'bot' }))
@@ -740,12 +774,13 @@ export function CanvasDepartmentDock({ roster, work, useSessions, actions, size,
 
 function CanvasChatWindow(props) {
   const { window, roster, actions, active = true, order = 0, size } = props
+  const [popout] = useState(() => takeChatPopout(window.entityId))
   const [conversationId, setConversationId] = useState(window.entityId)
   const conversation = roster.byId[conversationId] ?? roster.roomsById[conversationId]
   const displayWindow = conversation ? { ...window, entityId: conversation.id, kind: roster.roomsById[conversation.id] ? 'room' : 'bot' } : window
   const [closing, setClosing] = useState(false)
-  const [offset, setOffset] = useState(() => ({ x: Math.min((order % 5) * 28, Math.max(0, ((size?.width ?? 1000) - 860) / 2 - 24)), y: Math.min((order % 5) * 24, Math.max(0, ((size?.height ?? 800) - 700) / 2 - 24)) }))
-  const [dimensions, setDimensions] = useState(null)
+  const [offset, setOffset] = useState(() => popout?.offset ?? ({ x: Math.min((order % 5) * 28, Math.max(0, ((size?.width ?? 1000) - 860) / 2 - 24)), y: Math.min((order % 5) * 24, Math.max(0, ((size?.height ?? 800) - 700) / 2 - 24)) }))
+  const [dimensions, setDimensions] = useState(popout?.size ?? null)
   const geometry = useRef(null)
   geometry.current = { dimensions, offset }
   const node = useRef(null)
@@ -753,6 +788,23 @@ function CanvasChatWindow(props) {
   const backdropPress = useRef(null)
   const done = useRef(false)
   const restoreFocus = useRef(true)
+  useEffect(() => {
+    const view = node.current?.ownerDocument.defaultView
+    const applyPopout = event => {
+      if (event.detail?.entityId !== window.entityId) return
+      const request = takeChatPopout(window.entityId)
+      if (!request) return
+      setOffset(request.offset)
+      setDimensions(request.size)
+      setConversationId(window.entityId)
+      setClosing(false)
+      done.current = false
+      restoreFocus.current = true
+      node.current?.focus({ preventScroll: true })
+    }
+    view?.addEventListener(CHAT_POPOUT_EVENT, applyPopout)
+    return () => view?.removeEventListener(CHAT_POPOUT_EVENT, applyPopout)
+  }, [window.entityId])
   useEffect(() => {
     if (active && !closing && !node.current?.contains(document.activeElement)) node.current?.focus({ preventScroll: true })
   }, [active])

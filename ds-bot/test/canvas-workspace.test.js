@@ -6,13 +6,16 @@ import { build } from 'esbuild'
 import { createCanvasState, openWindow, setCanvasSelection, setWindowCompact, collapseWindow, setRoomExpanded } from '../src/client/canvas-state.js'
 
 const { outputFiles } = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/canvas-workspace.js', import.meta.url))],
+  stdin: {
+    contents: "export * from './canvas-workspace.js'; export { stageChatPopout, takeChatPopout, CHAT_POPOUT_EVENT } from './chat-popout.js'",
+    resolveDir: fileURLToPath(new URL('../src/client/', import.meta.url)), sourcefile: 'canvas-workspace-test-entry.js',
+  },
   bundle: true, format: 'cjs', platform: 'browser', write: false,
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 
 function renderer() {
-  const scopes = new Map(), timers = new Map(), frames = new Map()
+  const scopes = new Map(), timers = new Map(), frames = new Map(), observers = []
   const documentListeners = new Map()
   const doc = {
     activeElement: null, defaultView: null,
@@ -62,11 +65,16 @@ function renderer() {
     clearTimeout: id => timers.delete(id),
     requestAnimationFrame: callback => { const id = ++serial; frames.set(id, callback); return id },
     cancelAnimationFrame: id => frames.delete(id),
+    ResizeObserver: class {
+      constructor(callback) { this.callback = callback; this.targets = new Set(); observers.push(this) }
+      observe(target) { this.targets.add(target) }
+      disconnect() { this.targets.clear() }
+    },
     getComputedStyle: node => node.computedStyle ?? { paddingLeft: '0px', paddingRight: '0px' },
     require: name => ({ react, 'react-dom': { createPortal: node => node }, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],
   })
   return {
-    ...module.exports, document: doc,
+    ...module.exports, document: doc, observers,
     render(component, props, key = component.name) {
       slots = scopes.get(key) ?? []
       scopes.set(key, slots)
@@ -224,7 +232,14 @@ function fixture({ rootBox = { left: 0, top: 0, width: 1000, height: 700 }, card
   const rectOf = rect => ({ ...rect, right: rect.right ?? rect.left + rect.width, bottom: rect.bottom ?? rect.top + rect.height })
   const rootRect = () => rectOf(rootBox)
   const document = render.document
-  if (strictDom) document.defaultView = { Node: FakeElement }
+  const viewListeners = new Map()
+  document.defaultView = {
+    Node: FakeElement,
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail } },
+    addEventListener(type, callback) { if (!viewListeners.has(type)) viewListeners.set(type, new Set()); viewListeners.get(type).add(callback) },
+    removeEventListener(type, callback) { viewListeners.get(type)?.delete(callback) },
+    dispatchEvent(event) { for (const callback of [...(viewListeners.get(event.type) ?? [])]) callback(event); return true },
+  }
   document.elementFromPoint = () => roomHit.current
   const root = {
     ownerDocument: document,
@@ -306,6 +321,12 @@ function fixture({ rootBox = { left: 0, top: 0, width: 1000, height: 700 }, card
     host.blur = () => { if (document.activeElement === host) document.activeElement = null }
     host.getBoundingClientRect = () => {
       const props = host.node.props
+      if (props.className === 'bt-canvas-chat-layer') return rootRect()
+      if (props.className === 'bt-canvas-chat-float') {
+        const width = props.style.width ?? 860, height = props.style.height ?? 700
+        const [x, y] = props.style.translate.split(' ').map(parseFloat)
+        return rectOf({ left: rootBox.left + (rootBox.width - width) / 2 + x, top: rootBox.top + (rootBox.height - height) / 2 + y, width, height })
+      }
       if (props['data-room-stage'] === 'preview') return rectOf({ left: rootBox.left + parseFloat(props.style.left), top: rootBox.top + parseFloat(props.style.top), width: parseFloat(props.style.width ?? props.style['--bt-room-preview-width']) || 320, height: parseFloat(props.style.height ?? props.style['--bt-room-preview-height']) || 300 })
       return rectOf({ left: rootBox.left + state.viewport.x + window.x * state.viewport.zoom, top: rootBox.top + state.viewport.y + window.y * state.viewport.zoom, width: 120 * state.viewport.zoom, height: (window.kind === 'room' ? 132 : 112) * state.viewport.zoom })
     }
@@ -326,6 +347,15 @@ function fixture({ rootBox = { left: 0, top: 0, width: 1000, height: 700 }, card
   const chat = tree => {
     const value = find(tree, value => value.type?.name === 'CanvasChatWindow')
     return value ? nested(value, ['CanvasChatWindow', 'WindowCard']) : null
+  }
+  const mountedChat = (id = 'writer') => {
+    const value = find(draw(), node => node.type?.name === 'CanvasChatWindow' && node.props.window.entityId === id)
+    if (!value) return null
+    const key = `CanvasChatWindow:${value.props.window.id}`
+    const tree = render.render(value.type, value.props, key)
+    mount(tree, value.props.window, key)
+    render.flushEffects(key)
+    return tree
   }
   const desktopTrees = tree => findAll(tree, value => value.type?.name === 'WindowCard').map(value => nested(value, ['WindowCard', 'RoomSummary']))
   const desktopCards = tree => desktopTrees(tree).flatMap(value => findAll(value, node => node.props['data-window-id'] && node.props['data-entity-id'] && node.props['data-room-stage'] !== 'preview'))
@@ -355,7 +385,7 @@ function fixture({ rootBox = { left: 0, top: 0, width: 1000, height: 700 }, card
     const node = find(draw(), value => value.type?.name === 'MainAgentGroup')
     return node ? render.render(node.type, node.props, 'group-dialog') : null
   }
-  return { draw, cards, card, preview, showPreview, host: node => byProps.get(node?.props), advance: ms => render.advance(ms), get pendingTimers() { return render.pendingTimers }, unmountRoom: (id = 'planning') => render.unmount(`WindowCard:${state.windows.find(window => window.entityId === id)?.id}`), document, chat, desktopCards, group, departmentDock, addBot, modal, roster, room, work, calls, captures, actions, rootBox, cardRects, roomHit, get state() { return state }, set state(value) { state = value } }
+  return { draw, cards, card, preview, showPreview, host: node => byProps.get(node?.props), advance: ms => render.advance(ms), get pendingTimers() { return render.pendingTimers }, unmountRoom: (id = 'planning') => render.unmount(`WindowCard:${state.windows.find(window => window.entityId === id)?.id}`), unmountChat: (id = 'writer') => render.unmount(`CanvasChatWindow:${state.windows.find(window => window.entityId === id)?.id}`), stagePopout: (id, rect, bounds = rootRect()) => render.stageChatPopout(id, rect, bounds, document.defaultView), takePopout: render.takeChatPopout, resizeChats: () => { for (const observer of render.observers) if (observer.targets.size) observer.callback() }, document, chat, mountedChat, desktopCards, group, departmentDock, addBot, modal, roster, room, work, calls, captures, actions, rootBox, cardRects, roomHit, get state() { return state }, set state(value) { state = value } }
 }
 
 test('right-drag selects all employees and a short right-click offers group actions', async () => {
@@ -516,6 +546,86 @@ test('opening either employee or group mounts one floating Session and keeps its
     assert.deepEqual(data.state.windows.map(w => [w.x, w.y]), before)
     assert.equal(findAll(chat, node => node.props.className === 'bt-chat-resize').length, 8)
   }
+})
+
+test('a newly detached employee or room consumes its client placement once without moving its canvas avatar', () => {
+  for (const id of ['writer', 'planning']) {
+    const app = fixture({ rootBox: { left: 200, top: 100, width: 1200, height: 800 } })
+    app.state = { ...app.state, viewport: { x: -250, y: 90, zoom: 1.8 } }
+    const original = app.state.windows.find(window => window.entityId === id)
+    const avatars = app.state.windows.map(({ id, x, y }) => [id, x, y])
+    app.stagePopout(id, { left: 650, top: 240, width: 600, height: 400 })
+    app.actions.openCanvasConversation(original.id)
+    const tree = app.mountedChat(id)
+    const float = find(tree, node => node.props.className === 'bt-canvas-chat-float')
+    assert.deepEqual({ ...float.props.style }, { translate: '150px -60px', width: 600, height: 400 })
+    assert.equal(float.props['data-entity-id'], id)
+    assert.equal(find(tree, node => node.type?.name === 'CanvasSession').props.sessionId, id === 'writer' ? 'writer-current' : id)
+    assert.equal(app.takePopout(id), undefined, 'mount consumes the request instead of leaving a stale placement')
+    assert.deepEqual(app.state.windows.map(({ id, x, y }) => [id, x, y]), avatars)
+    const again = find(app.mountedChat(id), node => node.props.className === 'bt-canvas-chat-float')
+    assert.equal(again.props.style.translate, '150px -60px', 'rerenders keep the detached geometry')
+    app.unmountChat(id)
+  }
+})
+
+test('detaching into an existing float resets its task-group conversation, cancels closing and applies only its own placement', () => {
+  const app = fixture()
+  const original = app.state.windows.find(window => window.entityId === 'writer')
+  app.actions.openCanvasConversation(original.id)
+  let tree = app.mountedChat()
+  find(tree, node => node.type?.name === 'CanvasSession').props.onOpenConversation('planning')
+  tree = app.mountedChat()
+  assert.equal(find(tree, node => node.type?.name === 'CanvasSession').props.sessionId, 'planning')
+  button(tree, 'Close window').props.onClick()
+  tree = app.mountedChat()
+  assert.equal(find(tree, node => node.props.className === 'bt-canvas-chat-float').props['data-closing'], true)
+  assert.equal(app.pendingTimers, 1)
+  app.stagePopout('planning', { left: 220, top: 180, width: 560, height: 360 })
+  assert.ok(app.takePopout('planning'), 'an unrelated float must not consume this room request')
+  app.stagePopout('writer', { left: 300, top: 200, width: 600, height: 400 })
+  tree = app.mountedChat()
+  const float = find(tree, node => node.props.className === 'bt-canvas-chat-float')
+  assert.equal(float.props['data-entity-id'], 'writer')
+  assert.equal(find(tree, node => node.type?.name === 'CanvasSession').props.sessionId, 'writer-current')
+  assert.equal(float.props['data-closing'], undefined)
+  assert.deepEqual({ ...float.props.style }, { translate: '100px 50px', width: 600, height: 400 })
+  assert.equal(app.takePopout('writer'), undefined)
+  assert.equal(app.pendingTimers, 0, 'reopening removes the old close fallback')
+  app.advance(241)
+  assert.equal(app.state.windows.find(window => window.id === original.id).compact, false)
+  assert.deepEqual([app.state.windows[0].x, app.state.windows[0].y], [original.x, original.y])
+  assert.equal(app.document.activeElement, app.host(float), 'reused float receives focus')
+  app.unmountChat()
+})
+
+test('an unmounted float cannot steal the next placement and a replacement mount consumes it', () => {
+  const app = fixture()
+  app.actions.openCanvasConversation(app.state.windows[0].id)
+  app.mountedChat()
+  app.unmountChat()
+  app.stagePopout('writer', { left: 250, top: 150, width: 560, height: 360 })
+  const float = find(app.mountedChat(), node => node.props.className === 'bt-canvas-chat-float')
+  assert.deepEqual({ ...float.props.style }, { translate: '30px -20px', width: 560, height: 360 })
+  assert.equal(app.takePopout('writer'), undefined)
+  app.unmountChat()
+})
+
+test('detached geometry fits the unscaled canvas and remains bounded after the canvas becomes smaller', () => {
+  const app = fixture({ rootBox: { left: 200, top: 100, width: 1000, height: 700 } })
+  app.state = { ...app.state, viewport: { x: 280, y: -150, zoom: 2.5 } }
+  app.stagePopout('writer', { left: -1000, top: 2000, width: 2000, height: 1400 })
+  app.actions.openCanvasConversation(app.state.windows[0].id)
+  let float = find(app.mountedChat(), node => node.props.className === 'bt-canvas-chat-float')
+  assert.deepEqual({ ...float.props.style }, { translate: '0px 0px', width: 976, height: 676 })
+  Object.assign(app.rootBox, { width: 600, height: 450 })
+  app.resizeChats()
+  float = find(app.mountedChat(), node => node.props.className === 'bt-canvas-chat-float')
+  assert.deepEqual({ ...float.props.style }, { translate: '0px 0px', width: 576, height: 426 })
+  const rect = app.host(float).getBoundingClientRect()
+  assert.equal(rect.left, app.rootBox.left + 12)
+  assert.equal(rect.top, app.rootBox.top + 12)
+  app.unmountChat()
 })
 
 test('closing the floating chat preserves the employee, card location and session', () => {
@@ -1070,8 +1180,9 @@ test('a Dock employee can join a room after one move event while preserving the 
     } else at = showMeasuredGroupCard(app)
     const geometry = app.state.windows.map(({ id, x, y }) => [id, x, y])
     const tree = app.draw()
-    const dock = find(app.departmentDock(tree), node => node.type?.name === 'DockItem' && node.props['aria-label'] === '设计部')
+    const dock = find(app.departmentDock(tree), node => node.type?.name === 'DockItem' && node.props['data-dept-key'] === 'design')
     assert.ok(dock)
+    assert.equal(dock.props['aria-label'], '产品部', 'display skin changes the label while the real team key stays design')
     dock.props.onPointerDown(pointer())
     tree.props.onPointerMove(pointer(at))
     tree.props.onPointerUp(pointer({ ...at, type: 'pointerup' }))

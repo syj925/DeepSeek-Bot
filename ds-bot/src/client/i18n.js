@@ -5,6 +5,23 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Desktop tools': '桌面工具',
+  'Change appearance': '换肤',
+  'Temporary collaboration': '临时员工部',
+  'Department contacts': '部门联系人',
+  'Department introduction': '部门介绍',
+  'Executive office': '总裁办',
+  'Chief and department heads coordinate goals, resources and cross-department work.': '由总助理与各部门负责人组成，统筹目标、协调资源和跨部门协作。',
+  'A permanent coordinator supports temporary employees, who leave the active roster after their tasks.': '由长期负责人协调临时用人；临时员工按任务加入，完成后退出。',
+  'Coordinates requests, assigns work and connects departments.': '统筹需求、安排任务，协调各部门推进工作。',
+  'No department introduction yet. Ask Chief to add its responsibilities.': '暂无部门介绍，可请总助理补充部门职责。',
+  'Temporary employees across current tasks': '查看各任务中的临时员工',
+  'Move conversation to canvas': '将对话移到画布',
+  'I have your request. Let me think it through': '收到，我先帮你理一理',
+  'Thanks for waiting. I am still waiting for a reply': '谢谢你等我，回复还在路上',
+  'I have your request; no need to send it again': '这条需求我记下了，不用重复发送',
+  'I am still waiting for the reply. Check the progress below': '回复还没出来，可以看看下面的执行进展',
+  'This is taking longer. No new progress yet': '这次等得有点久，暂时还没有新进展',
   'Execution needs attention': '执行遇到问题，请查看恢复选项',
   'Request submitted · waiting to start': '请求已提交，等待开始',
   'Writing reply': '正在回复',

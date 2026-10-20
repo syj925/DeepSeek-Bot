@@ -840,6 +840,8 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 [data-chat-running]:has(> .bt-typing){margin-top:var(--dsh-chat-flow-gap,12px)!important}
 .bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
+.bt-typing-stable{flex:none;height:auto;min-height:40px;padding:6px 14px;box-sizing:border-box}
+.bt-typing-stable .bt-typing-label>.bt-shimmer{white-space:normal;overflow:visible;color:var(--bt-ink-2);background:none;font-size:13px;line-height:20px}
 .bt-typing>.bt-mark,.bt-typing>.bt-cluster{flex-shrink:0}
 .bt-typing>.bt-mark{cursor:pointer;transition:filter .16s ease-out}
 .bt-typing>.bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}

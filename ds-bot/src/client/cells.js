@@ -130,7 +130,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const texts = groupPart === 'reasoning' ? [] : data.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text)
   const running = data.status === 'running'
   // A streaming reply stands in for the activity row.
-  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
+  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true, progress: texts.reduce((length, text) => length + text.length, 0) } : null)
   if (hidden) return null
   const reasoning = groupPart === 'response' ? '' : turnReasoning(steps, data)
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on

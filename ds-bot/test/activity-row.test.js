@@ -29,7 +29,7 @@ function transcript() {
 }
 
 function runtime(document) {
-  const slots = [], observers = [], timers = new Map(), frames = new Map()
+  const slots = [], observers = [], timers = new Map(), intervals = new Map(), frames = new Map()
   let cursor = 0, effects = [], layouts = [], dirty = false, props, tree, clock = 1000, nextId = 1
   const hook = (effect, deps, queue) => {
     const index = cursor++, previous = slots[index]
@@ -67,7 +67,9 @@ function runtime(document) {
     requestAnimationFrame: run => { const id = nextId++; frames.set(id, run); return id },
     cancelAnimationFrame: id => frames.delete(id),
     setTimeout: (run, wait) => { const id = nextId++; timers.set(id, { run, at: clock + wait }); return id },
-    clearTimeout: id => timers.delete(id), setInterval: () => 1, clearInterval() {},
+    clearTimeout: id => timers.delete(id),
+    setInterval: (run, wait) => { const id = nextId++; intervals.set(id, { run, wait, at: clock + wait }); return id },
+    clearInterval: id => intervals.delete(id),
     require: name => ({ react, 'react-dom': { createPortal: (node, host) => ({ node, host }) }, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],
   })
   const render = () => {
@@ -88,7 +90,18 @@ function runtime(document) {
     flush,
     advance(ms) {
       clock += ms
-      for (const [id, timer] of timers) if (timer.at <= clock) { timers.delete(id); timer.run() }
+      let limit = 1000
+      while (limit-- > 0) {
+        const timeout = [...timers].sort((a, b) => a[1].at - b[1].at).find(([, timer]) => timer.at <= clock)
+        const interval = [...intervals].sort((a, b) => a[1].at - b[1].at).find(([, timer]) => timer.at <= clock)
+        if (!timeout && !interval) break
+        if (timeout && (!interval || timeout[1].at <= interval[1].at)) {
+          timers.delete(timeout[0]); timeout[1].run()
+        } else {
+          interval[1].at += interval[1].wait; interval[1].run()
+        }
+      }
+      assert.ok(limit > 0, 'intervals must settle')
       return flush()
     },
     mutate() {
@@ -113,10 +126,62 @@ function fixture() {
     useLive: pick => pick(live), useSession: pick => pick({ pendingSubmissions: [] }),
     actions: { clearLive: id => cleared.push(id) },
   })
-  return { status, live, props, cleared }
+  return { status, live, roster, props, cleared }
 }
 
 const text = node => typeof node === 'string' ? node : (node?.children ?? []).map(text).join('')
+
+test('embedded waiting survives a missing or replaced native host and ends with the run', () => {
+  const data = fixture(), root = transcript(), page = runtime({ querySelector: () => { throw new Error('global lookup') } })
+  data.live.writer = {}
+  root.root.matches.delete('[data-chat-flow] > [data-chat-running]')
+  const props = { ...data.props('writer'), rootRef: { current: root.root }, inline: true }
+  const row = page.draw(props)
+  assert.equal(row.host, root.flow, 'waiting belongs to the transcript above the composer')
+  assert.equal(row.node.props.role, 'status')
+  assert.match(row.node.props.className, /bt-typing-stable/)
+  assert.match(text(row.node), /your request/i)
+  root.root.matches.set('[data-chat-flow] > [data-chat-running]', new Element())
+  assert.match(text(page.mutate().node), /your request/i)
+  const replacement = new Element()
+  root.root.matches.set('[data-chat-flow]', replacement)
+  assert.equal(page.mutate().host, replacement, 'rebind after the transcript is remounted')
+  assert.match(text(page.advance(8000).node), /Thanks for waiting/i)
+  assert.match(text(page.advance(38000).node), /No new progress/i)
+  data.live.writer = { reply: { text: true, progress: 1 } }
+  page.draw(props)
+  assert.equal(page.advance(140), null)
+  data.live.writer = {}
+  assert.match(text(page.draw(props).node), /your request/i)
+  data.status.set('writer', { running: false })
+  page.draw(props)
+  assert.equal(page.advance(140), null)
+  assert.equal(root.flow.animations.length, 0)
+  assert.equal(root.scroll.scrollTop, 200)
+  page.unmount()
+})
+
+test('embedded waiting yields to approval, question, failure and another editor owner', () => {
+  const data = fixture(), root = transcript(), page = runtime({ querySelector: () => null })
+  const work = {}
+  const props = { ...data.props('writer'), useWork: pick => pick(work), rootRef: { current: root.root }, inline: true }
+  assert.ok(page.draw(props))
+  work.approvals = [{ sessionId: 'reviewer' }]
+  assert.ok(page.draw(props), 'unrelated approvals must not hide this employee')
+  work.approvals = [{ sessionId: 'writer' }]
+  assert.equal(page.draw(props), null)
+  work.approvals = []
+  data.roster.questions = { writer: { sessionId: 'writer' } }
+  assert.equal(page.draw(props), null)
+  data.roster.questions = {}
+  data.roster.modelFailures = [{ sessionId: 'writer' }]
+  assert.equal(page.draw(props), null)
+  data.roster.modelFailures = []
+  assert.ok(page.draw(props))
+  assert.equal(page.draw({ ...props, enabled: false }), null)
+  assert.ok(page.draw(props))
+  page.unmount()
+})
 
 test('concurrent canvas activities use their own running host, tool and observer targets', () => {
   const document = { querySelector: selector => { throw new Error(`global activity lookup: ${selector}`) } }
@@ -175,5 +240,52 @@ test('classic activity keeps its document transcript host and clears stopped liv
   assert.equal(page.draw(data.props('writer')), null)
   page.advance(140)
   assert.deepEqual(data.cleared, ['writer'])
+  page.unmount()
+})
+
+test('waiting copy rotates every eight seconds without resetting the run clock, then stops after 45 seconds without progress', () => {
+  const document = { querySelector: () => { throw new Error('canvas activity must stay scoped') } }
+  const root = transcript()
+  const status = new Map([['writer', { running: true }]])
+  const roster = { byId: { writer: { id: 'writer', name: 'Writer' } }, roomsById: {} }
+  const page = runtime(document)
+  const props = {
+    sessionId: 'writer', rootRef: { current: root.root },
+    useRoster: pick => pick(roster), useSessionStatus: pick => pick(status),
+    useLive: pick => pick({ writer: {} }), useSession: pick => pick({ pendingSubmissions: [] }),
+    actions: { clearLive() {} },
+  }
+  const initial = page.draw(props)
+  const first = text(initial.node)
+  assert.match(first, /your request/i)
+  page.advance(8000)
+  const rotated = text(page.flush().node)
+  assert.match(rotated, /Thanks for waiting/i)
+  assert.notEqual(rotated, first)
+  page.advance(38000)
+  const delayed = text(page.flush().node)
+  assert.match(delayed, /longer/i)
+  page.advance(15000)
+  assert.match(text(page.flush().node), /1m/)
+  assert.equal(text(page.flush().node), text(page.advance(8000).node))
+  page.unmount()
+})
+
+test('real tool progress clears the delayed notice and streaming replaces the waiting row', () => {
+  const data = fixture(), root = transcript(), page = runtime({ querySelector: () => null })
+  data.live.writer = {}
+  const props = { ...data.props('writer'), rootRef: { current: root.root } }
+  page.draw(props)
+  assert.match(text(page.advance(45000).node), /longer/i)
+  data.live.writer = { read: { at: 46000, label: 'Opening a file', state: 'working' } }
+  assert.match(text(page.draw(props).node), /Opening a file/)
+  assert.doesNotMatch(text(page.flush().node), /longer/i)
+  page.advance(15000)
+  assert.match(text(page.flush().node), /1m/)
+  data.live.writer = { reply: { text: true, progress: 20 } }
+  page.draw(props)
+  assert.equal(page.advance(140), null)
+  data.status.set('writer', { running: false })
+  assert.equal(page.draw(props), null)
   page.unmount()
 })
