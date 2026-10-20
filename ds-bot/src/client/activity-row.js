@@ -111,24 +111,28 @@ export function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork
   const streaming = entries.some(entry => entry.text)
   const tools = entries.filter(entry => !entry.text).sort((a, b) => a.at - b.at)
   // Group chats show who is typing on their own while members speak.
-  const relaying = tools.some(entry => entry.relay)
+  const relaying = room !== undefined && tools.some(entry => entry.relay)
   const execution = executionState({ sessionId, roster, work, running, entries, pending: pendingInput > 0 })
   const blocked = ['error', 'approval', 'question'].includes(execution?.kind)
-  const visible = enabled && running && !blocked && !streaming && !relaying && (bot !== undefined || room !== undefined)
+  // The host can still be executing a tool between session-status updates.
+  // Old reply text must not hide the waiting row once execution has continued.
+  const active = running || ['waiting', 'tool', 'reply'].includes(execution?.kind)
+  const replying = streaming && !execution?.tool && !tools.length
+  const visible = enabled && active && !blocked && !replying && !relaying && (bot !== undefined || room !== undefined)
   const tool = tools.at(-1)
   const inputRef = useRef(0)
   // A steer keeps the run going, so nothing else resets the row: fresh input is
   // the newest activity, and the phrase and the clock restart from the send.
   const inputAt = Math.max(inputRef.current, pendingInput)
   inputRef.current = inputAt
-  const signal = JSON.stringify([sessionId, running, liveKey, inputAt, execution?.kind, execution?.tool, execution?.activity])
+  const signal = JSON.stringify([sessionId, active, liveKey, inputAt, execution?.kind, execution?.tool, execution?.activity])
   const progress = useRef({ signal, at: Date.now() })
   if (progress.current.signal !== signal) progress.current = { signal, at: Date.now() }
-  const runKey = JSON.stringify([sessionId, running, inputAt])
+  const runKey = JSON.stringify([sessionId, active, inputAt])
   const run = useRef({ key: runKey, at: Date.now() })
   if (run.current.key !== runKey) run.current = { key: runKey, at: Date.now() }
   const want = !visible ? null
-    : inputAt > (tool?.at ?? 0)
+    : inline || inputAt > (tool?.at ?? 0)
       ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
       : execution?.tool ? { key: `tool:${execution.tool}`, label: execution.tool, pool: ['On it'], state: tool?.state ?? 'working' }
         : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
@@ -174,7 +178,7 @@ export function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork
     if (delta > 0) scroller.querySelector('[data-chat-flow]')?.animate([{ transform: `translateY(${-delta}px)` }, { transform: 'none' }], { duration: 140, easing: 'cubic-bezier(.23,1,.32,1)' })
   }, [phase, rootRef, inline])
   // Cancelled tools never report a result, so their notes end with the run.
-  useEffect(() => { if (!running) actions.clearLive(sessionId) }, [running, sessionId])
+  useEffect(() => { if (!active) actions.clearLive(sessionId) }, [active, sessionId])
   // Only rows that take the activity row's place grow out of it.
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300, rootRef)
   const [now, setNow] = useState(Date.now)
@@ -184,14 +188,16 @@ export function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [phase])
-  const host = useRunningHost(running && enabled, rootRef, inline)
+  const host = useRunningHost(active && enabled, rootRef, inline)
   if (!host || !enabled || blocked || phase === null || !shown) return null
   const elapsed = now - run.current.at >= 60000 ? elapsedLabel(now - run.current.at) : null
   const slow = now - progress.current.at >= 45000 && markState.current !== 'alert'
   const waiting = !want?.label && markState.current === 'thinking'
   const phrase = slow ? t('This is taking longer. No new progress yet')
     : waiting ? t(WAITING_PHRASES[Math.floor(Math.max(0, now - progress.current.at) / 8000) % WAITING_PHRASES.length]) : shown.text
-  const row = h('div', { className: `bt-typing${inline ? ' bt-typing-stable' : ''}`, 'data-exiting': phase === 'out' ? '' : undefined, role: 'status', 'aria-live': 'polite' },
+  // The shell can append new messages after this independently mounted portal.
+  // Keep waiting last visually without moving DOM nodes owned by either React tree.
+  const row = h('div', { className: `bt-typing${inline ? ' bt-typing-stable' : ''}`, style: inline ? { order: 1 } : undefined, 'data-exiting': phase === 'out' ? '' : undefined, role: 'status', 'aria-live': 'polite' },
     bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 }),
     h('span', { className: 'bt-typing-text' },
       h('span', { key: `${shown.key}:${phrase}`, className: 'bt-typing-label' },

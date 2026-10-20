@@ -73,6 +73,10 @@ var ZH = {
   "Model reasoning": "模型返回的思考内容",
   "No reasoning text has been returned yet. The progress above reflects actual execution.": "模型暂未返回思考文字，以上展示实际执行状态。",
   "Task collaboration": "任务协作",
+  "Latest completed task": "最近完成的任务",
+  "Previous task result": "上次任务结果 · 本次继续处理中",
+  "View summary": "查看总结",
+  "Open task group": "进入任务群",
   "Result saved. The coordinator could not be reached; you can read it here.": "结果已保留，暂未联系上负责人，可在这里查看。",
   "Delivered": "已交付",
   "Replied": "已回复",
@@ -3218,10 +3222,6 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 @media (prefers-reduced-motion:reduce){.bt-thumb{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*{animation:none}}
 `;
 var CONVERSATION_CSS = `
-.bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:min(560px,78%)}
-.bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
-.bt-think summary::-webkit-details-marker{display:none}
-.bt-think-text{white-space:pre-wrap;margin-top:6px;padding-left:10px;border-left:2px solid var(--bt-line-2)}
 .bt-event{display:flex;justify-content:center;align-items:center;gap:2px;min-height:24px;margin:2px 0;font-size:12px;line-height:16px;color:var(--bt-ink-2);flex-wrap:wrap}
 .bt-event>span{padding:0 2px}
 .bt-event button{border:0;background:none;color:inherit;font:inherit;display:inline-flex;align-items:center;gap:4px;cursor:pointer;height:24px;padding:4px 6px 4px 4px;border-radius:999px;box-sizing:border-box;transition:background-color .12s ease}
@@ -4587,22 +4587,68 @@ var SECRET_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-secret-glide{transition:none}.bt-secret-check,.bt-secret-done,.bt-secret-ok,.bt-secret-edit{animation:none}}
 `;
 
-// src/client/turn-reasoning.js
-function turnReasoning(steps, current) {
-  const members = steps.length ? steps : [current];
-  if (members.find((step) => stepReasoning(step) !== "")?.step !== current.step) return "";
-  return members.filter((step) => !thinkingLive(step)).map(stepReasoning).filter(Boolean).join("\n\n");
-}
-var texts = (step) => step.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "");
-var thinkingLive = (step) => step.status === "running" && texts(step).length === 0 && step.blocks.some((block) => block.kind === "reasoning");
-var stepReasoning = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => block.text).join("\n").trim();
-
 // src/client/task-groups.js
 var import_react8 = require("react");
 var TaskGroupNavigation = (0, import_react8.createContext)(null);
 function tasksForConversation(sessionId, roster) {
   const bot = roster.byId[sessionId];
   return (roster.rooms ?? []).filter((room2) => room2.task && room2.task.originBotId === (bot?.id ?? sessionId));
+}
+function conversationResults(sessionId, roster) {
+  const bot = roster.byId[sessionId];
+  const room2 = roster.roomsById[sessionId];
+  const rooms = room2 ? [room2] : tasksForConversation(sessionId, roster);
+  const results = rooms.filter((item) => item.task?.result && item.task.completedAt).map((item) => ({
+    ...item.task.result,
+    id: `result:${item.id}:${item.task.result.cycle}`,
+    at: item.task.completedAt,
+    targetId: item.id,
+    roomId: item.id,
+    sessionId: item.id,
+    previous: item.task.status !== "completed"
+  }));
+  const owner = bot?.id ?? sessionId;
+  for (const item of roster.taskNotices ?? []) {
+    if (item.kind === "message" || !item.title || item.roomId && rooms.some((value) => value.id === item.roomId)) continue;
+    if (room2 ? item.targetId === room2.id : !item.roomId && item.targetId === owner) results.push(item);
+  }
+  for (const item of bot?.taskIndex ?? []) {
+    if (item.roomId || !item.title || !item.key || item.key.startsWith("handoff:") || results.some((result) => result.id === item.key)) continue;
+    results.push({ ...item, id: item.key, targetId: bot.id, botId: bot.id });
+  }
+  return results.sort((a, b) => b.at - a.at);
+}
+function ConversationResult({ item, sessionId, actions, open }) {
+  const navigate = (0, import_react8.useContext)(TaskGroupNavigation) ?? open;
+  const label = item.previous ? "Previous task result" : item.roomId === sessionId ? "Task completed" : "Latest completed task";
+  return (0, import_react8.createElement)(
+    "details",
+    { className: "bt-conversation-result", "data-result-id": item.id },
+    (0, import_react8.createElement)(
+      "summary",
+      null,
+      (0, import_react8.createElement)("span", { className: "bt-result-check", "aria-hidden": true }, "✓"),
+      (0, import_react8.createElement)(
+        "span",
+        { className: "bt-result-copy" },
+        (0, import_react8.createElement)("span", { className: "bt-result-heading" }, (0, import_react8.createElement)("strong", null, t(label)), (0, import_react8.createElement)("time", null, dayLabel(item.at))),
+        (0, import_react8.createElement)("span", { className: "bt-result-title", title: item.title }, item.title),
+        (0, import_react8.createElement)("span", { className: "bt-result-preview" }, item.summary)
+      ),
+      (0, import_react8.createElement)("span", { className: "bt-result-expand" }, t("View summary"))
+    ),
+    (0, import_react8.createElement)(
+      "div",
+      { className: "bt-result-details" },
+      (0, import_react8.createElement)("p", null, item.summary),
+      (0, import_react8.createElement)(
+        "div",
+        { className: "bt-result-actions" },
+        (item.files ?? []).map((file) => (0, import_react8.createElement)("button", { key: file.path, type: "button", title: file.path, onClick: () => actions.openTaskResult(item, file) }, "↗ ", file.name)),
+        item.roomId && item.roomId !== sessionId ? (0, import_react8.createElement)("button", { type: "button", onClick: () => navigate(item.roomId) }, t("Open task group")) : null
+      )
+    )
+  );
 }
 function TaskGroupCard({ room: room2, roster, open }) {
   const navigate = (0, import_react8.useContext)(TaskGroupNavigation) ?? open;
@@ -4636,12 +4682,14 @@ function TaskGroupJourney({ sessionId, roster, actions, onOpenConversation }) {
   const open = onOpenConversation ?? actions.openSession;
   const room2 = roster.roomsById[sessionId];
   const tasks = tasksForConversation(sessionId, roster);
-  if (!room2?.task && !tasks.length) return null;
+  const results = conversationResults(sessionId, roster);
+  if (!room2?.task && !tasks.length && !results.length) return null;
   const completed = tasks.filter((item) => item.task.status === "completed");
   return (0, import_react8.createElement)(
     "section",
     { className: "bt-task-journey", "aria-label": t("Task collaboration") },
     (0, import_react8.createElement)("style", null, TASK_GROUP_CSS),
+    results.length ? (0, import_react8.createElement)(ConversationResult, { key: results[0].id, item: results[0], sessionId, actions, open }) : null,
     room2?.task ? (0, import_react8.createElement)(
       "div",
       { className: "bt-task-group-status" },
@@ -4658,6 +4706,10 @@ function TaskGroupJourney({ sessionId, roster, actions, onOpenConversation }) {
 }
 var TASK_GROUP_CSS = `
 .bt-task-journey{flex:none;max-height:38%;overflow:auto;padding:8px 14px;scrollbar-width:thin;color:#334155;font:12px/1.6 system-ui}
+.bt-conversation-result{border:1px solid #c8e3dc;border-radius:12px;background:#f5fbf9;color:#334155;margin:2px 0 8px}
+.bt-conversation-result>summary{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;cursor:pointer;list-style:none}.bt-conversation-result>summary::-webkit-details-marker{display:none}
+.bt-result-check{color:#177c6c;font-size:17px;flex:none}.bt-result-copy{flex:1;min-width:0}.bt-result-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.bt-result-heading strong{color:#177c6c;font-size:12px}.bt-result-heading time{font-size:10px;color:#64748b}.bt-result-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.bt-result-preview{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;color:#64748b}.bt-result-expand{flex:none;font-size:11px;color:#177c6c}.bt-result-expand:after{content:'⌄';margin-left:5px}.bt-conversation-result[open] .bt-result-expand:after{content:'⌃'}.bt-conversation-result[open] .bt-result-preview{display:none}
+.bt-result-details{padding:0 12px 10px}.bt-result-details p{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere}.bt-result-actions{display:flex;gap:6px;flex-wrap:wrap}.bt-result-actions button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-group-card{border:1px solid #dce9e7;background:linear-gradient(135deg,#f2faf8,#fff 70%);border-radius:14px;padding:12px 14px;margin:8px 0;animation:bt-task-enter .28s ease both;font:12px/1.6 system-ui;color:#334155}
 .bt-task-group-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.bt-task-group-heading strong{font-size:13px}.bt-task-group-heading>span{color:#487c72;font-size:11px}.bt-task-group-card p{margin:6px 0;color:#64748b;overflow-wrap:anywhere}
 .bt-task-group-members{display:flex;flex-wrap:wrap;gap:9px;margin:9px 0}.bt-task-group-members>span{display:flex;align-items:center;gap:5px}
@@ -4674,7 +4726,7 @@ var import_react9 = require("react");
 var import_react_dom = require("react-dom");
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 var mdLabels = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions }) {
+function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -4686,10 +4738,10 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
   return (0, import_react9.createElement)(
     "div",
     { className: "bt-astack", "data-lead": lead ? "" : void 0, onClickCapture: onClick },
-    texts2.map((text2, index) => {
+    texts.map((text2, index) => {
       const key = msgKey ? `${msgKey}:${index}` : void 0;
       const picked = key ? reactions?.[index] ?? [] : [];
-      const last = index === texts2.length - 1;
+      const last = index === texts.length - 1;
       const live = streaming && last;
       return (0, import_react9.createElement)(
         "div",
@@ -4794,14 +4846,6 @@ function MessageTools({ text: text2, name, sessionId, react, actions }) {
     ), document.body) : null
   );
 }
-function ThinkingRow({ text: text2 }) {
-  return (0, import_react9.createElement)(
-    "details",
-    { className: "bt-think" },
-    (0, import_react9.createElement)("summary", null, t("Thought it through")),
-    (0, import_react9.createElement)("div", { className: "bt-think-text" }, text2)
-  );
-}
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
   const tail = useTurnData?.("turn-tail");
   const location2 = node.location;
@@ -4819,13 +4863,12 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
   const contexts = useTurnContext(String(data.turn));
   const mentions = useFileMentions({ node, openFile, fileMentions, useTurnData });
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn);
-  const texts2 = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text);
+  const texts = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text);
   const running = data.status === "running";
-  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts2.length > 0 ? { text: true, progress: texts2.reduce((length, text2) => length + text2.length, 0) } : null);
+  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true, progress: texts.reduce((length, text2) => length + text2.length, 0) } : null);
   if (hidden) return null;
-  const reasoning = groupPart === "response" ? "" : turnReasoning(steps, data);
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : [];
-  if (texts2.length === 0 && !reasoning && relays.length === 0) return null;
+  if (texts.length === 0 && relays.length === 0) return null;
   const selfId = roster.byId[sessionId]?.id ?? sessionId;
   return (0, import_react9.createElement)(
     import_react9.Fragment,
@@ -4843,8 +4886,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
         whole: true
       });
     }),
-    reasoning ? (0, import_react9.createElement)(ThinkingRow, { text: reasoning }) : null,
-    texts2.length ? (0, import_react9.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions }) : null
+    texts.length ? (0, import_react9.createElement)(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions }) : null
   );
 }
 function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
@@ -5625,21 +5667,23 @@ function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork, useSe
   const entries2 = (0, import_react11.useMemo)(() => Object.values(JSON.parse(liveKey)), [liveKey]);
   const streaming = entries2.some((entry) => entry.text);
   const tools = entries2.filter((entry) => !entry.text).sort((a, b) => a.at - b.at);
-  const relaying = tools.some((entry) => entry.relay);
+  const relaying = room2 !== void 0 && tools.some((entry) => entry.relay);
   const execution = executionState({ sessionId, roster, work, running, entries: entries2, pending: pendingInput > 0 });
   const blocked = ["error", "approval", "question"].includes(execution?.kind);
-  const visible = enabled && running && !blocked && !streaming && !relaying && (bot !== void 0 || room2 !== void 0);
+  const active = running || ["waiting", "tool", "reply"].includes(execution?.kind);
+  const replying = streaming && !execution?.tool && !tools.length;
+  const visible = enabled && active && !blocked && !replying && !relaying && (bot !== void 0 || room2 !== void 0);
   const tool = tools.at(-1);
   const inputRef = (0, import_react11.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const signal = JSON.stringify([sessionId, running, liveKey, inputAt, execution?.kind, execution?.tool, execution?.activity]);
+  const signal = JSON.stringify([sessionId, active, liveKey, inputAt, execution?.kind, execution?.tool, execution?.activity]);
   const progress = (0, import_react11.useRef)({ signal, at: Date.now() });
   if (progress.current.signal !== signal) progress.current = { signal, at: Date.now() };
-  const runKey = JSON.stringify([sessionId, running, inputAt]);
+  const runKey = JSON.stringify([sessionId, active, inputAt]);
   const run = (0, import_react11.useRef)({ key: runKey, at: Date.now() });
   if (run.current.key !== runKey) run.current = { key: runKey, at: Date.now() };
-  const want = !visible ? null : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: "thinking" } : execution?.tool ? { key: `tool:${execution.tool}`, label: execution.tool, pool: ["On it"], state: tool?.state ?? "working" } : { key: "thinking", pool: PHRASES.thinking, state: "thinking" };
+  const want = !visible ? null : inline || inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: "thinking" } : execution?.tool ? { key: `tool:${execution.tool}`, label: execution.tool, pool: ["On it"], state: tool?.state ?? "working" } : { key: "thinking", pool: PHRASES.thinking, state: "thinking" };
   const [shown, setShown] = (0, import_react11.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react11.useRef)("thinking");
@@ -5686,8 +5730,8 @@ function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork, useSe
     if (delta > 0) scroller.querySelector("[data-chat-flow]")?.animate([{ transform: `translateY(${-delta}px)` }, { transform: "none" }], { duration: 140, easing: "cubic-bezier(.23,1,.32,1)" });
   }, [phase, rootRef, inline]);
   (0, import_react11.useEffect)(() => {
-    if (!running) actions.clearLive(sessionId);
-  }, [running, sessionId]);
+    if (!active) actions.clearLive(sessionId);
+  }, [active, sessionId]);
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300, rootRef);
   const [now, setNow] = (0, import_react11.useState)(Date.now);
   (0, import_react11.useEffect)(() => {
@@ -5696,7 +5740,7 @@ function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork, useSe
     const timer = setInterval(() => setNow(Date.now()), 1e3);
     return () => clearInterval(timer);
   }, [phase]);
-  const host = useRunningHost(running && enabled, rootRef, inline);
+  const host = useRunningHost(active && enabled, rootRef, inline);
   if (!host || !enabled || blocked || phase === null || !shown) return null;
   const elapsed = now - run.current.at >= 6e4 ? elapsedLabel(now - run.current.at) : null;
   const slow = now - progress.current.at >= 45e3 && markState.current !== "alert";
@@ -5704,7 +5748,7 @@ function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork, useSe
   const phrase = slow ? t("This is taking longer. No new progress yet") : waiting ? t(WAITING_PHRASES[Math.floor(Math.max(0, now - progress.current.at) / 8e3) % WAITING_PHRASES.length]) : shown.text;
   const row = (0, import_react11.createElement)(
     "div",
-    { className: `bt-typing${inline ? " bt-typing-stable" : ""}`, "data-exiting": phase === "out" ? "" : void 0, role: "status", "aria-live": "polite" },
+    { className: `bt-typing${inline ? " bt-typing-stable" : ""}`, style: inline ? { order: 1 } : void 0, "data-exiting": phase === "out" ? "" : void 0, role: "status", "aria-live": "polite" },
     bot ? (0, import_react11.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react11.createElement)(RoomAvatar, { room: room2, roster, size: 28 }),
     (0, import_react11.createElement)(
       "span",
@@ -16579,15 +16623,15 @@ var import_react45 = require("react");
 var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
 var canDrawUserMessages = () => typeof ui.projectUserText === "function";
 function contentParts(content) {
-  const texts2 = [];
+  const texts = [];
   const attachments = [];
   const rest = [];
   for (const block of Array.isArray(content) ? content : []) {
-    if (block?.type === "text" && typeof block.text === "string") texts2.push(block.text);
+    if (block?.type === "text" && typeof block.text === "string") texts.push(block.text);
     else if ((block?.type === "image" || block?.type === "file") && block.attachment !== void 0) attachments.push(block);
     else rest.push(block);
   }
-  return { text: texts2.join("\n"), attachments, rest };
+  return { text: texts.join("\n"), attachments, rest };
 }
 function mentionableBots(roster, sessionId) {
   const room2 = roster.roomsById[sessionId];
@@ -24114,6 +24158,7 @@ function apply(ctx) {
     noteMemoryNews(value.memoryNews ?? {});
     const current = roster.getSnapshot();
     const live2 = {};
+    if (value.taskNotices !== void 0 && JSON.stringify(value.taskNotices) !== JSON.stringify(current.taskNotices ?? [])) live2.taskNotices = value.taskNotices;
     if (value.taskProgress !== void 0 && JSON.stringify(value.taskProgress) !== JSON.stringify(current.taskProgress ?? {})) live2.taskProgress = value.taskProgress;
     if (value.connectors !== void 0 && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live2.connectors = value.connectors;
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;

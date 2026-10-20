@@ -9,7 +9,6 @@ import { AnsweredCell, SettledQuestion, PendingQuestion } from './questions.js'
 import { SecretToolCell } from './secret-card.js'
 import { dateLocale, t } from './i18n.js'
 import { failureLabel } from './diagnostics.js'
-import { turnReasoning } from './turn-reasoning.js'
 import { replyIdentity } from '../shared/employee-avatar.js'
 import { TaskGroupCard } from './task-groups.js'
 
@@ -101,12 +100,6 @@ function MessageTools({ text, name, sessionId, react, actions }) {
       item(t('Copy'), CopyIcon, copy), item(t('Download'), DownloadIcon, download)), document.body) : null)
 }
 
-function ThinkingRow({ text }) {
-  return h('details', { className: 'bt-think' },
-    h('summary', null, t('Thought it through')),
-    h('div', { className: 'bt-think-text' }, text))
-}
-
 // The files a finished turn changed or delivered, linked from inline code in its
 // reply as in DSH's own chat. DSH resolves them for the step that closes the turn.
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
@@ -132,12 +125,11 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   // A streaming reply stands in for the activity row.
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true, progress: texts.reduce((length, text) => length + text.length, 0) } : null)
   if (hidden) return null
-  const reasoning = groupPart === 'response' ? '' : turnReasoning(steps, data)
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
   // DSH 0.2; the step that answers it shows the event line where it was read,
   // once, in the step's first cell.
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : []
-  if (texts.length === 0 && !reasoning && relays.length === 0) return null
+  if (texts.length === 0 && relays.length === 0) return null
   const selfId = roster.byId[sessionId]?.id ?? sessionId
   return h(Fragment, null,
     relays.map(relay => {
@@ -151,7 +143,6 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
         whole: true,
       })
     }),
-    reasoning ? h(ThinkingRow, { text: reasoning }) : null,
     texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions }) : null)
 }
 

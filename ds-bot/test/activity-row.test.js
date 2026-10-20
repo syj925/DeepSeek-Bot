@@ -140,6 +140,7 @@ test('embedded waiting survives a missing or replaced native host and ends with 
   assert.equal(row.host, root.flow, 'waiting belongs to the transcript above the composer')
   assert.equal(row.node.props.role, 'status')
   assert.match(row.node.props.className, /bt-typing-stable/)
+  assert.equal(row.node.props.style.order, 1, 'new native message rows must remain before the independent waiting portal')
   assert.match(text(row.node), /your request/i)
   root.root.matches.set('[data-chat-flow] > [data-chat-running]', new Element())
   assert.match(text(page.mutate().node), /your request/i)
@@ -180,6 +181,42 @@ test('embedded waiting yields to approval, question, failure and another editor 
   assert.ok(page.draw(props))
   assert.equal(page.draw({ ...props, enabled: false }), null)
   assert.ok(page.draw(props))
+  page.unmount()
+})
+
+test('embedded waiting stays visible while host work continues between session status updates', () => {
+  const data = fixture(), root = transcript(), page = runtime({ querySelector: () => null })
+  data.live.writer = {}
+  data.status.set('writer', { running: false })
+  const work = { bots: { writer: { botId: 'writer', tool: 'Running command', since: 1000 } } }
+  const props = { ...data.props('writer'), useWork: pick => pick(work), rootRef: { current: root.root }, inline: true }
+  const row = page.draw(props)
+  assert.equal(row.host, root.flow)
+  assert.match(text(row.node), /your request/i)
+  assert.deepEqual(data.cleared, [], 'active host work must not clear live notes')
+  assert.match(text(page.advance(8000).node), /Thanks for waiting/i)
+  work.bots = {}
+  assert.equal(page.draw(props), null)
+  assert.deepEqual(data.cleared, ['writer'])
+  page.unmount()
+})
+
+test('embedded waiting returns during tool work after text and remains during private delegation', () => {
+  const data = fixture(), root = transcript(), page = runtime({ querySelector: () => null })
+  const props = { ...data.props('writer'), rootRef: { current: root.root }, inline: true }
+  data.live.writer = { reply: { text: true, progress: 20 } }
+  assert.equal(page.draw(props), null)
+  data.live.writer.command = { at: 1000, label: 'Running command', state: 'working' }
+  assert.match(text(page.draw(props).node), /your request/i)
+  assert.doesNotMatch(text(page.flush().node), /Running command/i, 'actual tool names belong in the footer')
+  assert.match(text(page.advance(8000).node), /Thanks for waiting/i)
+  delete data.live.writer.reply
+  delete data.live.writer.command
+  data.live.writer.relay = { at: 9000, relay: true, state: 'working' }
+  assert.ok(page.draw(props), 'Chief must remain visibly active while delegating')
+  data.roster.roomsById.writer = { id: 'writer', members: [] }
+  page.draw(props)
+  assert.equal(page.advance(140), null, 'group relays already show each speaking employee')
   page.unmount()
 })
 
