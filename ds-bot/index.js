@@ -38,6 +38,7 @@ import * as recovery from './src/host/recovery.js'
 import * as taskGroups from './src/host/task-groups.js'
 import * as employeePortraits from './src/host/employee-portraits.js'
 import * as taskContext from './src/host/task-context.js'
+import * as toolInspection from './src/host/tool-inspection.js'
 
 export { COLORS } from './src/host/constants.js'
 
@@ -48,7 +49,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // the functions other modules call; they call them through `rt` at run time, never during
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them.
-const MODULES = [diagnostics, store, models, permissions, turns, delivery, roster, teams, generalAssistant, folders, agents, prompt, timeContext, tools, taskNotices, recovery, chatIndex, groups, approvals, resume, memory, parts, taskModels, images, secrets, connectors, capabilities, schedules, browser, usage, update, dshUpdate, channel]
+const MODULES = [diagnostics, store, models, permissions, turns, delivery, roster, teams, generalAssistant, folders, agents, prompt, timeContext, tools, taskNotices, recovery, chatIndex, groups, approvals, resume, memory, parts, taskModels, images, secrets, connectors, capabilities, schedules, browser, usage, update, dshUpdate, toolInspection, channel]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)

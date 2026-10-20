@@ -9,6 +9,7 @@
 
 import { READ_PAGE_SCRIPT } from './read-page.js'
 import { STORAGE } from './storage.js'
+import { browserContext, browserContextKey, sameBrowserContext } from '../shared/browser-context.js'
 
 export { READ_PAGE_SCRIPT }
 
@@ -63,6 +64,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   const views = new Map()
   /** @type {Map<string, string>} tabId -> owning Bot id */
   const owner = new Map()
+  const activeContexts = new Map()
   // Per Bot: { ids: [tabId...], active: tabId | null }.
   const tabs = createSource({})
   // Per tab: { url, title, favicon, loading, canGoBack, canGoForward, error, live, readAt?, excerpt }
@@ -99,8 +101,9 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       saved = {
         ...saved,
         [botId]: {
-          tabs: state.ids.map(id => ({ id, url: snapshot[id]?.url ?? '', title: snapshot[id]?.title ?? '' })),
+          tabs: state.ids.map(id => ({ id, url: snapshot[id]?.url ?? '', title: snapshot[id]?.title ?? '', ...(snapshot[id]?.context ? { context: snapshot[id].context } : {}) })),
           active: state.active,
+          contexts: Object.fromEntries(activeContexts.get(botId) ?? []),
         },
       }
     }
@@ -115,8 +118,10 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     const ids = entries.map(entry => entry.id)
     const active = ids.includes(saved[botId]?.active) ? saved[botId].active : (ids.at(-1) ?? null)
     for (const entry of entries) owner.set(entry.id, botId)
+    const contexts = new Map(Object.entries(saved[botId]?.contexts ?? {}).filter(([, tabId]) => ids.includes(tabId)))
+    activeContexts.set(botId, contexts)
     tabs.set(state => ({ ...state, [botId]: { ids, active } }))
-    for (const entry of entries) publish(entry.id, { url: entry.url ?? '', title: entry.title ?? '', live: false })
+    for (const entry of entries) publish(entry.id, { url: entry.url ?? '', title: entry.title ?? '', context: browserContext(entry.context), live: false })
   }
 
   const ensureLayer = () => {
@@ -187,7 +192,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     entry.stop = () => lifetime.abort()
     const { signal } = lifetime
     // A page that asks for a new window gets a new tab in the same Bot, activated.
-    const unsubscribe = bridge.onOpenRequested(reservation.lease, url => void openTab(botId, url))
+    const unsubscribe = bridge.onOpenRequested(reservation.lease, url => void openTab(botId, url, pages.getSnapshot()[tabId]?.context))
     signal.addEventListener('abort', unsubscribe, { once: true })
     element.addEventListener('dom-ready', () => {
       entry.ready = true
@@ -276,7 +281,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     await bridge.release(entry.lease).catch(error => console.warn('[ds-bot] browser release', error))
   }
 
-  function openTab(botId, url) {
+  function openTab(botId, url, context = null) {
     ensureTabs(botId)
     const tabId = `t${Date.now().toString(36)}-${++serial}`
     owner.set(tabId, botId)
@@ -284,7 +289,8 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       const own = state[botId] ?? { ids: [], active: null }
       return { ...state, [botId]: { ids: [...own.ids, tabId], active: tabId } }
     })
-    publish(tabId, { url: '', title: '', live: false })
+    publish(tabId, { url: '', title: '', context: browserContext(context), live: false })
+    activeContexts.get(botId).set(browserContextKey(context), tabId)
     if (typeof url === 'string' && url !== '') void navigate(tabId, url)
     persist(botId)
     return tabId
@@ -311,6 +317,13 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       return next
     })
     owner.delete(tabId)
+    const contexts = activeContexts.get(botId)
+    for (const [key, selected] of contexts ?? []) {
+      if (selected !== tabId) continue
+      const replacement = tabs.getSnapshot()[botId]?.ids.filter(id => browserContextKey(pages.getSnapshot()[id]?.context) === key).at(-1)
+      if (replacement) contexts.set(key, replacement)
+      else contexts.delete(key)
+    }
     pages.set((snapshot) => {
       if (snapshot[tabId] === undefined) return snapshot
       const { [tabId]: _, ...rest } = snapshot
@@ -319,15 +332,33 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     persist(botId)
   }
 
-  function activate(botId, tabId) {
+  function activate(botId, tabId, context) {
     ensureTabs(botId)
     const state = tabs.getSnapshot()[botId]
-    if (state === undefined || !state.ids.includes(tabId) || state.active === tabId) return
+    if (state === undefined || !state.ids.includes(tabId)) return
+    if (context !== undefined && !sameBrowserContext(pages.getSnapshot()[tabId]?.context, context)) return
+    activeContexts.get(botId).set(browserContextKey(pages.getSnapshot()[tabId]?.context), tabId)
     tabs.set(snapshot => ({ ...snapshot, [botId]: { ...state, active: tabId } }))
     persist(botId)
   }
 
   const activeTab = botId => tabs.getSnapshot()[botId]?.active ?? null
+  const contextTab = (botId, context) => {
+    ensureTabs(botId)
+    const snapshot = pages.getSnapshot()
+    const ids = tabs.getSnapshot()[botId]?.ids ?? []
+    const key = browserContextKey(context)
+    const selected = activeContexts.get(botId)?.get(key)
+    if (ids.includes(selected) && sameBrowserContext(snapshot[selected]?.context, context)) return selected
+    const current = activeTab(botId)
+    if (ids.includes(current) && sameBrowserContext(snapshot[current]?.context, context)) return current
+    return ids.filter(id => sameBrowserContext(snapshot[id]?.context, context)).at(-1) ?? null
+  }
+  const ensureContext = (botId, context = null) => {
+    const tabId = contextTab(botId, context) ?? openTab(botId, undefined, context)
+    activate(botId, tabId, context)
+    return tabId
+  }
 
   /**
    * Select the tab whose guest goes on screen, or none with `null`. With a `box`
@@ -390,6 +421,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       const { [botId]: _, ...rest } = snapshot
       return rest
     })
+    activeContexts.delete(botId)
     if (saved[botId] !== undefined) {
       const { [botId]: _, ...rest } = saved
       saved = rest
@@ -402,6 +434,8 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     pages,
     /** Restore a Bot's saved strip (or an empty one) so the panel can render it. */
     ensureTabs,
+    ensureContext,
+    contextTab,
     openTab,
     closeTab,
     activate,
@@ -417,23 +451,28 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       else if (name === 'stop') entry.element.stop()
     },
     focus(tabId) { views.get(tabId)?.element.focus() },
-    /** Pages a read can reach: each Bot's active tab, live and showing a document. */
+    /** Every live document, with a separate active tab per conversation. */
     openPages() {
       const open = {}
       const snapshot = pages.getSnapshot()
       for (const [botId, state] of Object.entries(tabs.getSnapshot())) {
-        const tabId = state.active
-        const entry = tabId ? views.get(tabId) : undefined
-        const page = tabId ? snapshot[tabId] : undefined
-        if (entry?.ready && page?.url) open[botId] = { url: page.url, title: page.title }
+        const live = state.ids.filter(id => views.get(id)?.ready && snapshot[id]?.url).map(id => ({
+          id, url: snapshot[id].url, title: snapshot[id].title,
+          ...(snapshot[id].context ? { context: snapshot[id].context } : {}),
+          active: contextTab(botId, snapshot[id].context) === id,
+        }))
+        const selected = live.find(page => page.id === state.active) ?? live.at(-1)
+        if (selected) open[botId] = { url: selected.url, title: selected.title, tabs: live }
       }
       return open
     },
-    /** A Bot's read reaches its active tab. */
-    async read(botId) {
-      const tabId = activeTab(botId)
+    /** A queued read is pinned to its reported tab and cannot follow a UI switch. */
+    async read(botId, request = {}) {
+      const context = browserContext(request.context)
+      const tabId = request.tabId ?? contextTab(botId, context)
+      if (owner.get(tabId) !== botId || !sameBrowserContext(pages.getSnapshot()[tabId]?.context, context)) throw new Error('This browser page belongs to another employee or conversation. Open a page in this conversation first.')
       const entry = tabId ? views.get(tabId) : undefined
-      if (!entry?.ready) throw new Error('This Bot has no browser page open.')
+      if (!entry?.ready) throw new Error('This conversation has no browser page open. Open its browser window and load the page first.')
       let timer
       const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('The page took too long to read.')), READ_TIMEOUT_MS) })
       try {
@@ -442,8 +481,9 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
         clearTimeout(timer)
       }
     },
-    noteRead(botId) {
-      const tabId = activeTab(botId)
+    noteRead(botId, request = {}) {
+      const tabId = request.tabId ?? contextTab(botId, request.context)
+      if (owner.get(tabId) !== botId || !sameBrowserContext(pages.getSnapshot()[tabId]?.context, request.context)) return
       if (tabId) publish(tabId, { readAt: Date.now() })
     },
     release,
@@ -481,13 +521,13 @@ export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto
   // the moment it starts, so a resend during a slow read shares it, and a resend
   // after a failed submit posts the cached answer again.
   const answered = new Map()
-  const answer = async ({ id, botId }) => {
+  const answer = async ({ id, botId, ...request }) => {
     let job = answered.get(id)
     if (job === undefined) {
       job = (async () => {
         try {
-          const result = { id, ok: true, page: await browsers.read(botId) }
-          browsers.noteRead(botId)
+          const result = { id, ok: true, page: await browsers.read(botId, request) }
+          browsers.noteRead(botId, request)
           return result
         } catch (error) {
           return { id, ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -516,13 +556,16 @@ export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto
       }
     }
   }
-  const offPages = browsers.pages.subscribe(() => {
+  const changed = () => {
     if (JSON.stringify(browsers.openPages()) !== reported) poll?.abort()
-  })
+  }
+  const offPages = browsers.pages.subscribe(changed)
+  const offTabs = browsers.tabs.subscribe(changed)
   void loop()
   return () => {
     stopped = true
     offPages()
+    offTabs()
     poll?.abort()
   }
 }

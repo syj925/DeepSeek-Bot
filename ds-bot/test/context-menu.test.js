@@ -69,7 +69,7 @@ test('Bot management opens employee settings, memory, schedules, and browser wit
   assert.deepEqual(data.calls, [])
   assert.ok(!data.labels.includes('Details'))
   assert.ok(!data.labels.includes('Edit Bot'))
-  for (const label of ['Employee settings', 'Memory', 'Scheduled tasks', 'Open browser']) data.click(label)
+  for (const label of ['Employee settings', 'Memory', 'Scheduled tasks', 'Page reading panel']) data.click(label)
   assert.deepEqual(data.calls, [
     ['closeMenu'], ['openSettings', 'bots', 'writer'],
     ['closeMenu'], ['openMemory', 'writer'],
@@ -94,7 +94,7 @@ test('outside pointer presses dismiss menus even when the target stops bubbling'
 test('Room management targets the Room and offers no employee memory or browser', () => {
   const data = fixture({ room: true, browser: true })
   assert.ok(!data.labels.includes('Memory'))
-  assert.ok(!data.labels.includes('Open browser'))
+  assert.ok(!data.labels.includes('Page reading panel'))
   assert.ok(data.labels.includes('Group settings'))
   assert.ok(data.labels.includes('Rename group'))
   assert.deepEqual(data.calls, [])
@@ -109,8 +109,8 @@ test('Room management targets the Room and offers no employee memory or browser'
 
 test('memory and browser actions follow actual host capabilities', () => {
   assert.ok(!fixture({ memory: false, browser: false }).labels.includes('Memory'))
-  assert.ok(!fixture({ browser: false }).labels.includes('Open browser'))
-  assert.ok(!fixture({ browser: true, bridge: false }).labels.includes('Open browser'))
+  assert.ok(!fixture({ browser: false }).labels.includes('Page reading panel'))
+  assert.ok(!fixture({ browser: true, bridge: false }).labels.includes('Page reading panel'))
   assert.ok(fixture({ memory: true }).labels.includes('Memory'))
 })
 

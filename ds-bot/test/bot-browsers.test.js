@@ -139,7 +139,7 @@ test('a navigation before the guest is ready waits for dom-ready, and the addres
   view.emit('dom-ready')
   assert.deepEqual(view.loads, ['https://example.com/'])
   assert.equal(browsers.pages.getSnapshot()[tab].url, 'https://example.com/')
-  assert.deepEqual(browsers.openPages(), { a: { url: 'https://example.com/', title: 'Title of https://example.com/' } })
+  assert.deepEqual(browsers.openPages(), { a: { url: 'https://example.com/', title: 'Title of https://example.com/', tabs: [{ id: tab, url: 'https://example.com/', title: 'Title of https://example.com/', active: true }] } })
   // A new manager (a reload of the app) restores the saved strip.
   const again = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })
   again.ensureTabs('a')
@@ -186,6 +186,53 @@ test('a read reaches the Bot’s active tab', async () => {
   browsers.activate('a', t1)
   page = await browsers.read('a')
   assert.equal(page.url, 'https://one.example.com/')
+})
+
+test('conversation browser tabs remain separate and restore their own selection', async () => {
+  const desktop = fakeDesktop()
+  const browsers = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })
+  const privateTab = browsers.ensureContext('a')
+  const group1 = { roomId: 'r1', label: 'Research' }, group2 = { roomId: 'r2', label: 'Writing' }
+  const first = browsers.ensureContext('a', group1)
+  const second = browsers.openTab('a', undefined, group1)
+  const other = browsers.ensureContext('a', group2)
+  assert.equal(browsers.contextTab('a', group1), second)
+  browsers.activate('a', first, group1)
+  browsers.activate('a', other, group1)
+  assert.equal(browsers.tabs.getSnapshot().a.active, first, 'a group cannot activate another group tab')
+  assert.equal(browsers.ensureContext('a', group2), other)
+  assert.equal(browsers.ensureContext('a', group1), first)
+  assert.equal(browsers.ensureContext('a'), privateTab)
+  const restored = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })
+  assert.equal(restored.ensureContext('a', group1), first)
+  assert.equal(restored.ensureContext('a', group2), other)
+  await browsers.closeTab('a', first)
+  assert.equal(browsers.contextTab('a', group1), second)
+  browsers.dispose(); restored.dispose()
+})
+
+test('a requested tab is pinned across UI switches and cannot cross employee or group ownership', async () => {
+  const desktop = fakeDesktop()
+  const browsers = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })
+  const privateTab = browsers.openTab('a', 'private.example.com')
+  const group1 = browsers.openTab('a', 'one.example.com', { roomId: 'r1' })
+  const group2 = browsers.openTab('a', 'two.example.com', { roomId: 'r2' })
+  await tick()
+  for (const view of desktop.created) view.emit('dom-ready')
+  assert.equal((await browsers.read('a', { context: { roomId: 'r1' } })).url, 'https://one.example.com/')
+  browsers.activate('a', group2)
+  assert.equal((await browsers.read('a', { tabId: group1, context: { roomId: 'r1' } })).url, 'https://one.example.com/')
+  assert.equal((await browsers.read('a')).url, 'https://private.example.com/')
+  await assert.rejects(browsers.read('a', { tabId: group2, context: { roomId: 'r1' } }), /another employee or conversation/)
+  await assert.rejects(browsers.read('b', { tabId: privateTab }), /another employee or conversation/)
+  await assert.rejects(browsers.read('a', { context: { roomId: 'missing' } }), /another employee or conversation/)
+  const report = browsers.openPages().a
+  assert.equal(report.tabs.length, 3)
+  assert.equal(report.tabs.find(tab => tab.id === group1).context.roomId, 'r1')
+  browsers.noteRead('a', { tabId: group1, context: { roomId: 'r1' } })
+  assert.ok(browsers.pages.getSnapshot()[group1].readAt)
+  assert.equal(browsers.pages.getSnapshot()[group2].readAt, undefined)
+  browsers.dispose()
 })
 
 test('a page that asks for a new window opens a new tab in the same Bot', async () => {
@@ -288,7 +335,7 @@ test('serveBrowserReads answers each request once and re-polls when the open pag
   }
   const stop = serveBrowserReads({ browsers, post, clientId: 'w1' })
   await tick()
-  assert.deepEqual(calls[0], ['browser-wait', { clientId: 'w1', open: { a: { url: 'https://example.com/', title: 'Title of https://example.com/' } } }])
+  assert.deepEqual(calls[0], ['browser-wait', { clientId: 'w1', open: { a: { url: 'https://example.com/', title: 'Title of https://example.com/', tabs: [{ id: tab, url: 'https://example.com/', title: 'Title of https://example.com/', active: true }] } } }])
   // The same request twice (a resend) is read once; the cached answer posts again.
   polls.at(-1)([{ id: 'read-1', botId: 'a' }, { id: 'read-1', botId: 'a' }])
   await tick(); await tick()

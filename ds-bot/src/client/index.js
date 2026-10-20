@@ -17,8 +17,11 @@ import { sameVersion } from './dsh-offer.js'
 import { AnsweredCell, QuestionCard, QuestionDock } from './questions.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, TurnTailCell, ToolCell } from './cells.js'
 import { Overlays } from './overlays.js'
+import { openNativeBrowser } from './native-browser.js'
+import { NativeBrowserNotice, CONVERSATION_TOOLS_CSS } from './conversation-tools.js'
 import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
 import { BROWSER_CSS } from './browser-pane.js'
+import { browserContext, sameBrowserContext } from '../shared/browser-context.js'
 import { SECRET_CSS, SecretDock } from './secret-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
@@ -67,7 +70,7 @@ export function apply(ctx) {
   try { seenAt = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') ?? {} } catch { seenAt = {} }
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: savedUnread, reactions: savedReactions, visits: {} })
+  const ui = createSource({ details: null, view: 'details', browserContext: null, renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: savedUnread, reactions: savedReactions, visits: {} })
   // Bot mode paints the whole team surface; Agent mode withdraws every slot and
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
@@ -130,6 +133,15 @@ export function apply(ctx) {
   }
   // A navigation this plugin started: the surface effect trusts the id it lands on.
   let expected = null
+  let browserOpening
+  let browserOrigin
+  const cancelBrowserOpening = () => {
+    if (!browserOpening) return
+    browserOpening.abort()
+    browserOpening = undefined
+    ui.set(state => ({ ...state, nativeBrowser: null }))
+  }
+  ctx.effect(() => () => browserOpening?.abort(), 'ds-bot: cancel browser navigation')
   const setPlain = (plain) => surface.set(state => (state.plain === plain ? state : { ...state, plain }))
   // A DSH Agent Session shows the plain conversation: the Bot details and browser
   // panels would follow it and report it is not on the team, so they close.
@@ -402,6 +414,7 @@ export function apply(ctx) {
     // or the click appears to do nothing.
     isAgentSession: id => isAgentSessionId(id),
     openSession: (id) => {
+      cancelBrowserOpening()
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       if (canvasPreferred && (roster.getSnapshot().byId[id] || roster.getSnapshot().roomsById[id])) return actions.openCanvasEntity(id)
@@ -414,6 +427,7 @@ export function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
+      cancelBrowserOpening()
       if (canvasVisible()) {
         surface.set(state => ({ ...state, canvas: false }))
         ctx.layout.selectPanel(null)
@@ -482,7 +496,7 @@ export function apply(ctx) {
       expected = target
       ctx.uiWorkspace.openSession(target)
     },
-    selectPanel: (id) => { ctx.layout.selectPanel(id) },
+    selectPanel: (id) => { cancelBrowserOpening(); ctx.layout.selectPanel(id) },
     openNewChat: (mode, members = []) => { ui.set(state => ({ ...state, newChat: mode, newChatMembers: mode === 'group' ? [...new Set(members.map(id => roster.getSnapshot().byId[id]?.id).filter(Boolean))] : [], menu: null, palette: null })) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
@@ -491,17 +505,64 @@ export function apply(ctx) {
     openVoice: (id) => { if (id) ui.set(state => ({ ...state, voice: id, menu: null })) },
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
     toggleDetails: id => actions.showDetails(id),
-    // Only the browser follows conversation focus. Management stays in its dialog.
-    followPanel: (id) => {
-      ui.set((state) => {
-        if (!state.details || state.details === id) return state
-        const bot = roster.getSnapshot().byId[id]
-        return { ...state, details: bot ? id : null, view: 'browser', renaming: false, tab: null }
-      })
-    },
+    // A work window keeps the employee and conversation it was opened for.
+    followPanel: () => {},
     showExecution: (sessionId, botId) => ui.set(state => ({ ...state, execution: { sessionId, botId } })),
     closeExecution: () => ui.set(state => ({ ...state, execution: null })),
     execution: (sessionId, botId) => call('execution', { sessionId, botId }),
+    inspectTools: (sessionId, botId) => {
+      ui.set(state => ({ ...state, execution: null, toolInspection: { sessionId, botId } }))
+      void actions.refreshToolInspection()
+    },
+    refreshToolInspection: async () => {
+      const target = ui.getSnapshot().toolInspection
+      if (!target) return
+      const token = {}
+      ui.set(state => ({ ...state, toolInspection: { ...target, token, loading: true, error: null } }))
+      try {
+        const report = await call('tool-inspection', { sessionId: target.sessionId, botId: target.botId })
+        ui.set(state => state.toolInspection?.token === token ? { ...state, toolInspection: { ...state.toolInspection, loading: false, report } } : state)
+      } catch (error) {
+        ui.set(state => state.toolInspection?.token === token ? { ...state, toolInspection: { ...state.toolInspection, loading: false, error: error.message } } : state)
+      }
+    },
+    closeToolInspection: () => ui.set(state => ({ ...state, toolInspection: null })),
+    nativeBrowserAvailable: window.dshDesktop?.protocolVersion === 1 && typeof ctx.get('sidebarRight')?.openTab === 'function',
+    openNativeBrowser: async (sessionId, botId) => {
+      if (!actions.nativeBrowserAvailable) throw new Error(t('The native browser interface is unavailable in this host.'))
+      browserOpening?.abort()
+      const controller = new AbortController()
+      browserOpening = controller
+      let target
+      const origin = { sessionId, botId }
+      const mainSession = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
+      const sourceSession = mainSession()
+      const sourcePanel = ctx.layout.panelInfo.getSnapshot().activePanelId
+      try {
+        target = await call('browser-session', { sessionId, botId }, controller.signal)
+        if (controller.signal.aborted || browserOpening !== controller) return
+        if (mainSession() !== sourceSession || ctx.layout.panelInfo.getSnapshot().activePanelId !== sourcePanel) return
+        browserOrigin = origin
+        ui.set(state => ({ ...state, nativeBrowser: { ...target, origin, loading: true } }))
+        const result = await openNativeBrowser({ sidebar: ctx.get('sidebarRight'), sessionId: target.sessionId, signal: controller.signal,
+          navigate: id => {
+            actions.setSurface('agent')
+            surface.set(state => ({ ...state, canvas: false }))
+            ctx.layout.selectPanel(null)
+            expected = id
+            ctx.uiWorkspace.openSession(id)
+          } })
+        if (!result.supported) throw new Error(t(result.reason))
+        if (controller.signal.aborted || browserOpening !== controller) return
+        ui.set(state => ({ ...state, nativeBrowser: { ...target, origin, loading: false } }))
+        return result
+      } catch (error) {
+        if (controller.signal.aborted || browserOpening !== controller) return
+        if (target) ui.set(state => ({ ...state, nativeBrowser: { ...target, origin, loading: false, error: t(error.message) } }))
+        throw error
+      } finally { if (browserOpening === controller) browserOpening = undefined }
+    },
+    closeNativeBrowserNotice: () => ui.set(state => ({ ...state, nativeBrowser: null })),
     showDetails: (id) => {
       const snapshot = roster.getSnapshot()
       const bot = snapshot.byId[id]
@@ -521,14 +582,22 @@ export function apply(ctx) {
     // surface closes first so nothing stale reopens on the way back.
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
+      const origin = mode === 'bot' ? browserOrigin : undefined
+      if (mode === 'bot') browserOrigin = undefined
+      if (mode === 'bot') cancelBrowserOpening()
       if (surface.getSnapshot().mode === mode) return
       if (mode === 'agent') {
         if (canvasVisible()) ctx.layout.selectPanel(null)
-        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
+        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, execution: null, toolInspection: null }))
       }
       writeMode(mode)
+      if (mode === 'bot') ui.set(state => ({ ...state, nativeBrowser: null }))
       surface.set(state => ({ ...state, mode }))
       if (mode !== 'bot') return
+      if (origin && (roster.getSnapshot().byId[origin.sessionId] || roster.getSnapshot().roomsById[origin.sessionId] || isAgentSessionId(origin.sessionId))) {
+        actions.openSession(origin.sessionId)
+        return
+      }
       // Back in Bot mode the view must hold a team conversation; an outside
       // Session left over from Agent mode would wear the Bot skin without one.
       const home = () => {
@@ -715,6 +784,7 @@ export function apply(ctx) {
     updateCanvas(setCanvasSelection(current, ids, id))
   }
   actions.openCanvasEntity = id => {
+    cancelBrowserOpening()
     const snapshot = roster.getSnapshot(), entity = snapshot.byId[id] ?? snapshot.roomsById[id]
     if (!entity) return
     const kind = snapshot.roomsById[entity.id] ? 'room' : 'bot'
@@ -740,6 +810,7 @@ export function apply(ctx) {
     actions.openCanvas(false)
   }
   actions.openCanvas = (seed = true) => {
+    cancelBrowserOpening()
     canvasPreferred = true
     try { localStorage.setItem(STORAGE.workspaceView, 'canvas') } catch { /* storage unavailable */ }
     ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null }))
@@ -759,6 +830,7 @@ export function apply(ctx) {
     ctx.layout.selectPanel(CANVAS_PANEL)
   }
   actions.openClassicSession = id => {
+    cancelBrowserOpening()
     canvasPreferred = false
     try { localStorage.setItem(STORAGE.workspaceView, 'classic') } catch { /* storage unavailable */ }
     const state = canvas.getSnapshot(), window = state.windows.find(value => value.id === state.active)
@@ -791,34 +863,43 @@ export function apply(ctx) {
   })
   // Without the Desktop bridge these stay undefined, and no browser control renders.
   if (browsers) {
+    const contextFor = (botId, value) => {
+      const context = browserContext(value)
+      if (context && !roster.getSnapshot().roomsById[context.roomId]?.members.includes(botId)) return undefined
+      return context
+    }
     Object.assign(actions, {
-      // The globe button: the Bot's active tab in the browser view, or a new tab.
-      openBrowser: (id) => {
+      openBrowser: (id, requestedContext = null) => {
         const bot = roster.getSnapshot().byId[id]
         if (!bot) return
-        browsers.ensureTabs(bot.id)
-        if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null }))
+        const context = contextFor(bot.id, requestedContext)
+        if (context === undefined) return
+        browsers.ensureContext(bot.id, context)
+        ui.set(state => ({ ...state, details: id, view: 'browser', browserContext: context, renaming: false, tab: null }))
       },
       // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
-      browserNewTab: (id) => {
+      browserNewTab: (id, requestedContext = null) => {
         const bot = roster.getSnapshot().byId[id]
         if (!bot) return null
-        browsers.ensureTabs(bot.id)
-        const tabId = browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null }))
+        const context = contextFor(bot.id, requestedContext)
+        if (context === undefined) return null
+        const tabId = browsers.openTab(bot.id, undefined, context)
+        ui.set(state => ({ ...state, details: id, view: 'browser', browserContext: context, renaming: false, tab: null }))
         return tabId
       },
       // A drawer card: its tab active, the panel on the browser view.
-      browserPick: (id, tabId) => {
+      browserPick: (id, tabId, requestedContext) => {
         const bot = roster.getSnapshot().byId[id]
         if (!bot) return
-        browsers.activate(bot.id, tabId)
-        ui.set(state => ({ ...state, details: id, view: 'browser' }))
+        const page = browsers.pages.getSnapshot()[tabId]
+        const context = contextFor(bot.id, requestedContext === undefined ? page?.context : requestedContext)
+        if (context === undefined || !browsers.tabs.getSnapshot()[bot.id]?.ids.includes(tabId) || !sameBrowserContext(page?.context, context)) return
+        browsers.activate(bot.id, tabId, context)
+        ui.set(state => ({ ...state, details: id, view: 'browser', browserContext: context }))
       },
       browserEnsure: botId => browsers.ensureTabs(botId),
       browserCloseTab: (botId, tabId) => browsers.closeTab(botId, tabId),
-      browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
+      browserActivate: (botId, tabId, context) => browsers.activate(botId, tabId, context),
       browserShow: (tabId, box) => browsers.show(tabId, box),
       browserNavigate: (tabId, input) => browsers.navigate(tabId, input),
       browserCommand: (tabId, name) => browsers.command(tabId, name),
@@ -830,7 +911,7 @@ export function apply(ctx) {
     if (view === 'details') { actions.showDetails(ui.getSnapshot().details); return }
     ui.set(state => (state.details && state.view !== view ? { ...state, view } : state))
   }
-  actions.closePanel = () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null } : state)) }
+  actions.closePanel = () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', browserContext: null, renaming: false, tab: null } : state)) }
   // Whether AccountLauncher holds the shell's settings seat; FooterAccount steps aside if so.
   actions.signInEntry = () => ctx.slots.entries?.('settings.models.sign-in')?.[0] ?? null
   actions.canSignIn = () => Boolean(actions.signInEntry())
@@ -1003,6 +1084,7 @@ export function apply(ctx) {
     installCompiledStyles(USAGE_CSS, 'usage'),
     installCompiledStyles(SCHEDULE_CSS, 'schedules'),
     installCompiledStyles(FEEDBACK_CSS, 'feedback'),
+    installCompiledStyles(CONVERSATION_TOOLS_CSS, 'conversation-tools'),
     installCompiledStyles(TASK_NOTICE_CSS, 'task-notifications'),
     installCompiledStyles(ABOUT_CSS, 'about'),
     installCompiledStyles(MEMBER_CSS, 'members'),
@@ -1070,6 +1152,7 @@ export function apply(ctx) {
     return () => style.remove()
   }, 'ds-bot: return styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
+  shadow('shell.overlay', { id: 'bot-native-browser', order: 70, inject: face }, NativeBrowserNotice)
 
   // The main view decides `plain`: a DSH Agent Session keeps the Bot shell but
   // withdraws the conversation replacements, so the native dsh page shows. A jump

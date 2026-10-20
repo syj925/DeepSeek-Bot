@@ -10,6 +10,7 @@ import { TaskGroupJourney } from './task-groups.js'
 import { RoomStreams } from './room-streams.js'
 import { StreamFollow } from './stream-follow.js'
 import { StreamReveal } from './stream-reveal.js'
+import { ConversationTools, ClassicEmployeeWork } from './conversation-tools.js'
 
 // -------------------------------------------------------------------------
 // Conversation header
@@ -94,6 +95,8 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   }, [Boolean(room)])
   const memoryNotice = notice && changed !== null && roster.memory !== false
   return h(Fragment, null, h(TaskGroupJourney, { sessionId, roster, actions }), h('div', { className: 'bt-head' },
+    h(ClassicEmployeeWork, { key: sessionId, sessionId, roster, actions }),
+    h(ConversationTools, { sessionId, actions }),
     h('button', {
       type: 'button', className: 'bt-pill', 'aria-expanded': detailsOpen, 'aria-haspopup': 'dialog', 'data-memory': memoryNotice ? 'updated' : undefined,
       'aria-label': memoryNotice ? t('Memory updated. Open {name}\'s memory', { name: roster.byId[changed]?.name ?? name }) : t(room ? 'Group settings' : 'Employee settings'),

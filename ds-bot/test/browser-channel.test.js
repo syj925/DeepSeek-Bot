@@ -26,6 +26,32 @@ test('a read wakes the waiting window and resolves with its result', async () =>
   channel.dispose()
 })
 
+test('group reads select the matching conversation tab and pin it before UI selection changes', async () => {
+  const channel = createBrowserChannel({ waitMs: 5000 })
+  const pages = { a: { url: 'https://two.example/', tabs: [
+    { id: 'private', url: 'https://private.example/', active: true },
+    { id: 'one', url: 'https://one.example/', context: { roomId: 'r1' }, active: true },
+    { id: 'two', url: 'https://two.example/', context: { roomId: 'r2' }, active: true },
+  ] } }
+  const polled = channel.wait('w1', pages)
+  assert.deepEqual(await channel.read('a', { context: { roomId: 'r3' } }), { absent: true })
+  assert.deepEqual(await channel.read('a', { context: { roomId: 'r1' }, tabId: 'two' }), { absent: true })
+  const reading = channel.read('a', { context: { roomId: 'r1' } })
+  const [request] = await polled
+  assert.equal(request.tabId, 'one')
+  assert.equal(request.context.roomId, 'r1')
+  channel.result({ id: request.id, ok: true, page: { url: 'https://one.example/' } })
+  assert.equal((await reading).page.url, 'https://one.example/')
+  channel.dispose()
+})
+
+test('group reads never use a legacy active page report', async () => {
+  const channel = createBrowserChannel({ waitMs: 1 })
+  channel.report('legacy', { a: { url: 'https://private.example/' } })
+  assert.deepEqual(await channel.read('a', { context: { roomId: 'r1' } }), { absent: true })
+  channel.dispose()
+})
+
 test('a newer poll ends the older one empty', async () => {
   const channel = createBrowserChannel({ waitMs: 5000 })
   const older = channel.wait('window-1', { 'bot-a': {} })

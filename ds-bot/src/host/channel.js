@@ -91,7 +91,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'execution', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'execution', 'tool-inspection', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined || body.accent !== undefined) throw invalid('Theme and accent customization is no longer supported')
@@ -143,6 +143,10 @@ export function install(rt) {
         case 'execution':
           await rt.load()
           return ok(rt.executionView(body.sessionId, body.botId))
+        case 'tool-inspection':
+          return ok(await rt.toolInspection(body.sessionId, body.botId))
+        case 'browser-session':
+          return ok(await rt.browserSession(body.sessionId, body.botId))
         case 'room-progress':
           return ok([
             ...[...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null, ...(entry.streaming?.text && !/^\s*\[(?:P(?:A(?:S(?:S\]?)?)?)?)?\s*$/i.test(entry.streaming.text) ? { streaming: entry.streaming } : {}) })),

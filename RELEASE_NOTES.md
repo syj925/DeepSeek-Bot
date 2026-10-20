@@ -1,6 +1,7 @@
-QibitAI canvas plugin 0.1.58
+QibitAI canvas plugin 0.1.59
 
-- Give Bot mentions their own @ button beside the composer. It opens the current conversation's Bot candidates at the caret without opening model settings or changing any employee model.
-- Accept inline @ after Chinese text in Bot conversations, while leaving email addresses, paths, code and reference tokens alone. Keep candidate insertion, selection and keyboard handling in the host input controller.
-- Show model-maker artwork on the separate group model button. Members with the same maker share one icon; mixed makers use a compact icon stack. A group still has no shared model: changes apply only to the selected employee.
-- Preserve streaming replies, the floating composer, employee ownership and existing group delivery rules.
+- Add recent group-work updates to each employee's private chat, linking saved replies and verified task results to their original group without merging execution contexts.
+- Add on-demand tool inspection for the actual private or group-member Session. Distinguish registered tools, the last assembled request header, historical declarations and deferred loading; retain employee capability mount states without activating an inactive Agent.
+- Add a compatible Desktop entry to the real execution Session's native browser in classic Agent view, with a route back to the source Bot or group. Browser tab creation does not certify that automation is connected; embedding multiple hidden native guests on the canvas is not supported by the current public host API.
+- Keep the extra `read_browser` page reader separate from full host browser tools. Bind its floating window and selected tabs to an employee and the originating group or private chat, with shared login storage across that employee's tabs.
+- Document host tool loading, shared-computer limits and context retrieval boundaries. Employee models, permissions and existing task ownership remain unchanged.

@@ -277,7 +277,8 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
       [t(bot ? 'Employee settings' : 'Group settings'), GearIcon, () => actions.openSettings(bot ? 'bots' : 'groups', entry.id)],
       bot && roster.memory !== false ? [t('Memory'), MemoryIcon, () => actions.openMemory(bot.id)] : null,
       [t('Scheduled tasks'), ClockIcon, () => actions.openSettings('schedules', entry.id)],
-      bot && roster.browser === true && actions.openBrowser ? [t('Open browser'), GlobeIcon, () => actions.openBrowser(bot.id)] : null,
+      actions.inspectTools ? [t('Tools & browser'), GlobeIcon, () => actions.inspectTools(entry.id)] : null,
+      bot && roster.browser === true && actions.openBrowser ? [t('Page reading panel'), GlobeIcon, () => actions.openBrowser(bot.id)] : null,
     ],
     [
       isTile ? null : [entry.pinned ? t('Unpin') : t('Pin'), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],

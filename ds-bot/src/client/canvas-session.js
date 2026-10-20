@@ -10,6 +10,8 @@ import { ExecutionStatus, EXECUTION_STATUS_CSS } from './execution-status.js'
 import { RoomStreams } from './room-streams.js'
 import { StreamFollow } from './stream-follow.js'
 import { StreamReveal } from './stream-reveal.js'
+import { EmployeeWorkContext } from './employee-work-context.js'
+import { ConversationTools } from './conversation-tools.js'
 
 export const CANVAS_PANEL = 'ds-bot-canvas'
 export const CANVAS_CONVERSATION = 'ds-bot.canvas.conversation'
@@ -106,6 +108,8 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useWork, 
   }, session.openState === 'error' ? h('div', { role: 'alert' }, t('Could not open conversation')) : null,
   h('style', null, MODEL_RECOVERY_CSS + EXECUTION_STATUS_CSS),
   h(TaskGroupJourney, { sessionId, roster, actions, onOpenConversation }),
+  h(ConversationTools, { sessionId, actions }),
+  h(EmployeeWorkContext, { sessionId, roster, actions, onOpenConversation }),
   h(ModelRecovery, { sessionId, roster, actions, onOpenConversation }),
   entity?.contextResetError ? h('div', { className: 'bt-context-clear-note', role: 'alert' }, t('Context could not be cleared. Your history is safe; try /clear again.'))
     : entity?.contextClearedAt ? h('div', { className: 'bt-context-clear-note', role: 'status', title: t('History and long-term memory are retained. Model instructions and tools still use context.') }, t('Context cleared · history retained')) : null,

@@ -204,6 +204,27 @@ test('in the Desktop profile read_browser is available and reads through the win
   assert.equal((await call('state', {})).value.browser, true)
 })
 
+test('read_browser derives group ownership from the execution Session and refuses other group tabs', async t => {
+  const room = { id: 'r1', name: 'Research', named: true, members: ['m1', 'b2'], admin: 'm1', sessions: { b2: 'group-writer' }, log: [] }
+  const { ctx, call, stop } = start({ ...TEAM, rooms: { r1: room } }, { services: { profileContext: { name: 'desktop' } } })
+  t.after(stop)
+  const execute = args => ctx.registeredTools.get('read_browser').execute(args, { agent: { id: 'group-writer' } })
+  const open = { b2: { url: 'https://private.example/', tabs: [
+    { id: 'private', url: 'https://private.example/', title: 'Private', active: true },
+    { id: 'group', url: 'https://research.example/', title: 'Research', context: { roomId: 'r1' }, active: true },
+    { id: 'invalid', url: 'https://other.example/', context: { roomId: 'not-a-member' }, active: true },
+  ] } }
+  const poll = call('browser-wait', { clientId: 'w1', open })
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.match(await execute({ tab_id: 'private' }), /No browser page is open for you in this group/)
+  const reading = execute({})
+  const [request] = (await poll).value
+  assert.equal(request.tabId, 'group')
+  assert.deepEqual(request.context, { roomId: 'r1' })
+  await call('browser-result', { id: request.id, ok: true, page: { url: 'https://research.example/', text: 'Research only' } })
+  assert.match(await reading, /Research only/)
+})
+
 test('config.browser turns Bot browsers off even in the Desktop profile', (t) => {
   const { ctx, stop } = start(TEAM, { config: { browser: false }, services: { profileContext: { name: 'desktop' } } })
   t.after(stop)

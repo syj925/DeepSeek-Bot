@@ -11,6 +11,7 @@ import { MemoryDialog } from './memory-panel.js'
 import { useLinger } from './motion.js'
 import { CANVAS_PANEL, canvasSessionId } from './canvas-session.js'
 import { ExecutionDialog, EXECUTION_CSS } from './execution.js'
+import { ToolInspectionDialog } from './tool-inspection.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
 const DIALOG_EXIT_MS = 160
@@ -32,13 +33,13 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     previous.current = current
     if (current) actions.followPanel?.(current)
   }, [current])
-  const open = ui.details && ui.view === 'browser' && roster.browser === true && roster.byId[ui.details] && actions.browserShow ? { id: ui.details, view: 'browser' } : null
+  const open = ui.details && ui.view === 'browser' && roster.browser === true && roster.byId[ui.details] && actions.browserShow ? { id: ui.details, view: 'browser', context: ui.browserContext ?? null } : null
   const [kept, setKept] = useState(open)
   useEffect(() => {
     if (open) { setKept(open); return undefined }
     const timer = setTimeout(() => setKept(null), PANEL_LINGER_MS)
     return () => clearTimeout(timer)
-  }, [ui.details, ui.view, ui.renaming, ui.tab])
+  }, [ui.details, ui.view, ui.browserContext, ui.renaming, ui.tab])
   const pane = open ?? kept
   const [settings, settingsLeaving] = useLinger(ui.settings, DIALOG_EXIT_MS)
   const [memory, memoryLeaving] = useLinger(ui.memory && roster.byId[ui.memory] ? ui.memory : null, DIALOG_EXIT_MS)
@@ -46,6 +47,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   return h(Fragment, null,
     h('style', null, EXECUTION_CSS),
     ui.execution ? createPortal(h(ExecutionDialog, { key: `${ui.execution.sessionId}:${ui.execution.botId}`, target: ui.execution, roster, actions }), document.body) : null,
+    ui.toolInspection ? createPortal(h(ToolInspectionDialog, { key: `${ui.toolInspection.sessionId}:${ui.toolInspection.botId}`, inspection: ui.toolInspection, roster, actions }), document.body) : null,
     pane ? createPortal(h(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: `${ui.newChat}:${(ui.newChatMembers ?? []).join(',')}`, mode: ui.newChat, initialMembers: ui.newChatMembers, roster, actions }), document.body) : null,
     ui.palette ? createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,

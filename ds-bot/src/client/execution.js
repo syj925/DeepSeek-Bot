@@ -23,6 +23,7 @@ export function ExecutionDialog({ target, roster, actions }) {
   return h('div', { className: 'bt-execution-shade', onClick: event => { if (event.target === event.currentTarget) actions.closeExecution() } },
     h('section', { className: 'bt-execution', role: 'dialog', 'aria-modal': true, 'aria-label': t('Execution details') },
       h('header', null, h('strong', null, t('Execution details')), h('button', { type: 'button', autoFocus: true, onClick: actions.closeExecution }, t('Close'))),
+      h('button', { type: 'button', onClick: () => actions.inspectTools(target.sessionId, target.botId) }, t('Tools & browser')),
       view.error ? h('p', { role: 'status' }, t('Could not load progress. Retrying…')) : null,
       view.rows.map(row => h('article', { key: row.botId },
         h('h3', null, h(BotMark, { bot: roster.byId[row.botId], size: 24 }), roster.byId[row.botId]?.name),

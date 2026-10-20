@@ -1,4 +1,4 @@
-The QibitAI 0.1.56 source makes live replies appear in character order with a short fade, prevents a full-ink flash before animation, and carries the final sweep into completed group messages. Source integration is separate from publication; the stable install address serves the latest published release.
+QibitAI 0.1.59 adds employee group-work updates, a read-only tool inspection view, and an entry to the actual execution Session's native browser. The extra Bot page reader remains distinct from the host's browser automation tools. [Context and browser routing](docs/qibitai-tool-browser-routing.md). Source integration is separate from publication; the stable install address serves the latest published release.
 
 QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
 
@@ -129,6 +129,14 @@ Replies stream into the speaking employee's bubble as text arrives, including wh
 ### Capabilities
 
 Settings → **Capabilities** is a shared library of MCP servers, skills and packs. Add a capability to a Bot in its settings; it is available from that Bot's next message in its own chat and group chats. A local MCP command that a Bot adds needs your approval before it can run. While other Bots use a capability, only you or a Main Bot can change or delete it.
+
+### Context, tools and operation browsers
+
+One employee retains its identity, saved model, instructions, long-term memory and permission policy across private chat and groups. Private chat and each group use separate execution contexts; transcripts are not copied into each other automatically. A Bot can retrieve its own private history from a group and group history from private chat, so this separation is not a privacy sandbox. **Recent group work** shows that employee's saved group deliveries and replies, with links to the original group and available output files, without loading the full group transcript into private chat.
+
+Choose **Tools & browser** in a conversation to inspect each employee's actual execution Session. It separates currently registered tools, the last assembled model-request header, and initial or added historical tool declarations. A `deferLoading` marker means deferred declaration; it does not establish that tools are absent or broken. Code-tool presets may present only `run_code` in a model request while exposing other tools through code. The view refreshes only on request and never starts an inactive Agent just to inspect it.
+
+On a compatible QibitAI Desktop, choose a group member and **Open operation browser**. The plugin opens that member's real execution Session in classic Agent view and requests a native browser float through the host's public Sidebar API. **Back to Bot** returns to the original Bot or group. Opening the tab does not confirm a working automation connection. Several hidden Sessions' native guests cannot currently be embedded together on the Bot canvas. The separate legacy Bot page reader can float on the canvas where its Desktop bridge exists; tabs are selected by employee and group, while the same employee's tabs share its login partition. Full browser and Windows computer-control plugins are provided by compatible Desktop builds, separately from `read_browser`; tool access and actual execution still depend on the host, preset and permissions. [Details and limits](docs/qibitai-tool-browser-routing.md).
 
 ### Usage
 
