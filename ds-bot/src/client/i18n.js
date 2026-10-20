@@ -512,6 +512,7 @@ const ZH = {
   none: '无',
   'Choose a model': '选择模型',
   'Member models': '成员模型',
+  'Mention a Bot': '提及 Bot',
   '{provider} · not available': '{provider} · 不可用',
   'Model for {name}': '{name} 的模型',
   'No models are set up in DeepSeek Harness yet.': 'DeepSeek Harness 里还没有设置模型。',

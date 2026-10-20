@@ -10,7 +10,8 @@ import { lookOf } from './mark.js'
 import { TeamSidebar, ConnectPlugins, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { HeaderPill } from './header.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
-import { CHATS_SOURCE, atSources } from './at-menu.js'
+import { BOTS_SOURCE, CHATS_SOURCE, atSources, mentionRows } from './at-menu.js'
+import { ComposerInlineMentions } from './inline-mentions.js'
 import { VOICE_BUNDLE } from './speech.js'
 import { sameVersion } from './dsh-offer.js'
 import { AnsweredCell, QuestionCard, QuestionDock } from './questions.js'
@@ -964,6 +965,27 @@ export function apply(ctx) {
     return () => fiber.dispose()
   }
   actions.canReferenceChat = () => atMenu !== null
+  actions.canMentionBots = () => atMenu !== null
+  actions.mentionBots = (sessionId, span, query = '') => {
+    const controller = atMenu?.controllerOf(sessionId)
+    if (controller === undefined || span === undefined || mentionRows(roster.getSnapshot(), sessionId) === null) return false
+    controller.toggleSource(BOTS_SOURCE, { trigger: '@', query, quoted: false, position: 'inline', span })
+    return true
+  }
+  actions.inlineMentionBots = (sessionId, hit) => {
+    const controller = atMenu?.controllerOf(sessionId)
+    if (controller === undefined || mentionRows(roster.getSnapshot(), sessionId) === null) return false
+    // A synthetic hit refines the same Bot menu instead of toggling it closed.
+    if (controller.launcher.getSnapshot() === BOTS_SOURCE && controller.menu.getSnapshot().open) controller.dismiss()
+    controller.toggleSource(BOTS_SOURCE, hit)
+    return true
+  }
+  actions.closeInlineMentionBots = (sessionId, previous) => {
+    const controller = atMenu?.controllerOf(sessionId)
+    if (controller?.launcher.getSnapshot() !== BOTS_SOURCE) return
+    const current = controller?.menu.getSnapshot().hit
+    if (current?.span.start === previous.span.start && current?.span.end === previous.span.end && current?.span.draftRev === previous.span.draftRev && current?.query === previous.query) controller.dismiss()
+  }
   actions.referenceChat = (sessionId, span) => {
     const controller = atMenu?.controllerOf(sessionId)
     if (controller === undefined || span === undefined) return
@@ -1031,6 +1053,7 @@ export function apply(ctx) {
     shadow('conversation.composer.dock', { id: 'activity', order: 0, priority: -10 }, Nothing),
     shadow('conversation.composer.dock', { id: 'usage', order: 1, priority: -10 }, Nothing),
     shadow('conversation.input.left', { id: 'bot-plus', order: -100, inject: face }, ComposerPlus),
+    shadow('conversation.input.left', { id: 'bot-inline-mentions', order: -99, inject: face }, ComposerInlineMentions),
     shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),
     shadow('conversation.composer', {
       priority: -10,

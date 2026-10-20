@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart } from './text.js'
-import { CheckIcon, PeopleIcon, SlidersIcon } from './icons.js'
+import { CheckIcon, SlidersIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { openHarnessOnboarding, openHarnessSettings } from './sidebar.js'
 import { SPRING_POP, SPRING_SHAPE, spring, useLinger } from './motion.js'
@@ -125,6 +125,19 @@ export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, he
 
 export function ModelGlyph({ model }) {
   return h(ProviderIcon, { model })
+}
+
+export function RoomModelGlyph({ members, roster }) {
+  const vendors = new Map()
+  for (const member of members) {
+    const model = modelOf(member, roster)
+    const vendor = modelVendor(model)
+    if (!vendors.has(vendor)) vendors.set(vendor, model)
+  }
+  const models = [...vendors.values()].slice(0, 3)
+  if (models.length < 2) return h(ModelGlyph, { model: models[0] })
+  return h('span', { className: 'bt-room-model-stack', 'data-count': models.length, 'aria-hidden': true },
+    models.map((model, index) => h(ModelGlyph, { key: index, model })))
 }
 
 export function menuPlacement(rect, { width: viewportWidth, height: viewportHeight }) {
@@ -255,7 +268,7 @@ export function RoomModelMenu({ room, roster, actions, run }) {
       ref: button, type: 'button', className: 'bt-model-trigger', 'data-compact': true,
       'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Member models'), title: t('Member models'),
       onMouseDown: event => event.preventDefault(), onClick: toggle,
-    }, h(PeopleIcon)),
+    }, h(RoomModelGlyph, { members, roster })),
     shownPlace ? createPortal(h('div', {
       ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`,
       role: 'menu', 'aria-label': bot ? t('Model for {name}', { name: bot.name }) : t('Member models'), style: shownPlace,
@@ -376,6 +389,14 @@ export const MODEL_CSS = `
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-compact]{flex:none;justify-content:center;width:28px;height:28px;min-height:28px;padding:0;margin-left:5px;border-radius:9px;background:transparent}
+.bt-mention-trigger{font-size:17px;font-weight:500;line-height:1}
+.bt-room-model-stack{position:relative;display:block;flex:none;width:24px;height:24px}
+.bt-room-model-stack .bt-model-glyph{position:absolute;width:16px;height:16px;border-radius:4px;background:var(--bt-main)}
+.bt-room-model-stack .bt-model-glyph svg{width:14px;height:14px}
+.bt-room-model-stack .bt-model-glyph:first-child{left:0;top:0}
+.bt-room-model-stack .bt-model-glyph:nth-child(2){right:0;bottom:0}
+.bt-room-model-stack[data-count="3"] .bt-model-glyph:nth-child(2){right:0;top:0;bottom:auto}
+.bt-room-model-stack .bt-model-glyph:nth-child(3){left:4px;bottom:0}
 .bt-model-glyph{display:inline-flex;align-items:center;justify-content:center;flex:none;width:23px;height:23px;color:var(--bt-provider-color,var(--bt-ink));line-height:1}
 .bt-model-glyph svg{display:block;width:20px;height:20px;flex:none}
 .bt-model-menu button{gap:8px;flex-shrink:0}

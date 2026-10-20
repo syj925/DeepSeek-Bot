@@ -158,6 +158,8 @@ test('a group model picker requires a member and keeps changes on that member', 
   const actions = { refreshModels() {}, updateBot: (id, patch) => { changed.push([id, patch]); return Promise.resolve() } }
   let tree = page.render(page.RoomModelMenu, { room, roster, actions, run: promise => promise })
   const trigger = nodes(tree, node => node.type === 'button')[0]
+  assert.equal(trigger.props['aria-label'], 'Member models')
+  assert.equal(trigger.children[0].type.name, 'RoomModelGlyph')
   trigger.props.ref.current = { getBoundingClientRect: () => ({ left: 20, right: 48, top: 600, bottom: 628, width: 28 }), closest: () => null }
   trigger.props.onClick()
   tree = page.render()
@@ -173,6 +175,23 @@ test('a group model picker requires a member and keeps changes on that member', 
   assert.equal(changed[0][0], 'writer')
   assert.equal(changed[0][1].model, models[2].ref)
   assert.equal(chief.model, models[0].ref)
+})
+
+test('the group model trigger shows actual model vendors and combines mixed vendors', () => {
+  const page = menuRuntime()
+  const roster = { models: [], byId: {} }
+  const deepseek = { id: 'chief', model: 'cloud/deepseek-chat' }
+  const claude = { id: 'writer', model: 'cloud/claude-sonnet-4-5' }
+  let tree = page.RoomModelGlyph({ members: [deepseek, { ...deepseek, id: 'research' }], roster })
+  assert.equal(tree.type(tree.props).type(tree.props).props['data-vendor'], 'deepseek')
+  tree = page.RoomModelGlyph({ members: [deepseek, claude], roster })
+  assert.equal(tree.props.className, 'bt-room-model-stack')
+  assert.equal(tree.props['data-count'], 2)
+  const vendors = tree.children.map(glyph => {
+    const icon = glyph.type(glyph.props)
+    return icon.type(icon.props).props['data-vendor']
+  })
+  assert.deepEqual(vendors, ['deepseek', 'anthropic'])
 })
 
 test('a group thinking-level change clears only the selected employee override', () => {

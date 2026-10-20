@@ -5,6 +5,7 @@ import { BotMark } from './mark.js'
 import { useLinger } from './motion.js'
 import { ModelMenu, RoomModelMenu } from './model-menu.js'
 import { useComposerMotion } from './composer-motion.js'
+import { mentionLaunch } from './inline-mentions.js'
 import { currentPart } from './text.js'
 import { t } from './i18n.js'
 
@@ -105,12 +106,33 @@ export function menuIcons(roster) {
   }
 }
 
+export function ComposerMention({ sessionId, useInput, inputActions, actions }) {
+  const input = useInput(value => value)
+  if (typeof inputActions?.captureInsertion !== 'function') return null
+  const mention = () => {
+    const request = mentionLaunch(input, inputActions.captureInsertion())
+    if (!request) return
+    let span = request.span
+    if (request.text !== undefined) {
+      if (inputActions.insertText?.(request.text, span) !== true) return
+      const caret = inputActions.captureInsertion()
+      span = { ...caret, start: caret.end - 1 }
+    }
+    actions.mentionBots?.(sessionId, span, request.query)
+  }
+  return h('button', {
+    type: 'button', className: 'bt-model-trigger bt-mention-trigger', 'data-compact': true,
+    'data-bt-composer-mention': '', 'aria-label': t('Mention a Bot'), title: t('Mention a Bot'),
+    'aria-haspopup': 'listbox', onMouseDown: keepComposerFocus, onClick: mention,
+  }, h('span', { 'aria-hidden': true }, '@'))
+}
+
 // The composer's "+" in a Bot's chat or a group chat: add files, reference another
 // chat, or set a scheduled task for this chat. It stands in for the shell's command
 // menu, whose plan, permission, model and compact rows reach past what DS Bot keeps
 // for its Bots; "/" still opens that menu. Files go through the shell's own file
 // input beside it.
-export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
+export function ComposerPlus({ sessionId, useInput, inputActions, useRoster, actions }) {
   const roster = useRoster(value => value)
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
@@ -154,6 +176,7 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
       ref: button, type: 'button', className: 'bt-plus', 'aria-label': t('Add'), title: t('Add'),
       'aria-haspopup': 'menu', 'aria-expanded': Boolean(open), onMouseDown: keepComposerFocus, onClick: toggle,
     }, h(PlusIcon)),
+    h(ComposerMention, { sessionId, useInput, inputActions, actions }),
     bot ? h(ModelMenu, { bot, roster, actions, compact: true, run: promise => Promise.resolve(promise).catch(error => actions.reportError(error, 'composer-model')) })
       : h(RoomModelMenu, { room, roster, actions, run: promise => Promise.resolve(promise).catch(error => actions.reportError(error, 'composer-model')) }),
     shown ? createPortal(h('div', {
