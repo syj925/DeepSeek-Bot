@@ -27,6 +27,12 @@ The host's right Sidebar is bound to an on-screen classic Session; its documente
 
 The canvas releases its measurement as `null` when another surface replaces it. Task results may open before the canvas remounts. File placement and rendering normalize missing, null, zero or nonfinite dimensions to a positive fallback viewport, then fit to measured bounds when available. Each file has its own rendering error boundary; a broken preview retains local retry/close controls while the canvas, other files and conversations stay mounted. Regression checks cover task-file opening with the released measurement, maximize/restore and an injected renderer failure beside another preview.
 
+## Public Markdown compatibility (0.1.65)
+
+The plugin uses only the package-root public `MarkdownText` and `MarkdownDelegateProvider` exports. `useMarkdownDelegate` is internal to DSH and is never imported. A host without the public provider can still display preview contents; custom local-file navigation inside Markdown requires that provider. Canvas external links retain the renderer's native anchor behavior. Classic Chat does not receive a nested provider, preserving its own file, external-link and image capabilities. Canvas file links keep the original source Session, with the public Chat file opener passed explicitly when available.
+
+Build regression checks link every UI primitive import against the actual installed DSH package's export list. DOM regressions omit the internal hook entirely and cover both public-provider availability states, Markdown/CSV/image contents, source ownership, document-relative links and workspace preservation. These checks do not constitute visual acceptance in a user's Desktop profile.
+
 ## Startup behavior
 
 Upgrades with existing teams and no incomplete preset marker do not create preset employees. Existing saved data returns first. New installations persist setup intent after Chief is created, then initialize bundled employees and departments in the background. Interrupted setup resumes from saved progress. Completed setup and employees already created in 0.1.62 are preserved; no cleanup or data reset runs on upgrade.

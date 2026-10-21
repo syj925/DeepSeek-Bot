@@ -1,5 +1,5 @@
-QibitAI canvas plugin 0.1.64
+QibitAI canvas plugin 0.1.65
 
-- Fix opening task artifacts after leaving the canvas: a null viewport measurement now uses safe default dimensions instead of throwing while reading width. Opening, maximizing and resizing previews also handle missing measurements.
-- Isolate each file preview's rendering failures so the canvas, other files and conversations remain visible. Offer retry, close and explicit classic-view recovery in the affected window.
-- Preserve the existing canvas file readers, source Session identity, complete-original downloads, chat drafts and upgrade startup behavior.
+- Fix the "useMarkdownDelegate is not a function" error blocking canvas file previews and reply bubbles. Use only the host's public Markdown interfaces; older hosts without the file-link provider still render preview contents.
+- Keep Markdown links on the canvas under their original source Session, including document-relative paths and line targets. Preserve classic Chat's existing navigation and image scope.
+- Verify imports against the installed DSH package's real public exports, alongside missing-interface preview regression checks. Retain per-file error isolation, safe viewport dimensions, original downloads and saved team data.

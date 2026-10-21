@@ -14,7 +14,7 @@ const { act } = React
 const { outputFiles } = await build({ entryPoints: ['src/client/canvas-file-window.js'], bundle: true, format: 'cjs', platform: 'browser', write: false,
   external: ['react', '@deepseek-ai/dsh-client-ui-primitives'] })
 
-async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdown } = {}) {
+async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdown, delegateProvider = true } = {}) {
   const dom = new JSDOM('<!doctype html><body><textarea id="draft">Keep my draft</textarea><div id="mount"></div></body>', { pretendToBeVisual: true })
   const previous = Object.fromEntries(['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
@@ -22,8 +22,7 @@ async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdo
   dom.window.HTMLElement.prototype.hasPointerCapture = function (id) { return this.pointerId === id }
   dom.window.HTMLElement.prototype.releasePointerCapture = function () { this.pointerId = undefined }
   dom.window.HTMLElement.prototype.scrollIntoView = function () { this.dataset.revealed = 'true' }
-  const module = { exports: {} }, urls = [], revoked = [], downloads = [], classic = [], errors = []
-  const delegate = { openExternalLink() {} }
+  const module = { exports: {} }, urls = [], revoked = [], downloads = [], classic = [], errors = [], delegates = []
   runInNewContext(outputFiles[0].text, { module, exports: module.exports, Blob, Uint8Array, DOMException, AbortController, setTimeout, clearTimeout,
     URL: { createObjectURL: blob => { const url = `blob:file-${urls.length}`; urls.push({ url, blob }); return url }, revokeObjectURL: url => revoked.push(url) },
     require: name => name === 'react' ? React : {
@@ -31,8 +30,7 @@ async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdo
         if (failMarkdown?.(props.text)) throw new Error('Injected preview rendering failure')
         return React.createElement('div', { 'data-markdown-preview': true }, props.text)
       },
-      useMarkdownDelegate: () => delegate,
-      MarkdownDelegateProvider: props => React.createElement('div', { 'data-file-delegate': true }, props.children),
+      ...(delegateProvider ? { MarkdownDelegateProvider: props => { delegates.push(props); return React.createElement('div', { 'data-file-delegate': true }, props.children) } } : {}),
     },
   })
   dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push({ name: this.download, href: this.href }) }
@@ -61,8 +59,52 @@ async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdo
     dom.window.close()
     for (const [key, descriptor] of Object.entries(previous)) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key] }
   })
-  return { dom, files, open, click, pointer, settle, button, draft, urls, revoked, downloads, classic, errors }
+  return { dom, files, open, click, pointer, settle, button, draft, urls, revoked, downloads, classic, errors, delegates }
 }
+
+for (const delegateProvider of [true, false]) test(`file previews render without the internal Markdown hook (public provider: ${delegateProvider})`, async t => {
+  const reads = []
+  const p = await page(t, {
+    read: async (sessionId, path) => {
+      reads.push([sessionId, path])
+      return { ok: true, value: { text: path.endsWith('.md') ? '# Deliverable\n\nReady' : 'name,value\nAlice,1\n', offset: 1, lines: 3, eof: true, version: '1' } }
+    },
+    readBytes: async sessionId => {
+      reads.push([sessionId, 'image'])
+      return { ok: true, value: { data: new Uint8Array([1, 2, 3]), eof: true } }
+    },
+  }, { delegateProvider })
+  await p.open({ sessionId: 'source-group-part', conversationId: 'room', path: '/report.md' })
+  await p.open({ sessionId: 'source-group-part', conversationId: 'room', path: '/report.csv' })
+  await p.open({ sessionId: 'source-group-part', conversationId: 'room', path: '/image.png' })
+  const doc = p.dom.window.document
+  assert.equal(doc.querySelector('[data-markdown-preview]')?.textContent, '# Deliverable\n\nReady')
+  assert.equal(doc.querySelector('tbody tr')?.textContent, 'Alice1')
+  assert.ok(doc.querySelector('.bt-file-image'))
+  assert.equal(doc.querySelectorAll('[data-file-window]').length, 3)
+  assert.ok(doc.querySelector('[data-canvas-background]'))
+  assert.equal(doc.querySelector('[data-preview-failed]'), null)
+  assert.ok(reads.every(([id]) => id === 'source-group-part'))
+  assert.equal(p.classic.length, 0)
+  assert.equal(p.errors.length, 0)
+  assert.equal(p.draft.value, 'Keep my draft')
+})
+
+test('the public Markdown provider opens document-relative files under the same source Session', async t => {
+  const p = await page(t, { read: async () => ({ ok: true, value: { text: 'Ready', offset: 1, lines: 1, eof: true, version: '1', absolutePath: '/work/report.md' } }) })
+  await p.open({ sessionId: 'source-group-part', conversationId: 'room', path: 'report.md', ownerName: 'Writer' })
+  await act(async () => p.delegates.at(-1).openFile('details/notes.md', { line: 8 }))
+  await p.settle()
+  const file = p.files.source.getSnapshot().windows.at(-1)
+  assert.equal(file.path, '/work/details/notes.md')
+  assert.equal(file.line, 8)
+  assert.equal(file.sessionId, 'source-group-part')
+  assert.equal(file.conversationId, 'room')
+  assert.equal(file.ownerName, 'Writer')
+  assert.equal(p.files.source.getSnapshot().windows.length, 2)
+  assert.equal(p.classic.length, 0)
+  assert.equal(p.errors.length, 0)
+})
 
 test('file preview mounts and maximizes with a null canvas measurement without losing the workspace', async t => {
   const p = await page(t, { read: async () => ({ ok: true, value: { text: 'Ready', offset: 1, lines: 1, eof: true, version: '1' } }) }, { size: null })

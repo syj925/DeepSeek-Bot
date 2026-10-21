@@ -30,7 +30,7 @@ const mdLabels = () => {
 }
 
 // The sender avatar starts the first bubble; following bubbles retain its gutter.
-export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, sessionId, fileSessionId, msgKey, useUi, lead, mentions, revealFresh, revealKey }) {
+export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, sessionId, fileSessionId, openFile, msgKey, useUi, lead, mentions, revealFresh, revealKey }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -49,7 +49,7 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, s
         h('div', { className: 'bt-msg-line' },
           lead && index === 0 ? lead : null,
           h('div', { className: 'bt-bubble', 'data-bt-reveal-text': '' },
-            h(ConversationFiles, { sessionId: fileSessionId ?? sessionId, conversationId: sessionId, actions }, h(MarkdownText, { text: linkMentions(text, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions }))),
+            h(ConversationFiles, { sessionId: fileSessionId ?? sessionId, conversationId: sessionId, actions, openFile }, h(MarkdownText, { text: linkMentions(text, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions }))),
           live ? null : h(MessageTools, { text, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions })),
         picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
           key: emoji, type: 'button', className: 'bt-react', 'aria-label': t('Remove reaction {emoji}', { emoji }), onClick: () => actions.toggleReaction(msgKey, index, emoji),
@@ -162,7 +162,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       })
     }),
     reasoning.text ? h(ThinkingRow, { key: `reasoning:${sessionId}:${data.turn}`, text: reasoning.text, streaming: reasoning.streaming, streamId: `reasoning:${sessionId}:${data.turn}` }) : null,
-    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: revealKey, useUi, mentions, revealFresh, revealKey }) : null)
+    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, openFile, msgKey: revealKey, useUi, mentions, revealFresh, revealKey }) : null)
 }
 
 function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {

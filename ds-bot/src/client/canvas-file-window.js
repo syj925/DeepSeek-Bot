@@ -1,7 +1,8 @@
 import { createElement as h, Component, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { MarkdownText, MarkdownDelegateProvider, useMarkdownDelegate } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon, DownloadIcon } from './icons.js'
 import { fileFailure, fileKind, fileViewport, fitFileRect, readPreviewBytes, readPreviewPage, relatedFilePath, tablePreview } from './canvas-files.js'
+import { MarkdownFileLinks } from './file-navigation.js'
 import { t } from './i18n.js'
 
 const tool = (label, onClick, content = label, extra = {}) => h('button', { type: 'button', className: 'bt-file-tool', title: t(label), 'aria-label': t(label), onClick, ...extra }, typeof content === 'string' ? t(content) : content)
@@ -20,7 +21,6 @@ function FileTable({ text, kind, eof }) {
 export function CanvasFileWindow({ file, active, order = 0, size, actions }) {
   size = fileViewport(size)
   const node = useRef(null), body = useRef(null), gesture = useRef(null), downloadController = useRef(null), pageController = useRef(null), previousFocus = useRef(null)
-  const delegate = useMarkdownDelegate()
   const [view, setView] = useState({ loading: true })
   const [source, setSource] = useState(Boolean(file.line))
   const [revision, setRevision] = useState(0)
@@ -148,7 +148,7 @@ export function CanvasFileWindow({ file, active, order = 0, size, actions }) {
     typeof view.text === 'string' ? h(Fragment, null,
       view.offset > 1 ? h('p', { className: 'bt-file-note' }, t('Showing from line {line}', { line: view.offset })) : null,
       source || kind === 'text' ? h('pre', { className: 'bt-file-source' }, view.text.split('\n').map((text, index) => h('span', { key: index + view.offset, 'data-file-line': index + view.offset }, h('span', { className: 'bt-file-line-number', 'aria-hidden': true }, index + view.offset), text)))
-        : kind === 'markdown' ? h('article', { className: 'bt-file-markdown' }, h(MarkdownDelegateProvider, { ...delegate,
+        : kind === 'markdown' ? h('article', { className: 'bt-file-markdown' }, h(MarkdownFileLinks, {
           openFile: (path, options) => actions.openCanvasFile({ sessionId: file.sessionId, conversationId: file.conversationId, path: relatedFilePath(path, filePath), line: options?.line, ownerName: file.ownerName }),
         }, h(MarkdownText, { text: view.text, labels })))
           : h(FileTable, { text: view.text, kind, eof: view.eof && !view.limited }),

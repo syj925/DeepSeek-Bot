@@ -5078,12 +5078,12 @@ function subscribeRoomProgress(actions, roomId, listener) {
 // src/client/file-navigation.js
 var import_react10 = require("react");
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-function ConversationFiles({ sessionId, conversationId, actions, children }) {
-  const delegate = (0, import_dsh_client_ui_primitives.useMarkdownDelegate)();
-  return (0, import_react10.createElement)(import_dsh_client_ui_primitives.MarkdownDelegateProvider, {
-    ...delegate,
-    openFile: actions.openConversationFile && sessionId ? (path, options) => actions.openConversationFile(sessionId, path, options, delegate.openFile, conversationId) : delegate.openFile
-  }, children);
+function MarkdownFileLinks({ openFile, children }) {
+  return import_dsh_client_ui_primitives.MarkdownDelegateProvider ? (0, import_react10.createElement)(import_dsh_client_ui_primitives.MarkdownDelegateProvider, { openFile }, children) : children;
+}
+function ConversationFiles({ sessionId, conversationId, actions, openFile, children }) {
+  if (!sessionId || !actions.openConversationFile || !actions.isCanvasVisible?.()) return children;
+  return (0, import_react10.createElement)(MarkdownFileLinks, { openFile: (path, options) => actions.openConversationFile(sessionId, path, options, openFile, conversationId) }, children);
 }
 
 // src/client/cells.js
@@ -5098,7 +5098,7 @@ var mdLabels = () => {
   }
   return markdownLabels;
 };
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, streamId, sessionId, fileSessionId, msgKey, useUi, lead, mentions, revealFresh, revealKey }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, streamId, sessionId, fileSessionId, openFile, msgKey, useUi, lead, mentions, revealFresh, revealKey }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -5125,7 +5125,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, streamId, 
           (0, import_react11.createElement)(
             "div",
             { className: "bt-bubble", "data-bt-reveal-text": "" },
-            (0, import_react11.createElement)(ConversationFiles, { sessionId: fileSessionId ?? sessionId, conversationId: sessionId, actions }, (0, import_react11.createElement)(import_dsh_client_ui_primitives2.MarkdownText, { text: linkMentions(text2, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions }))
+            (0, import_react11.createElement)(ConversationFiles, { sessionId: fileSessionId ?? sessionId, conversationId: sessionId, actions, openFile }, (0, import_react11.createElement)(import_dsh_client_ui_primitives2.MarkdownText, { text: linkMentions(text2, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions }))
           ),
           live ? null : (0, import_react11.createElement)(MessageTools, { text: text2, name: roster.byId[selfId]?.name ?? t("Bot"), sessionId, react: key ? (emoji) => actions.toggleReaction(msgKey, index, emoji) : void 0, actions })
         ),
@@ -5265,7 +5265,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       });
     }),
     reasoning.text ? (0, import_react11.createElement)(ThinkingRow, { key: `reasoning:${sessionId}:${data.turn}`, text: reasoning.text, streaming: reasoning.streaming, streamId: `reasoning:${sessionId}:${data.turn}` }) : null,
-    texts2.length ? (0, import_react11.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: revealKey, useUi, mentions, revealFresh, revealKey }) : null
+    texts2.length ? (0, import_react11.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, openFile, msgKey: revealKey, useUi, mentions, revealFresh, revealKey }) : null
   );
 }
 function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
@@ -20521,7 +20521,6 @@ function FileTable({ text: text2, kind, eof }) {
 function CanvasFileWindow({ file, active, order = 0, size, actions }) {
   size = fileViewport(size);
   const node = (0, import_react60.useRef)(null), body = (0, import_react60.useRef)(null), gesture = (0, import_react60.useRef)(null), downloadController = (0, import_react60.useRef)(null), pageController = (0, import_react60.useRef)(null), previousFocus = (0, import_react60.useRef)(null);
-  const delegate = (0, import_dsh_client_ui_primitives6.useMarkdownDelegate)();
   const [view, setView] = (0, import_react60.useState)({ loading: true });
   const [source, setSource] = (0, import_react60.useState)(Boolean(file.line));
   const [revision, setRevision] = (0, import_react60.useState)(0);
@@ -20708,8 +20707,7 @@ function CanvasFileWindow({ file, active, order = 0, size, actions }) {
         import_react60.Fragment,
         null,
         view.offset > 1 ? (0, import_react60.createElement)("p", { className: "bt-file-note" }, t("Showing from line {line}", { line: view.offset })) : null,
-        source || kind === "text" ? (0, import_react60.createElement)("pre", { className: "bt-file-source" }, view.text.split("\n").map((text2, index) => (0, import_react60.createElement)("span", { key: index + view.offset, "data-file-line": index + view.offset }, (0, import_react60.createElement)("span", { className: "bt-file-line-number", "aria-hidden": true }, index + view.offset), text2))) : kind === "markdown" ? (0, import_react60.createElement)("article", { className: "bt-file-markdown" }, (0, import_react60.createElement)(import_dsh_client_ui_primitives6.MarkdownDelegateProvider, {
-          ...delegate,
+        source || kind === "text" ? (0, import_react60.createElement)("pre", { className: "bt-file-source" }, view.text.split("\n").map((text2, index) => (0, import_react60.createElement)("span", { key: index + view.offset, "data-file-line": index + view.offset }, (0, import_react60.createElement)("span", { className: "bt-file-line-number", "aria-hidden": true }, index + view.offset), text2))) : kind === "markdown" ? (0, import_react60.createElement)("article", { className: "bt-file-markdown" }, (0, import_react60.createElement)(MarkdownFileLinks, {
           openFile: (path, options) => actions.openCanvasFile({ sessionId: file.sessionId, conversationId: file.conversationId, path: relatedFilePath(path, filePath), line: options?.line, ownerName: file.ownerName })
         }, (0, import_react60.createElement)(import_dsh_client_ui_primitives6.MarkdownText, { text: view.text, labels }))) : (0, import_react60.createElement)(FileTable, { text: view.text, kind, eof: view.eof && !view.limited }),
         view.limited ? (0, import_react60.createElement)("p", { className: "bt-file-note", role: "status" }, t("Preview limit reached. Download the original file for the complete contents.")) : !view.eof && !view.loading ? tool("Load more", more) : null
@@ -27551,6 +27549,7 @@ function apply(ctx) {
     else ctx.layout.selectPanel(null);
   };
   actions.canvasFileReader = () => ctx.get("remote.workspaceFiles");
+  actions.isCanvasVisible = canvasVisible;
   actions.openCanvasFile = (file) => {
     const id = canvasFiles.open(file, canvasSize);
     if (!canvasVisible()) actions.openCanvas(false);

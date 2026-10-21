@@ -846,6 +846,7 @@ export function apply(ctx) {
     else ctx.layout.selectPanel(null)
   }
   actions.canvasFileReader = () => ctx.get('remote.workspaceFiles')
+  actions.isCanvasVisible = canvasVisible
   actions.openCanvasFile = file => {
     const id = canvasFiles.open(file, canvasSize)
     if (!canvasVisible()) actions.openCanvas(false)

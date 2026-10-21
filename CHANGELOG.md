@@ -6,6 +6,14 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.65] - 2026-10-21
+
+### Fixed
+
+- Remove the nonpublic `useMarkdownDelegate` import that prevented canvas artifact previews and Bot reply bubbles from rendering. Reuse the public Markdown provider and tolerate its absence for preview contents.
+- Scope file-link overrides to canvas replies, keeping classic Chat's enclosing file, external-link and image capabilities intact. Preserve the source Session and document-relative file navigation.
+- Validate all UI primitive imports against the installed DSH package's actual public exports, instead of relying on permissive component stubs.
+
 ## [0.1.64] - 2026-10-21
 
 ### Fixed

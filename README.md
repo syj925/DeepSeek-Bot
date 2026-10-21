@@ -1,3 +1,5 @@
+QibitAI 0.1.65 fixes the `useMarkdownDelegate is not a function` error in canvas file previews and Bot replies by using public Markdown interfaces. Preview contents also render when an older host lacks the file-link provider. Classic Chat retains its original link and image handling.
+
 QibitAI 0.1.64 fixes opening file previews after leaving the canvas or before its size is measured. Rendering failures stay inside the affected preview with retry and close controls, keeping the workspace visible.
 
 QibitAI 0.1.63 opens generated files in movable, resizable canvas previews while preserving the current chat and draft. Markdown, CSV/TSV, text, code, images and browser-supported PDF stay on the canvas; other formats offer download and an explicit classic-view option. Upgrades return existing teams without adding presets. New installations initialize bundled departments and employees in the background, with saved progress for interrupted setup. Existing employees, groups, history and completed initialization are preserved.

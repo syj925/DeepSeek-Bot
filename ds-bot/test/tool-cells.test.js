@@ -31,7 +31,6 @@ const react = {
   useMemo: make => make(), useRef: current => ({ current }), useId: () => 'card-id',
 }
 const timers = new Set()
-const markdownDelegate = { openExternalLink() {}, fileImages: { resolve() {} }, openFile() {} }
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
@@ -43,7 +42,6 @@ runInNewContext(outputFiles[0].text, {
     if (name === 'react-dom') return { createPortal: node => node }
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return {
       MarkdownText: ({ text }) => text,
-      useMarkdownDelegate: () => markdownDelegate,
       MarkdownDelegateProvider: ({ children, ...props }) => h('file-navigation', props, children),
     }
     throw new Error(`Unexpected platform module ${name}`)
@@ -103,16 +101,30 @@ const show = (root, options) => {
 }
 const shown = (root, options) => text(show(root, options))
 
-test('group file links retain the member execution Session and inherit external navigation', () => {
+test('canvas group file links retain the member execution Session and visible group identity', () => {
   const opened = []
   const bubble = expand(GroupMessage({ bot: writer, text: '[report](report.md)', room, roster: team(), fileSessionId: 'writer-group-old-part',
-    actions: { openConversationFile: (...args) => opened.push(args) } }))
+    actions: { isCanvasVisible: () => true, openConversationFile: (...args) => opened.push(args) } }))
   const navigation = find(bubble, node => node.type === 'file-navigation')
-  assert.equal(navigation.props.openExternalLink, markdownDelegate.openExternalLink)
-  assert.equal(navigation.props.fileImages, markdownDelegate.fileImages)
+  assert.ok(navigation)
   const options = { line: 24 }
   navigation.props.openFile('report.md', options)
-  assert.deepEqual(opened[0], ['writer-group-old-part', 'report.md', options, markdownDelegate.openFile, 'room'])
+  assert.deepEqual(opened[0], ['writer-group-old-part', 'report.md', options, undefined, 'room'])
+})
+
+test('classic chat keeps the enclosing host Markdown navigation and image scope', () => {
+  const bubble = expand(GroupMessage({ bot: writer, text: '[report](report.md)', room, roster: team(),
+    actions: { isCanvasVisible: () => false, openConversationFile: () => assert.fail('Classic Chat keeps its owner') } }))
+  assert.equal(find(bubble, node => node.type === 'file-navigation'), undefined)
+  assert.match(text(bubble), /report/)
+})
+
+test('canvas private file links keep the public Chat file opener for classic fallback', () => {
+  const opened = [], openFile = () => {}
+  const bubble = expand(Bubbles({ texts: ['[report](report.md)'], roster: team(), selfId: writer.id, sessionId: writer.id, openFile,
+    actions: { isCanvasVisible: () => true, openConversationFile: (...args) => opened.push(args) } }))
+  find(bubble, node => node.type === 'file-navigation').props.openFile('report.md', { line: 8 })
+  assert.deepEqual(opened[0], ['writer', 'report.md', { line: 8 }, openFile, 'writer'])
 })
 
 test('temporary and durable group bubbles retain the same per-message stream key', () => {
