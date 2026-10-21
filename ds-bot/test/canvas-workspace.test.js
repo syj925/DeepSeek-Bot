@@ -46,6 +46,7 @@ function renderer() {
     if (!sameDeps(cell.deps, deps)) { cell.pending = create; cell.nextDeps = deps }
   }
   const react = {
+    Component: class {},
     createContext: value => ({ value, Provider: Symbol('Provider') }), useContext: context => context.value, createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
     useRef(initial) { return slots[cursor++] ??= { current: initial } },

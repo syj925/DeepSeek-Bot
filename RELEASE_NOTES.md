@@ -1,5 +1,5 @@
-QibitAI canvas plugin 0.1.63
+QibitAI canvas plugin 0.1.64
 
-- Open task artifacts, result cards and reply file links in movable, resizable canvas previews. Keep the current conversation, draft and reading position; focus an existing file window on repeated opens.
-- Preview Markdown, CSV/TSV, text, code, images and browser-supported PDF. Offer reload, source view, complete-original downloads, retry and an explicit classic-view option for other formats. Read files through their original Session's public workspace API.
-- Return existing teams immediately after upgrades without adding preset employees. Initialize presets only for new installations, in the background, with saved progress for interrupted setup. Preserve employees, groups, history and completed initialization.
+- Fix opening task artifacts after leaving the canvas: a null viewport measurement now uses safe default dimensions instead of throwing while reading width. Opening, maximizing and resizing previews also handle missing measurements.
+- Isolate each file preview's rendering failures so the canvas, other files and conversations remain visible. Offer retry, close and explicit classic-view recovery in the affected window.
+- Preserve the existing canvas file readers, source Session identity, complete-original downloads, chat drafts and upgrade startup behavior.

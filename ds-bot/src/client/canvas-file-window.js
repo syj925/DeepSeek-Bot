@@ -1,7 +1,7 @@
-import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Component, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { MarkdownText, MarkdownDelegateProvider, useMarkdownDelegate } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon, DownloadIcon } from './icons.js'
-import { fileFailure, fileKind, fitFileRect, readPreviewBytes, readPreviewPage, relatedFilePath, tablePreview } from './canvas-files.js'
+import { fileFailure, fileKind, fileViewport, fitFileRect, readPreviewBytes, readPreviewPage, relatedFilePath, tablePreview } from './canvas-files.js'
 import { t } from './i18n.js'
 
 const tool = (label, onClick, content = label, extra = {}) => h('button', { type: 'button', className: 'bt-file-tool', title: t(label), 'aria-label': t(label), onClick, ...extra }, typeof content === 'string' ? t(content) : content)
@@ -18,6 +18,7 @@ function FileTable({ text, kind, eof }) {
 }
 
 export function CanvasFileWindow({ file, active, order = 0, size, actions }) {
+  size = fileViewport(size)
   const node = useRef(null), body = useRef(null), gesture = useRef(null), downloadController = useRef(null), pageController = useRef(null), previousFocus = useRef(null)
   const delegate = useMarkdownDelegate()
   const [view, setView] = useState({ loading: true })
@@ -167,9 +168,35 @@ export function CanvasFileWindow({ file, active, order = 0, size, actions }) {
   }, '⌟') : null)
 }
 
+class FilePreviewBoundary extends Component {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch(error) { this.props.actions.reportError?.(error, 'canvas-file-preview') }
+  componentDidUpdate(previous) {
+    if (this.state.failed && previous.file.navigation !== this.props.file.navigation) this.setState({ failed: false })
+  }
+  render() {
+    if (!this.state.failed) return this.props.children
+    const { file, size, active, order, actions } = this.props
+    const rect = fitFileRect(file.rect, size)
+    return h('section', { className: 'bt-canvas-file glass-card', role: 'dialog', 'aria-label': `${t('File preview')} · ${file.name}`,
+      'data-file-window': file.id, 'data-preview-failed': true,
+      style: { left: rect.x, top: rect.y, width: rect.width, height: rect.height, zIndex: active ? 60 : 35 + order / 100 },
+      onPointerDown: event => { event.stopPropagation(); actions.focusCanvasFile(file.id) },
+    }, h('header', { className: 'bt-file-titlebar' }, h('strong', null, file.name), tool('Close preview', () => actions.closeCanvasFile(file.id), h(CloseIcon))),
+    h('div', { className: 'bt-file-body' }, h('div', { className: 'bt-file-error', role: 'alert' },
+      h('p', null, t('This preview could not be displayed. Your workspace is still open.')),
+      tool('Retry', () => this.setState({ failed: false })),
+      tool('Open in classic view', () => actions.openCanvasFileClassic(file)))))
+  }
+}
+
 export function CanvasFiles({ useCanvasFiles, actions, size }) {
   const files = useCanvasFiles(state => state)
-  return h(Fragment, null, files.windows.map((file, order) => h(CanvasFileWindow, { key: file.id, file, order, active: files.active === file.id, size, actions })))
+  return h(Fragment, null, files.windows.map((file, order) => {
+    const props = { file, order, active: files.active === file.id, size, actions }
+    return h(FilePreviewBoundary, { key: file.id, ...props }, h(CanvasFileWindow, props))
+  }))
 }
 
 export const CANVAS_FILES_CSS = `

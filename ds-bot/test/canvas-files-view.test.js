@@ -14,7 +14,7 @@ const { act } = React
 const { outputFiles } = await build({ entryPoints: ['src/client/canvas-file-window.js'], bundle: true, format: 'cjs', platform: 'browser', write: false,
   external: ['react', '@deepseek-ai/dsh-client-ui-primitives'] })
 
-async function page(t, reader) {
+async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdown } = {}) {
   const dom = new JSDOM('<!doctype html><body><textarea id="draft">Keep my draft</textarea><div id="mount"></div></body>', { pretendToBeVisual: true })
   const previous = Object.fromEntries(['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
@@ -22,12 +22,15 @@ async function page(t, reader) {
   dom.window.HTMLElement.prototype.hasPointerCapture = function (id) { return this.pointerId === id }
   dom.window.HTMLElement.prototype.releasePointerCapture = function () { this.pointerId = undefined }
   dom.window.HTMLElement.prototype.scrollIntoView = function () { this.dataset.revealed = 'true' }
-  const module = { exports: {} }, urls = [], revoked = [], downloads = [], classic = []
+  const module = { exports: {} }, urls = [], revoked = [], downloads = [], classic = [], errors = []
   const delegate = { openExternalLink() {} }
   runInNewContext(outputFiles[0].text, { module, exports: module.exports, Blob, Uint8Array, DOMException, AbortController, setTimeout, clearTimeout,
     URL: { createObjectURL: blob => { const url = `blob:file-${urls.length}`; urls.push({ url, blob }); return url }, revokeObjectURL: url => revoked.push(url) },
     require: name => name === 'react' ? React : {
-      MarkdownText: props => React.createElement('div', { 'data-markdown-preview': true }, props.text),
+      MarkdownText: props => {
+        if (failMarkdown?.(props.text)) throw new Error('Injected preview rendering failure')
+        return React.createElement('div', { 'data-markdown-preview': true }, props.text)
+      },
       useMarkdownDelegate: () => delegate,
       MarkdownDelegateProvider: props => React.createElement('div', { 'data-file-delegate': true }, props.children),
     },
@@ -35,16 +38,17 @@ async function page(t, reader) {
   dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push({ name: this.download, href: this.href }) }
   const files = createCanvasFiles(), root = createRoot(dom.window.document.getElementById('mount'))
   const actions = { canvasFileReader: () => reader, closeCanvasFile: files.close, focusCanvasFile: files.focus, updateCanvasFile: files.update,
-    openCanvasFile: file => files.open(file), openCanvasFileClassic: file => classic.push(file) }
+    openCanvasFile: file => files.open(file, size), openCanvasFileClassic: file => classic.push(file), reportError: (error, context) => errors.push({ error, context }) }
   function App() {
     const useCanvasFiles = pick => pick(React.useSyncExternalStore(files.source.subscribe, files.source.getSnapshot))
-    return React.createElement(module.exports.CanvasFiles, { useCanvasFiles, actions, size: { width: 1200, height: 850 } })
+    return React.createElement(React.Fragment, null, React.createElement('div', { 'data-canvas-background': true }, 'Canvas wallpaper'),
+      React.createElement(module.exports.CanvasFiles, { useCanvasFiles, actions, size }))
   }
   const draft = dom.window.document.getElementById('draft')
   draft.focus(); draft.setSelectionRange(4, 7)
   await act(async () => root.render(React.createElement(App)))
   const settle = async () => act(async () => { await new Promise(resolve => setImmediate(resolve)) })
-  const open = async file => { await act(async () => { files.open(file) }); await settle() }
+  const open = async file => { await act(async () => { files.open(file, size) }); await settle() }
   const button = label => dom.window.document.querySelector(`button[aria-label="${label}"]`)
   const click = async label => { const target = button(label); assert.ok(target, `button ${label}`); await act(async () => target.click()); await settle() }
   const pointer = async (target, type, x, y) => {
@@ -57,8 +61,44 @@ async function page(t, reader) {
     dom.window.close()
     for (const [key, descriptor] of Object.entries(previous)) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key] }
   })
-  return { dom, files, open, click, pointer, settle, button, draft, urls, revoked, downloads, classic }
+  return { dom, files, open, click, pointer, settle, button, draft, urls, revoked, downloads, classic, errors }
 }
+
+test('file preview mounts and maximizes with a null canvas measurement without losing the workspace', async t => {
+  const p = await page(t, { read: async () => ({ ok: true, value: { text: 'Ready', offset: 1, lines: 1, eof: true, version: '1' } }) }, { size: null })
+  await p.open({ sessionId: 'original-part', path: '/report.md' })
+  const doc = p.dom.window.document
+  assert.equal(doc.querySelector('[data-markdown-preview]').textContent, 'Ready')
+  assert.ok(doc.querySelector('[data-canvas-background]'))
+  await p.click('Maximize window')
+  const node = doc.querySelector('[data-file-window]')
+  assert.ok(parseFloat(node.style.width) > 0)
+  assert.ok(parseFloat(node.style.height) > 0)
+  await p.click('Restore window')
+  await p.click('Close preview')
+  assert.ok(doc.querySelector('[data-canvas-background]'))
+  assert.equal(p.draft.value, 'Keep my draft')
+  assert.equal(p.errors.length, 0)
+})
+
+test('one broken preview can retry without unmounting the background or another file window', async t => {
+  let broken = true
+  const p = await page(t, { read: async (_id, path) => ({ ok: true, value: { text: path, offset: 1, lines: 1, eof: true, version: '1' } }) },
+    { failMarkdown: text => broken && text === '/broken.md' })
+  await p.open({ sessionId: 'source', path: '/working.md' })
+  await p.open({ sessionId: 'source', path: '/broken.md' })
+  const doc = p.dom.window.document
+  assert.ok(doc.querySelector('[data-canvas-background]'))
+  assert.equal(doc.querySelectorAll('[data-file-window]').length, 2)
+  assert.equal(doc.querySelector('[data-markdown-preview]').textContent, '/working.md')
+  assert.match(doc.querySelector('[role=alert]').textContent, /workspace is still open/)
+  assert.equal(p.errors.at(-1).context, 'canvas-file-preview')
+  broken = false
+  await p.click('Retry')
+  assert.equal(doc.querySelector('[data-preview-failed]'), null)
+  assert.equal(doc.querySelectorAll('[data-markdown-preview]').length, 2)
+  assert.ok(doc.querySelector('[data-canvas-background]'))
+})
 
 test('canvas preview opens, drags, resizes and closes while the original draft and caret survive', async t => {
   const calls = []

@@ -23,6 +23,10 @@ All reads use documented `remote.workspaceFiles.read` / `readBytes`, under the s
 
 The host's right Sidebar is bound to an on-screen classic Session; its documented controller does not embed its complete tab body in a global canvas panel. Canvas previews therefore reuse public file readers and Markdown primitives. They do not adopt private Sidebar stores or patch the host. Office conversion/editing, host Save as/Share integrations, automatic filesystem refresh and local Markdown image rewriting remain in the classic viewer.
 
+## Preview recovery (0.1.64)
+
+The canvas releases its measurement as `null` when another surface replaces it. Task results may open before the canvas remounts. File placement and rendering normalize missing, null, zero or nonfinite dimensions to a positive fallback viewport, then fit to measured bounds when available. Each file has its own rendering error boundary; a broken preview retains local retry/close controls while the canvas, other files and conversations stay mounted. Regression checks cover task-file opening with the released measurement, maximize/restore and an injected renderer failure beside another preview.
+
 ## Startup behavior
 
 Upgrades with existing teams and no incomplete preset marker do not create preset employees. Existing saved data returns first. New installations persist setup intent after Chief is created, then initialize bundled employees and departments in the background. Interrupted setup resumes from saved progress. Completed setup and employees already created in 0.1.62 are preserved; no cleanup or data reset runs on upgrade.

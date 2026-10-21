@@ -6,6 +6,13 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.64] - 2026-10-21
+
+### Fixed
+
+- Open task artifacts after canvas unmount without reading width from a null viewport. Keep preview opening, maximize and resize safe while measurements are unavailable.
+- Contain rendering failures inside each preview, preserving the canvas and other windows with retry and close controls.
+
 ## [0.1.63] - 2026-10-21
 
 ### Added

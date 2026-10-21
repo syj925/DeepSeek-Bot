@@ -36,12 +36,21 @@ export function relatedFilePath(path, baseFile) {
   return base.slice(0, base.lastIndexOf('/') + 1) + path
 }
 
-export function fitFileRect(rect, size = {}) {
-  const width = Math.min(Math.max(1, (size.width || 1000) - 24), Math.max(360, rect.width || 680))
-  const height = Math.min(Math.max(1, (size.height || 760) - 104), Math.max(260, rect.height || 600))
+export function fileViewport(size) {
+  return {
+    width: Number.isFinite(size?.width) && size.width > 0 ? size.width : 1000,
+    height: Number.isFinite(size?.height) && size.height > 0 ? size.height : 760,
+  }
+}
+
+export function fitFileRect(rect, size) {
+  rect ??= {}
+  size = fileViewport(size)
+  const width = Math.min(Math.max(1, size.width - 24), Math.max(360, rect.width || 680))
+  const height = Math.min(Math.max(1, size.height - 104), Math.max(260, rect.height || 600))
   return { width, height,
-    x: Math.max(12, Math.min(rect.x ?? 48, (size.width || 1000) - width - 12)),
-    y: Math.max(12, Math.min(rect.y ?? 64, (size.height || 760) - height - 92)),
+    x: Math.max(12, Math.min(rect.x ?? 48, size.width - width - 12)),
+    y: Math.max(12, Math.min(rect.y ?? 64, size.height - height - 92)),
   }
 }
 
@@ -60,7 +69,8 @@ export function createCanvasFiles() {
       const state = source.getSnapshot(), existing = state.windows.find(file => file.key === key)
       const id = existing?.id ?? `file:${++serial}`
       const order = state.windows.length % 5
-      const rect = fitFileRect({ x: (size?.width ?? 1000) - 720 + order * 24, y: 52 + order * 24 }, size)
+      size = fileViewport(size)
+      const rect = fitFileRect({ x: size.width - 720 + order * 24, y: 52 + order * 24 }, size)
       const file = { ...existing, id, key, sessionId, path, name: fileName(path), ownerName, conversationId,
         line: Number.isSafeInteger(line) && line > 0 ? line : undefined,
         navigation: (existing?.navigation ?? 0) + 1, rect: existing?.rect ?? rect }

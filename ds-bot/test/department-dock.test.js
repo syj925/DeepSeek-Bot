@@ -54,6 +54,7 @@ function harness() {
     return cell.value
   }
   const react = {
+    Component: class {},
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     createContext: value => ({ _currentValue: value }),
     Fragment: 'fragment',

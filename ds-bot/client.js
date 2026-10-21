@@ -43,6 +43,7 @@ module.exports = __toCommonJS(index_exports);
 var NAMESPACE = "ds-bot";
 var ZH = {
   "File preview": "文件预览",
+  "This preview could not be displayed. Your workspace is still open.": "当前文件预览显示失败，工作区仍保持打开。",
   "From {name}": "来自 {name}",
   "Close preview": "关闭预览",
   "Resize file preview": "调整文件预览大小",
@@ -20360,14 +20361,22 @@ function relatedFilePath(path, baseFile) {
   const base = baseFile.replace(/\\/g, "/");
   return base.slice(0, base.lastIndexOf("/") + 1) + path;
 }
-function fitFileRect(rect, size = {}) {
-  const width = Math.min(Math.max(1, (size.width || 1e3) - 24), Math.max(360, rect.width || 680));
-  const height = Math.min(Math.max(1, (size.height || 760) - 104), Math.max(260, rect.height || 600));
+function fileViewport(size) {
+  return {
+    width: Number.isFinite(size?.width) && size.width > 0 ? size.width : 1e3,
+    height: Number.isFinite(size?.height) && size.height > 0 ? size.height : 760
+  };
+}
+function fitFileRect(rect, size) {
+  rect ??= {};
+  size = fileViewport(size);
+  const width = Math.min(Math.max(1, size.width - 24), Math.max(360, rect.width || 680));
+  const height = Math.min(Math.max(1, size.height - 104), Math.max(260, rect.height || 600));
   return {
     width,
     height,
-    x: Math.max(12, Math.min(rect.x ?? 48, (size.width || 1e3) - width - 12)),
-    y: Math.max(12, Math.min(rect.y ?? 64, (size.height || 760) - height - 92))
+    x: Math.max(12, Math.min(rect.x ?? 48, size.width - width - 12)),
+    y: Math.max(12, Math.min(rect.y ?? 64, size.height - height - 92))
   };
 }
 function createCanvasFiles() {
@@ -20382,7 +20391,8 @@ function createCanvasFiles() {
       const state = source.getSnapshot(), existing = state.windows.find((file2) => file2.key === key);
       const id = existing?.id ?? `file:${++serial}`;
       const order = state.windows.length % 5;
-      const rect = fitFileRect({ x: (size?.width ?? 1e3) - 720 + order * 24, y: 52 + order * 24 }, size);
+      size = fileViewport(size);
+      const rect = fitFileRect({ x: size.width - 720 + order * 24, y: 52 + order * 24 }, size);
       const file = {
         ...existing,
         id,
@@ -20509,6 +20519,7 @@ function FileTable({ text: text2, kind, eof }) {
   );
 }
 function CanvasFileWindow({ file, active, order = 0, size, actions }) {
+  size = fileViewport(size);
   const node = (0, import_react60.useRef)(null), body = (0, import_react60.useRef)(null), gesture = (0, import_react60.useRef)(null), downloadController = (0, import_react60.useRef)(null), pageController = (0, import_react60.useRef)(null), previousFocus = (0, import_react60.useRef)(null);
   const delegate = (0, import_dsh_client_ui_primitives6.useMarkdownDelegate)();
   const [view, setView] = (0, import_react60.useState)({ loading: true });
@@ -20724,9 +20735,52 @@ function CanvasFileWindow({ file, active, order = 0, size, actions }) {
     }, "⌟") : null
   );
 }
+var FilePreviewBoundary = class extends import_react60.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error) {
+    this.props.actions.reportError?.(error, "canvas-file-preview");
+  }
+  componentDidUpdate(previous) {
+    if (this.state.failed && previous.file.navigation !== this.props.file.navigation) this.setState({ failed: false });
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    const { file, size, active, order, actions } = this.props;
+    const rect = fitFileRect(file.rect, size);
+    return (0, import_react60.createElement)(
+      "section",
+      {
+        className: "bt-canvas-file glass-card",
+        role: "dialog",
+        "aria-label": `${t("File preview")} · ${file.name}`,
+        "data-file-window": file.id,
+        "data-preview-failed": true,
+        style: { left: rect.x, top: rect.y, width: rect.width, height: rect.height, zIndex: active ? 60 : 35 + order / 100 },
+        onPointerDown: (event) => {
+          event.stopPropagation();
+          actions.focusCanvasFile(file.id);
+        }
+      },
+      (0, import_react60.createElement)("header", { className: "bt-file-titlebar" }, (0, import_react60.createElement)("strong", null, file.name), tool("Close preview", () => actions.closeCanvasFile(file.id), (0, import_react60.createElement)(CloseIcon))),
+      (0, import_react60.createElement)("div", { className: "bt-file-body" }, (0, import_react60.createElement)(
+        "div",
+        { className: "bt-file-error", role: "alert" },
+        (0, import_react60.createElement)("p", null, t("This preview could not be displayed. Your workspace is still open.")),
+        tool("Retry", () => this.setState({ failed: false })),
+        tool("Open in classic view", () => actions.openCanvasFileClassic(file))
+      ))
+    );
+  }
+};
 function CanvasFiles({ useCanvasFiles, actions, size }) {
   const files = useCanvasFiles((state) => state);
-  return (0, import_react60.createElement)(import_react60.Fragment, null, files.windows.map((file, order) => (0, import_react60.createElement)(CanvasFileWindow, { key: file.id, file, order, active: files.active === file.id, size, actions })));
+  return (0, import_react60.createElement)(import_react60.Fragment, null, files.windows.map((file, order) => {
+    const props = { file, order, active: files.active === file.id, size, actions };
+    return (0, import_react60.createElement)(FilePreviewBoundary, { key: file.id, ...props }, (0, import_react60.createElement)(CanvasFileWindow, props));
+  }));
 }
 var CANVAS_FILES_CSS = `
 .bt-canvas-file{position:absolute;display:flex;flex-direction:column;min-width:0;box-sizing:border-box;border:1px solid var(--glass-border,rgba(255,255,255,.65));border-radius:20px;background:var(--glass-floating,rgba(246,249,252,.83));color:var(--bt-ink,#253047);backdrop-filter:blur(30px) saturate(1.15);-webkit-backdrop-filter:blur(30px) saturate(1.15);box-shadow:0 20px 70px rgba(22,37,64,.2);isolation:isolate;animation:bt-file-open .2s ease-out}

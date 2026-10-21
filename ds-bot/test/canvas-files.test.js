@@ -1,10 +1,38 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createCanvasFiles, fileFailure, fileKind, fitFileRect, readPreviewBytes, readPreviewPage, relatedFilePath, tablePreview, MAX_PREVIEW_CHARS } from '../src/client/canvas-files.js'
+import { createCanvasFiles, fileFailure, fileKind, fileViewport, fitFileRect, readPreviewBytes, readPreviewPage, relatedFilePath, tablePreview, MAX_PREVIEW_CHARS } from '../src/client/canvas-files.js'
 import { openTaskFile } from '../src/client/task-notice-navigation.js'
 
 const signal = () => new AbortController().signal
 const ok = value => ({ ok: true, value })
+
+test('task files open after the canvas releases its measurement on unmount', async () => {
+  const files = createCanvasFiles()
+  // CanvasWorkspace cleanup calls setCanvasSize(null) when a floating chat or
+  // another panel takes its place. A task result can arrive before it remounts.
+  const canvasSize = null
+  const opened = await openTaskFile({ sourceSessionId: 'original-part', path: '/work/report.md',
+    canvas: file => files.open(file, canvasSize),
+    navigate: () => assert.fail('Opening a canvas file must not enter classic view'),
+  })
+  assert.equal(opened, true)
+  const [file] = files.source.getSnapshot().windows
+  assert.equal(file.sessionId, 'original-part')
+  assert.equal(file.path, '/work/report.md')
+  assert.ok(Object.values(file.rect).every(Number.isFinite))
+  assert.ok(file.rect.width > 0 && file.rect.height > 0)
+})
+
+test('unmeasured and temporarily hidden canvases use finite fallback dimensions', () => {
+  for (const size of [undefined, null, {}, { width: 0, height: 0 }, { width: -1, height: -2 }, { width: NaN, height: Infinity }]) {
+    assert.deepEqual(fileViewport(size), { width: 1000, height: 760 })
+    assert.deepEqual(fitFileRect(null, size), fitFileRect({}))
+    const files = createCanvasFiles()
+    files.open({ sessionId: 'origin', path: '/a.csv' }, size)
+    assert.ok(Object.values(files.source.getSnapshot().windows[0].rect).every(Number.isFinite))
+  }
+  assert.deepEqual(fileViewport({ width: 640, height: 480 }), { width: 640, height: 480 })
+})
 
 test('canvas files deduplicate within their source Session and keep other windows and geometry', () => {
   const files = createCanvasFiles()

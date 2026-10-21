@@ -6,6 +6,7 @@ export const NAMESPACE = 'ds-bot'
 
 const ZH = {
   'File preview': '文件预览',
+  'This preview could not be displayed. Your workspace is still open.': '当前文件预览显示失败，工作区仍保持打开。',
   'From {name}': '来自 {name}',
   'Close preview': '关闭预览',
   'Resize file preview': '调整文件预览大小',
