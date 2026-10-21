@@ -68,12 +68,14 @@ export function createCanvasFiles() {
       const key = JSON.stringify([sessionId, pathKey(path)])
       const state = source.getSnapshot(), existing = state.windows.find(file => file.key === key)
       const id = existing?.id ?? `file:${++serial}`
+      const targetLine = Number.isSafeInteger(line) && line > 0 ? line : existing?.line
+      const navigate = !existing || targetLine !== existing.line
       const order = state.windows.length % 5
       size = fileViewport(size)
       const rect = fitFileRect({ x: size.width - 720 + order * 24, y: 52 + order * 24 }, size)
-      const file = { ...existing, id, key, sessionId, path, name: fileName(path), ownerName, conversationId,
-        line: Number.isSafeInteger(line) && line > 0 ? line : undefined,
-        navigation: (existing?.navigation ?? 0) + 1, rect: existing?.rect ?? rect }
+      const file = { ...existing, id, key, sessionId, path: existing?.path ?? path, name: existing?.name ?? fileName(path),
+        ownerName: ownerName ?? existing?.ownerName, conversationId: conversationId ?? existing?.conversationId,
+        line: targetLine, navigation: (existing?.navigation ?? 0) + (navigate ? 1 : 0), rect: existing?.rect ?? rect }
       source.set({ active: id, windows: [...state.windows.filter(file => file.id !== id), file] })
       return id
     },
@@ -94,10 +96,12 @@ const resultValue = result => {
 }
 
 export async function readPreviewPage(reader, file, signal, previous) {
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
   if (!reader?.read) throw Object.assign(new Error('The file reader is unavailable. Open this file in classic view.'), { code: 'file/reader-unavailable' })
   const offset = previous ? previous.offset + previous.lines : Math.max(1, (file.line ?? 1) - 20)
-  const page = resultValue(await reader.read(file.sessionId, file.path, { offset, limit: 300 }, signal))
+  const result = await reader.read(file.sessionId, file.path, { offset, limit: 300 }, signal)
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  const page = resultValue(result)
   if (previous && page.version !== previous.version) return readPreviewPage(reader, file, signal)
   const text = previous ? previous.text + (previous.lines ? '\n' : '') + page.text : page.text
   const lines = (previous?.lines ?? 0) + page.lines
@@ -106,9 +110,11 @@ export async function readPreviewPage(reader, file, signal, previous) {
 }
 
 export async function readPreviewBytes(reader, file, signal) {
-  if (!reader?.readBytes) throw Object.assign(new Error('The file reader is unavailable. Open this file in classic view.'), { code: 'file/reader-unavailable' })
-  const value = resultValue(await reader.readBytes(file.sessionId, file.path, {}, signal))
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  if (!reader?.readBytes) throw Object.assign(new Error('The file reader is unavailable. Open this file in classic view.'), { code: 'file/reader-unavailable' })
+  const result = await reader.readBytes(file.sessionId, file.path, {}, signal)
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  const value = resultValue(result)
   if (!(value.data instanceof Uint8Array) || !value.eof) throw new Error('The original file could not be read completely.')
   return value
 }

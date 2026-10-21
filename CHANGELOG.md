@@ -6,6 +6,14 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.66] - 2026-10-21
+
+### Fixed
+
+- Focus an existing canvas file without cancelling and restarting its read. Preserve its preview mode and position; explicit line navigation and reload still update contents.
+- Share a two-read budget across canvas previews and original downloads, and retry transient transport or reader-availability failures at most twice without holding a slot during backoff.
+- Cancel queued reads and retry timers when previews close or reload. Keep source Session identity and final error codes; diagnostics omit file paths and contents.
+
 ## [0.1.65] - 2026-10-21
 
 ### Fixed

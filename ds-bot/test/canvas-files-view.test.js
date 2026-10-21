@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { createCanvasFiles } from '../src/client/canvas-files.js'
+import { createFileReader } from '../src/client/file-reads.js'
 
 const requireHarness = createRequire(join(process.env.DSH_HARNESS, 'package.json'))
 const { JSDOM } = requireHarness('jsdom')
@@ -35,7 +36,8 @@ async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdo
   })
   dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push({ name: this.download, href: this.href }) }
   const files = createCanvasFiles(), root = createRoot(dom.window.document.getElementById('mount'))
-  const actions = { canvasFileReader: () => reader, closeCanvasFile: files.close, focusCanvasFile: files.focus, updateCanvasFile: files.update,
+  const scheduledReader = createFileReader(() => reader, { retryDelays: [0, 0] })
+  const actions = { canvasFileReader: () => scheduledReader, closeCanvasFile: files.close, focusCanvasFile: files.focus, updateCanvasFile: files.update,
     openCanvasFile: file => files.open(file, size), openCanvasFileClassic: file => classic.push(file), reportError: (error, context) => errors.push({ error, context }) }
   function App() {
     const useCanvasFiles = pick => pick(React.useSyncExternalStore(files.source.subscribe, files.source.getSnapshot))
@@ -56,6 +58,7 @@ async function page(t, reader, { size = { width: 1200, height: 850 }, failMarkdo
   }
   t.after(async () => {
     await act(async () => root.unmount())
+    scheduledReader.dispose()
     dom.window.close()
     for (const [key, descriptor] of Object.entries(previous)) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key] }
   })
@@ -104,6 +107,47 @@ test('the public Markdown provider opens document-relative files under the same 
   assert.equal(p.files.source.getSnapshot().windows.length, 2)
   assert.equal(p.classic.length, 0)
   assert.equal(p.errors.length, 0)
+})
+
+test('repeated file chips focus pending previews without cancelling or repeating their reads', async t => {
+  const pending = []
+  const p = await page(t, { read: (sessionId, path, _range, signal) => new Promise(resolve => pending.push({ sessionId, path, signal, resolve })) })
+  await p.open({ sessionId: 'owner', path: '/first.md' })
+  await p.open({ sessionId: 'owner', path: '/second.md' })
+  await p.open({ sessionId: 'owner', path: '/first.md' })
+  await p.open({ sessionId: 'owner', path: '/second.md' })
+  assert.equal(pending.length, 2)
+  assert.ok(pending.every(read => !read.signal.aborted))
+  pending[1].resolve({ ok: true, value: { text: 'Second', offset: 1, lines: 1, eof: true, version: '1' } })
+  await p.settle()
+  assert.equal(p.dom.window.document.querySelector('[data-markdown-preview]')?.textContent, 'Second')
+  pending[0].resolve({ ok: true, value: { text: 'First', offset: 1, lines: 1, eof: true, version: '1' } })
+  await p.settle()
+  assert.deepEqual([...p.dom.window.document.querySelectorAll('[data-markdown-preview]')].map(node => node.textContent).sort(), ['First', 'Second'])
+  await p.open({ sessionId: 'owner', path: '/first.md' })
+  assert.equal(pending.length, 2)
+  assert.equal(p.files.source.getSnapshot().windows.length, 2)
+  assert.equal(p.dom.window.document.querySelector('[role=alert]'), null)
+})
+
+test('simultaneously opened previews recover a transient read failure without manual retry', async t => {
+  const attempts = new Map()
+  const p = await page(t, { read: async (sessionId, path) => {
+    assert.equal(sessionId, 'owner')
+    attempts.set(path, (attempts.get(path) ?? 0) + 1)
+    if (path === '/first.md' && attempts.get(path) === 1) return { ok: false, error: { code: 'gateway/internal' } }
+    return { ok: true, value: { text: path, offset: 1, lines: 1, eof: true, version: '1' } }
+  } })
+  await act(async () => { for (const path of ['/first.md', '/second.md', '/third.md', '/fourth.md']) p.files.open({ sessionId: 'owner', path }) })
+  await p.settle()
+  const doc = p.dom.window.document
+  assert.equal(doc.querySelectorAll('[data-markdown-preview]').length, 4)
+  assert.equal(attempts.get('/first.md'), 2)
+  assert.ok(['/second.md', '/third.md', '/fourth.md'].every(path => attempts.get(path) === 1))
+  assert.equal(doc.querySelector('[role=alert]'), null)
+  assert.ok(doc.querySelector('[data-canvas-background]'))
+  assert.equal(p.draft.value, 'Keep my draft')
+  assert.equal(p.classic.length, 0)
 })
 
 test('file preview mounts and maximizes with a null canvas measurement without losing the workspace', async t => {

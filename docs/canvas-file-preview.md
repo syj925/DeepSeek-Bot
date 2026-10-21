@@ -33,6 +33,14 @@ The plugin uses only the package-root public `MarkdownText` and `MarkdownDelegat
 
 Build regression checks link every UI primitive import against the actual installed DSH package's export list. DOM regressions omit the internal hook entirely and cover both public-provider availability states, Markdown/CSV/image contents, source ownership, document-relative links and workspace preservation. These checks do not constitute visual acceptance in a user's Desktop profile.
 
+## Concurrent reads and recovery (0.1.66)
+
+Reopening the same file and line only raises its existing window. It does not cancel a pending read, switch from source to preview or reset the document's scroll position. An explicit different line target starts new navigation; Reload and Retry remain explicit fresh reads.
+
+One client-local reader schedules text pages and complete-byte downloads with two concurrent calls. Each request retains its own source Session, path, range and cancellation signal; no file contents or read authority are shared between windows. A transient transport, lookup/service availability or reader-registration failure can retry twice after 150 ms and 500 ms. The reader is resolved again on each attempt. Backoff releases its slot so another preview can finish. Missing files, permission errors, size limits, invalid requests and programming exceptions do not retry automatically.
+
+Closing, reloading, changing the requested line or unloading the plugin cancels the affected queued work and retry timer. A cancelled request cannot deliver late data to its former view or cancel another file. Exhausted failures keep the local Retry control; the feedback diagnostics retain the final error code and generic message without file paths or contents. Tests cover bursts, out-of-order replies, duplicate clicks during reads, transient recovery, permanent errors, cancellation during queueing/backoff and plugin disposal. They verify the recovery behavior without asserting which underlying transport error occurred on a user's machine.
+
 ## Startup behavior
 
 Upgrades with existing teams and no incomplete preset marker do not create preset employees. Existing saved data returns first. New installations persist setup intent after Chief is created, then initialize bundled employees and departments in the background. Interrupted setup resumes from saved progress. Completed setup and employees already created in 0.1.62 are preserved; no cleanup or data reset runs on upgrade.

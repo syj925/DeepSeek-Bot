@@ -4797,15 +4797,15 @@ function observeReasoningStream(row, viewport2, text2, { reducedMotion: reducedM
   const sync = () => {
     if (!stopped && !frame) frame = view.requestAnimationFrame(measure);
   };
-  const pause = () => {
+  const pause2 = () => {
     readAway = viewport2.scrollHeight - viewport2.clientHeight - viewport2.scrollTop > TAIL_GAP;
     setFollowing(false);
   };
   const wheel = (event) => {
-    if (event.deltaY < 0) pause();
+    if (event.deltaY < 0) pause2();
   };
   const key = (event) => {
-    if (SCROLL_KEYS.has(event.key)) pause();
+    if (SCROLL_KEYS.has(event.key)) pause2();
   };
   const scroll = () => {
     if (automaticTop !== null && Math.abs(viewport2.scrollTop - automaticTop) < 1) {
@@ -4834,8 +4834,8 @@ function observeReasoningStream(row, viewport2, text2, { reducedMotion: reducedM
   resize?.observe(text2);
   viewport2.addEventListener("scroll", scroll, { passive: true });
   viewport2.addEventListener("wheel", wheel, { passive: true });
-  viewport2.addEventListener("pointerdown", pause);
-  viewport2.addEventListener("touchstart", pause, { passive: true });
+  viewport2.addEventListener("pointerdown", pause2);
+  viewport2.addEventListener("touchstart", pause2, { passive: true });
   viewport2.addEventListener("keydown", key);
   motion?.addEventListener?.("change", changedMotion);
   setFollowing(true);
@@ -4855,8 +4855,8 @@ function observeReasoningStream(row, viewport2, text2, { reducedMotion: reducedM
       cancel();
       viewport2.removeEventListener("scroll", scroll);
       viewport2.removeEventListener("wheel", wheel);
-      viewport2.removeEventListener("pointerdown", pause);
-      viewport2.removeEventListener("touchstart", pause);
+      viewport2.removeEventListener("pointerdown", pause2);
+      viewport2.removeEventListener("touchstart", pause2);
       viewport2.removeEventListener("keydown", key);
       motion?.removeEventListener?.("change", changedMotion);
       viewport2.removeAttribute("data-bt-reason-capped");
@@ -20390,6 +20390,8 @@ function createCanvasFiles() {
       const key = JSON.stringify([sessionId, pathKey(path)]);
       const state = source.getSnapshot(), existing = state.windows.find((file2) => file2.key === key);
       const id = existing?.id ?? `file:${++serial}`;
+      const targetLine = Number.isSafeInteger(line) && line > 0 ? line : existing?.line;
+      const navigate = !existing || targetLine !== existing.line;
       const order = state.windows.length % 5;
       size = fileViewport(size);
       const rect = fitFileRect({ x: size.width - 720 + order * 24, y: 52 + order * 24 }, size);
@@ -20398,12 +20400,12 @@ function createCanvasFiles() {
         id,
         key,
         sessionId,
-        path,
-        name: fileName(path),
-        ownerName,
-        conversationId,
-        line: Number.isSafeInteger(line) && line > 0 ? line : void 0,
-        navigation: (existing?.navigation ?? 0) + 1,
+        path: existing?.path ?? path,
+        name: existing?.name ?? fileName(path),
+        ownerName: ownerName ?? existing?.ownerName,
+        conversationId: conversationId ?? existing?.conversationId,
+        line: targetLine,
+        navigation: (existing?.navigation ?? 0) + (navigate ? 1 : 0),
         rect: existing?.rect ?? rect
       };
       source.set({ active: id, windows: [...state.windows.filter((file2) => file2.id !== id), file] });
@@ -20432,10 +20434,12 @@ var resultValue = (result) => {
   throw Object.assign(new Error("Could not load this file. Try again."), { code: result?.error?.code });
 };
 async function readPreviewPage(reader, file, signal, previous) {
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   if (!reader?.read) throw Object.assign(new Error("The file reader is unavailable. Open this file in classic view."), { code: "file/reader-unavailable" });
   const offset = previous ? previous.offset + previous.lines : Math.max(1, (file.line ?? 1) - 20);
-  const page = resultValue(await reader.read(file.sessionId, file.path, { offset, limit: 300 }, signal));
+  const result = await reader.read(file.sessionId, file.path, { offset, limit: 300 }, signal);
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  const page = resultValue(result);
   if (previous && page.version !== previous.version) return readPreviewPage(reader, file, signal);
   const text2 = previous ? previous.text + (previous.lines ? "\n" : "") + page.text : page.text;
   const lines = (previous?.lines ?? 0) + page.lines;
@@ -20448,9 +20452,11 @@ async function readPreviewPage(reader, file, signal, previous) {
   };
 }
 async function readPreviewBytes(reader, file, signal) {
-  if (!reader?.readBytes) throw Object.assign(new Error("The file reader is unavailable. Open this file in classic view."), { code: "file/reader-unavailable" });
-  const value = resultValue(await reader.readBytes(file.sessionId, file.path, {}, signal));
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  if (!reader?.readBytes) throw Object.assign(new Error("The file reader is unavailable. Open this file in classic view."), { code: "file/reader-unavailable" });
+  const result = await reader.readBytes(file.sessionId, file.path, {}, signal);
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  const value = resultValue(result);
   if (!(value.data instanceof Uint8Array) || !value.eof) throw new Error("The original file could not be read completely.");
   return value;
 }
@@ -20504,6 +20510,10 @@ var import_react60 = require("react");
 var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
 var tool = (label, onClick, content = label, extra = {}) => (0, import_react60.createElement)("button", { type: "button", className: "bt-file-tool", title: t(label), "aria-label": t(label), onClick, ...extra }, typeof content === "string" ? t(content) : content);
 var mimeOf = (file) => fileKind(file.path) === "pdf" ? "application/pdf" : { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif", bmp: "image/bmp" }[file.name.split(".").at(-1).toLowerCase()] ?? "application/octet-stream";
+var noteReadFailure = (error) => {
+  const code = typeof error?.code === "string" && /^[a-z-]+\/[a-z-]+$/.test(error.code) ? error.code : void 0;
+  noteClientError("canvas-file-read", { message: code ? `File read failed (${code}).` : "Could not load this file. Try again.", code });
+};
 function FileTable({ text: text2, kind, eof }) {
   const { rows, truncated } = (0, import_react60.useMemo)(() => tablePreview(text2, kind === "tsv" ? "	" : ",", eof), [text2, kind, eof]);
   return (0, import_react60.createElement)(
@@ -20567,7 +20577,10 @@ function CanvasFileWindow({ file, active, order = 0, size, actions }) {
           if (!controller.signal.aborted) setView({ ...value, loading: false });
         },
         (error) => {
-          if (!controller.signal.aborted) setView({ loading: false, error });
+          if (!controller.signal.aborted) {
+            noteReadFailure(error);
+            setView({ loading: false, error });
+          }
         }
       );
     }
@@ -20591,7 +20604,10 @@ function CanvasFileWindow({ file, active, order = 0, size, actions }) {
         if (!controller.signal.aborted) setView({ ...value, loading: false });
       },
       (error) => {
-        if (!controller.signal.aborted) setView((value) => ({ ...value, loading: false, error }));
+        if (!controller.signal.aborted) {
+          noteReadFailure(error);
+          setView((value) => ({ ...value, loading: false, error }));
+        }
       }
     );
   };
@@ -23524,6 +23540,113 @@ function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessions, us
   );
 }
 
+// src/client/file-reads.js
+var transient = /* @__PURE__ */ new Set([
+  "gateway/internal",
+  "gateway/service-unavailable",
+  "gateway/context-unavailable",
+  "gateway/context-failed",
+  "gateway/lookup-unavailable",
+  "gateway/lookup-failed",
+  "gateway/invocation-unavailable",
+  "gateway/cancelled",
+  "file/reader-unavailable"
+]);
+var aborted2 = () => new DOMException("Aborted", "AbortError");
+function pause(ms, signal) {
+  if (signal.aborted) return Promise.reject(aborted2());
+  if (!ms) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cancel = () => {
+      clearTimeout(timer);
+      reject(aborted2());
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", cancel);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", cancel, { once: true });
+  });
+}
+function createFileReader(getReader, { concurrency = 2, retryDelays = [150, 500] } = {}) {
+  const queue = [], controllers = /* @__PURE__ */ new Set();
+  let active = 0, closed = false;
+  const pump = () => {
+    while (!closed && active < concurrency && queue.length) queue.shift()();
+  };
+  const schedule = (work, signal) => new Promise((resolve, reject) => {
+    let started = false, finished = false;
+    const finish = (settle, value) => {
+      if (finished) return;
+      finished = true;
+      signal.removeEventListener("abort", cancel);
+      if (started) active--;
+      else {
+        const index = queue.indexOf(start);
+        if (index >= 0) queue.splice(index, 1);
+      }
+      settle(value);
+      pump();
+    };
+    const cancel = () => finish(reject, aborted2());
+    const start = () => {
+      started = true;
+      active++;
+      void Promise.resolve().then(() => {
+        if (signal.aborted) throw aborted2();
+        return work();
+      }).then((value) => finish(resolve, value), (error) => finish(reject, error));
+    };
+    if (signal.aborted) {
+      reject(aborted2());
+      return;
+    }
+    signal.addEventListener("abort", cancel, { once: true });
+    queue.push(start);
+    pump();
+  });
+  const read = async (method, sessionId, path, options, signal) => {
+    if (closed || signal?.aborted) throw aborted2();
+    const controller = new AbortController(), cancel = () => controller.abort();
+    controllers.add(controller);
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      for (let attempt = 0; ; attempt++) {
+        let result, failure2, thrown = false;
+        try {
+          result = await schedule(() => {
+            const reader = getReader();
+            if (typeof reader?.[method] !== "function") throw Object.assign(new Error("The file reader is unavailable. Open this file in classic view."), { code: "file/reader-unavailable" });
+            return reader[method](sessionId, path, options, controller.signal);
+          }, controller.signal);
+        } catch (error2) {
+          failure2 = error2;
+          thrown = true;
+        }
+        if (controller.signal.aborted) throw aborted2();
+        if (!thrown && result?.ok !== false) return result;
+        const error = thrown ? failure2 : result.error;
+        if (!transient.has(error?.code) || attempt >= retryDelays.length) {
+          if (thrown) throw failure2;
+          return result;
+        }
+        await pause(retryDelays[attempt], controller.signal);
+      }
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      controllers.delete(controller);
+    }
+  };
+  return {
+    read: (sessionId, path, range, signal) => read("read", sessionId, path, range, signal),
+    readBytes: (sessionId, path, options, signal) => read("readBytes", sessionId, path, options, signal),
+    dispose() {
+      closed = true;
+      for (const controller of controllers) controller.abort();
+    }
+  };
+}
+
 // src/client/canvas-landscape.js
 var pines = (count, start, end, base, height, seed) => {
   let value = seed;
@@ -26315,7 +26438,7 @@ function Toast({ ids, children, dismiss, onOpen }) {
     setLeaving(true);
     exit.current = setTimeout(() => dismiss(ids), 180);
   };
-  const pause = () => {
+  const pause2 = () => {
     clearTimeout(timer.current);
     if (started.current) remaining.current = Math.max(0, remaining.current - (Date.now() - started.current));
     started.current = 0;
@@ -26333,17 +26456,17 @@ function Toast({ ids, children, dismiss, onOpen }) {
     setLeaving(false);
     resume();
     const visibility = () => {
-      if (document.hidden) pause();
+      if (document.hidden) pause2();
       else resume();
     };
     document.addEventListener("visibilitychange", visibility);
-    window.addEventListener("blur", pause);
+    window.addEventListener("blur", pause2);
     window.addEventListener("focus", resume);
     return () => {
       clearTimeout(timer.current);
       clearTimeout(exit.current);
       document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("blur", pause);
+      window.removeEventListener("blur", pause2);
       window.removeEventListener("focus", resume);
     };
   }, [key]);
@@ -26356,9 +26479,9 @@ function Toast({ ids, children, dismiss, onOpen }) {
       onClick: (event) => {
         if (!event.target.closest('button,[role="button"]')) onOpen?.();
       },
-      onMouseEnter: pause,
+      onMouseEnter: pause2,
       onMouseLeave: resume,
-      onFocus: pause,
+      onFocus: pause2,
       onBlur: (event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) queueMicrotask(resume);
       }
@@ -26679,7 +26802,9 @@ function apply(ctx) {
   const surface = createSource({ mode: readMode(), plain: false });
   const canvas = createSource(readCanvas());
   const canvasFiles = createCanvasFiles();
+  const canvasFileReader = createFileReader(() => ctx.get("remote.workspaceFiles"));
   ctx.effect(() => () => canvasFiles.clear(), "ds-bot: canvas files");
+  ctx.effect(() => () => canvasFileReader.dispose(), "ds-bot: canvas file reads");
   const completions = createSource({});
   const readingChats = createSource({});
   let canvasPreferred = true;
@@ -27548,7 +27673,7 @@ function apply(ctx) {
     if (target) actions.openSession(target);
     else ctx.layout.selectPanel(null);
   };
-  actions.canvasFileReader = () => ctx.get("remote.workspaceFiles");
+  actions.canvasFileReader = () => canvasFileReader;
   actions.isCanvasVisible = canvasVisible;
   actions.openCanvasFile = (file) => {
     const id = canvasFiles.open(file, canvasSize);

@@ -47,7 +47,7 @@ test('canvas files deduplicate within their source Session and keep other window
   assert.equal(state.active, first)
   assert.deepEqual(state.windows.at(-1).rect, { x: 22, y: 30, width: 450, height: 420 })
   assert.equal(state.windows.at(-1).line, 24)
-  assert.equal(state.windows.at(-1).navigation, 3)
+  assert.equal(state.windows.at(-1).navigation, 2)
   files.blur()
   assert.equal(files.source.getSnapshot().active, null)
   files.focus(other)

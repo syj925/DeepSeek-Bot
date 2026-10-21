@@ -3,11 +3,16 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon, DownloadIcon } from './icons.js'
 import { fileFailure, fileKind, fileViewport, fitFileRect, readPreviewBytes, readPreviewPage, relatedFilePath, tablePreview } from './canvas-files.js'
 import { MarkdownFileLinks } from './file-navigation.js'
+import { noteClientError } from './diagnostics.js'
 import { t } from './i18n.js'
 
 const tool = (label, onClick, content = label, extra = {}) => h('button', { type: 'button', className: 'bt-file-tool', title: t(label), 'aria-label': t(label), onClick, ...extra }, typeof content === 'string' ? t(content) : content)
 const mimeOf = file => fileKind(file.path) === 'pdf' ? 'application/pdf'
   : ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp' })[file.name.split('.').at(-1).toLowerCase()] ?? 'application/octet-stream'
+const noteReadFailure = error => {
+  const code = typeof error?.code === 'string' && /^[a-z-]+\/[a-z-]+$/.test(error.code) ? error.code : undefined
+  noteClientError('canvas-file-read', { message: code ? `File read failed (${code}).` : 'Could not load this file. Try again.', code })
+}
 
 function FileTable({ text, kind, eof }) {
   const { rows, truncated } = useMemo(() => tablePreview(text, kind === 'tsv' ? '\t' : ',', eof), [text, kind, eof])
@@ -59,7 +64,7 @@ export function CanvasFileWindow({ file, active, order = 0, size, actions }) {
       const reader = actions.canvasFileReader()
       void (binary ? readPreviewBytes(reader, file, controller.signal) : readPreviewPage(reader, file, controller.signal)).then(
         value => { if (!controller.signal.aborted) setView({ ...value, loading: false }) },
-        error => { if (!controller.signal.aborted) setView({ loading: false, error }) },
+        error => { if (!controller.signal.aborted) { noteReadFailure(error); setView({ loading: false, error }) } },
       )
     }
     return () => { controller.abort(); pageController.current?.abort() }
@@ -76,7 +81,7 @@ export function CanvasFileWindow({ file, active, order = 0, size, actions }) {
     setView(value => ({ ...value, loading: true, error: undefined }))
     void readPreviewPage(actions.canvasFileReader(), file, controller.signal, view).then(
       value => { if (!controller.signal.aborted) setView({ ...value, loading: false }) },
-      error => { if (!controller.signal.aborted) setView(value => ({ ...value, loading: false, error })) },
+      error => { if (!controller.signal.aborted) { noteReadFailure(error); setView(value => ({ ...value, loading: false, error })) } },
     )
   }
   const download = async () => {

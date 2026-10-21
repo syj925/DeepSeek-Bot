@@ -41,6 +41,7 @@ import { noticeApprovals } from './approval-notices.js'
 import { CANVAS_PANEL, CANVAS_CONVERSATION, CanvasConversation, CanvasLauncher, canvasSessionId } from './canvas-session.js'
 import { CanvasWorkspace } from './canvas-workspace.js'
 import { createCanvasFiles } from './canvas-files.js'
+import { createFileReader } from './file-reads.js'
 import { CANVAS_FILES_CSS } from './canvas-file-window.js'
 import { canvasStyles } from './canvas-styles.js'
 import { COMPOSER_MOTION_CSS } from './composer-motion.js'
@@ -79,7 +80,9 @@ export function apply(ctx) {
   const surface = createSource({ mode: readMode(), plain: false })
   const canvas = createSource(readCanvas())
   const canvasFiles = createCanvasFiles()
+  const canvasFileReader = createFileReader(() => ctx.get('remote.workspaceFiles'))
   ctx.effect(() => () => canvasFiles.clear(), 'ds-bot: canvas files')
+  ctx.effect(() => () => canvasFileReader.dispose(), 'ds-bot: canvas file reads')
   const completions = createSource({})
   const readingChats = createSource({})
   let canvasPreferred = true
@@ -845,7 +848,7 @@ export function apply(ctx) {
     if (target) actions.openSession(target)
     else ctx.layout.selectPanel(null)
   }
-  actions.canvasFileReader = () => ctx.get('remote.workspaceFiles')
+  actions.canvasFileReader = () => canvasFileReader
   actions.isCanvasVisible = canvasVisible
   actions.openCanvasFile = file => {
     const id = canvasFiles.open(file, canvasSize)
