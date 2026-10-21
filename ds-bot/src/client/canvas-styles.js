@@ -1281,6 +1281,13 @@ export const canvasStyles = `
 .bt-canvas-dock::-webkit-scrollbar {
   display: none;
 }
+.bt-canvas-dock .bt-dock-tools { display: flex; align-items: center; align-self: stretch; flex: none; gap: 2px; padding: 0 2px; }
+.bt-canvas-dock .bt-dock-tools .bt-dock-tool { display: grid; place-items: center; flex: none; width: 44px; height: 44px; min-height: 44px; padding: 10px; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--text-secondary, #757575); cursor: pointer; }
+.bt-canvas-dock .bt-dock-tools .bt-dock-tool:hover { color: var(--text-primary, #262626); background: rgba(255,255,255,.45); border-color: rgba(255,255,255,.7); }
+.bt-canvas-dock .bt-dock-tools .bt-dock-tool:focus-visible { outline: 2px solid var(--bt-accent, #10a37f); outline-offset: -2px; }
+.bt-canvas-dock .bt-dock-tools .bt-dock-tool > svg { width: 22px; height: 22px; }
+.bt-canvas-dock .bt-dock-tools-separator { flex: none; align-self: center; width: 1px; height: 28px; margin: 0 7px; background: currentColor; opacity: .16; }
+.bt-canvas-dock > .bt-dock-scroll-wrap { flex: 1 1 auto; min-width: 0; }
 /* Reserve room for the original icons to rise without clipping or covering the canvas. */
 .bt-dock-scroll-wrap {
   overflow-x: auto;

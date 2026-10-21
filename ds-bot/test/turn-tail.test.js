@@ -45,15 +45,16 @@ const find = (node, match) => {
 
 const roster = { bots: [], byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {}, exchangeTurns: {} }
 const finished = { turn: 3, status: 'closed', end: { time: 2_000 } }
-function cellProps({ closingSeq = 10, turn = finished } = {}) {
+function cellProps({ closingSeq = 10, turn = finished, blocks, groupPart } = {}) {
   const asked = []
   const links = { resolve: () => undefined }
   const props = {
     node: {
       key: 'n10',
       location: { kind: 'step', turn },
-      data: { turn: 3, step: 1, seq: 10, status: 'done', finalNode: { seq: 10 }, blocks: [{ kind: 'text', text: 'The brief is in `/work/brief.md`.' }] },
+      data: { turn: 3, step: 1, seq: 10, status: 'done', finalNode: { seq: 10 }, blocks: blocks ?? [{ kind: 'text', text: 'The brief is in `/work/brief.md`.' }] },
     },
+    groupPart,
     sessionId: 'b',
     openFile: () => {},
     fileMentions: (owner) => { asked.push(owner); return links },
@@ -96,6 +97,20 @@ test('a reply that does not close its turn, or one still running, links nothing'
   const running = cellProps({ turn: { turn: 3, status: 'open' } })
   assert.equal(markdownOf(running.props)[0].props.fileMentions, undefined)
   assert.equal(earlier.asked.length + running.asked.length, 0)
+})
+
+test('assistant cells keep returned reasoning separate from the response', () => {
+  const reasoningOnly = cellProps({ blocks: [{ kind: 'reasoning', text: 'Internal reasoning' }] })
+  assert.equal(find(AssistantCell(reasoningOnly.props), node => node.type?.name === 'ThinkingRow')[0].props.text, 'Internal reasoning')
+
+  const mixed = cellProps({ blocks: [
+    { kind: 'reasoning', text: 'Internal reasoning' },
+    { kind: 'text', text: 'Here is the answer.' },
+  ] })
+  const out = AssistantCell(mixed.props)
+  assert.ok(find(out, node => node.type?.name === 'Bubbles').length)
+  assert.equal(find(out, node => node.type?.name === 'ThinkingRow').length, 1)
+  assert.equal(find(AssistantCell({ ...mixed.props, groupPart: 'response' }), node => node.type?.name === 'ThinkingRow').length, 0)
 })
 
 test('the turn tail entry notes when the turn ended and shows the pause before the next one', () => {

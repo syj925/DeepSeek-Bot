@@ -138,7 +138,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const revealFresh = !running && typeof visit?.entered === 'number' && typeof turnStart === 'number' && turnStart >= visit.entered
   const revealKey = `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`
   // A streaming reply stands in for the activity row.
-  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
+  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true, progress: texts.reduce((length, text) => length + text.length, 0) } : null)
   if (hidden) return null
   const reasoning = groupPart === 'response' ? { text: '', streaming: false } : turnReasoningState(steps, data)
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
@@ -166,14 +166,14 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
 function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
   if (whole && bots.length === 1) {
     return h('div', { className: 'bt-event' },
-      h('button', { type: 'button', className: 'bt-event-whole', title: bots[0].name, onClick: () => onOpen?.(bots[0]) },
+      h('button', { type: 'button', className: 'bt-event-whole', title: t('View collaboration with {name}', { name: bots[0].name }), onClick: () => onOpen?.(bots[0]) },
         h('span', null, prefix), h(BotMark, { bot: bots[0], size: 16 }), h('span', { className: 'bt-event-name' }, bots[0].name)))
   }
   const parts = []
   parts.push(h('span', { key: 'p' }, prefix))
   bots.forEach((bot, index) => {
     if (index > 0) parts.push(h('span', { key: `j${index}` }, joiner))
-    parts.push(h('button', { key: bot.id ?? index, type: 'button', onClick: () => onOpen?.(bot) },
+    parts.push(h('button', { key: bot.id ?? index, type: 'button', title: t('View collaboration with {name}', { name: bot.name }), onClick: () => onOpen?.(bot) },
       h(BotMark, { bot, size: 16 }), bot.name))
   })
   return h('div', { className: 'bt-event' }, parts)

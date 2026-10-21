@@ -263,8 +263,18 @@ export function install(rt) {
         }
         ensureLock()
         await writeFile(temp, snapshot, 'utf8')
-        ensureLock()
-        await rename(temp, statePath)
+        // Windows readers can briefly block atomic replacement. Keep the old
+        // snapshot intact and recheck ownership before each bounded retry.
+        for (let attempt = 0; ; attempt += 1) {
+          ensureLock()
+          try {
+            await rename(temp, statePath)
+            break
+          } catch (error) {
+            if (!['EPERM', 'EACCES', 'EBUSY'].includes(error?.code) || attempt >= 5) throw error
+            await new Promise(resolve => setTimeout(resolve, 10 * 2 ** attempt))
+          }
+        }
         seen = stamp()
         rt.capabilitiesStateSaved?.()
       } catch (error) {

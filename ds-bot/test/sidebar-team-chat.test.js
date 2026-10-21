@@ -22,7 +22,7 @@ const byLabel = (tree, label) => find(tree, node => node.type === 'button' && no
 function fixture({ folded = true, canvas = true } = {}) {
   const scopes = new Map(), timers = new Map(), listeners = new Map()
   let scope, cursor, layouts, effects, dirty, tree, visited, clock = 0, timerId = 0
-  const calls = { opened: [], unread: [], visits: [], ended: [] }
+  const calls = { opened: [], canvasOpened: [], canvasOpenHadEmbedded: [], popouts: [], unread: [], visits: [], ended: [] }
   const alpha = { id: 'alpha', sessionId: 'alpha-current', name: 'Alpha', createdAt: 10 }
   const beta = { id: 'beta', sessionId: 'beta-current', name: 'Beta', createdAt: 20 }
   const room = { id: 'planning', name: 'Planning', members: ['alpha', 'beta'], createdAt: 30 }
@@ -40,21 +40,46 @@ function fixture({ folded = true, canvas = true } = {}) {
     removeEventListener(name, run) { listeners.get(`${prefix}:${name}`)?.delete(run) },
     emit(name, event) { for (const run of listeners.get(`${prefix}:${name}`) ?? []) run(event) },
   })
-  const view = { ...emitter('window'), matchMedia: () => ({ matches: true }) }
-  const doc = { ...emitter('document'), querySelector: () => null, defaultView: view }
+  const view = {
+    ...emitter('window'), matchMedia: () => ({ matches: true }),
+    requestAnimationFrame: run => { const id = ++timerId; timers.set(id, { run, at: clock + 16 }); return id },
+    cancelAnimationFrame: id => timers.delete(id),
+    setTimeout: (run, wait) => { const id = ++timerId; timers.set(id, { run, at: clock + wait }); return id },
+    clearTimeout: id => timers.delete(id),
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail } },
+    dispatchEvent(event) { if (event.type === 'bt:chat-popout') calls.popouts.push(event.detail); this.emit(event.type, event); return true },
+  }
+  const doc = {
+    ...emitter('document'), defaultView: view,
+    querySelector: selector => selector === '.bt-canvas' ? canvasRoot : null,
+    getSelection: () => ({ isCollapsed: true }),
+    createElement: () => ({ style: {}, setAttribute() {}, remove() {} }),
+    body: { appendChild() {} },
+    elementFromPoint: () => canvasRoot,
+  }
   const classes = new Set(), properties = new Map()
   const column = {
     dataset: {}, classList: { add: (...names) => names.forEach(name => classes.add(name)), remove: (...names) => names.forEach(name => classes.delete(name)) },
     style: { setProperty: (name, value) => properties.set(name, value), removeProperty: name => properties.delete(name) },
     removeAttribute: name => { delete column.dataset[name.replace(/^data-/, '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] },
   }
-  const box = { left: 0, top: 0, width: 1200, height: 800 }
+  const box = { left: 0, top: 0, width: 1200, height: 800, right: 1200, bottom: 800 }
+  const canvasRoot = { getBoundingClientRect: () => box, closest: () => null }
   const center = { getBoundingClientRect: () => box }
   const frame = { classList: column.classList, getBoundingClientRect: () => box, querySelector: () => center }
   column.parentElement = frame
   const root = {
     ownerDocument: doc, contains: () => true, querySelector: () => null,
     closest: selector => selector === '[class*="_sidebarCol"]' || selector === '.bt-floating-team' ? column : null,
+  }
+  const paneBox = { left: 320, top: 100, width: 540, height: 600, right: 860, bottom: 700 }
+  const captured = new Set()
+  const paneElement = {
+    ownerDocument: doc, parentElement: root, nodeType: 1, childNodes: [],
+    getBoundingClientRect: () => paneBox,
+    contains: target => target === paneElement,
+    closest: selector => selector === '.bt-canvas-frame' ? { querySelector: () => canvasRoot } : null,
+    setPointerCapture: id => captured.add(id), hasPointerCapture: id => captured.has(id), releasePointerCapture: id => captured.delete(id),
   }
   const list = { scrollTop: 0, querySelectorAll: () => [] }
   const hook = (run, deps, queue) => {
@@ -85,7 +110,7 @@ function fixture({ folded = true, canvas = true } = {}) {
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
     module, exports: module.exports,
-    require: name => ({ react, 'react-dom': { createPortal: node => node }, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],
+    require: name => ({ react, 'react-dom': { createPortal: node => node, flushSync: run => { run(); draw() } }, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],
     document: doc, window: view, Element: class {},
     localStorage: { getItem: () => JSON.stringify({ x: 20, y: 104, folded }), setItem() {} },
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -97,6 +122,10 @@ function fixture({ folded = true, canvas = true } = {}) {
   })
   const actions = {
     openSession: id => calls.opened.push(id), clearUnread: id => calls.unread.push(id),
+    openCanvasEntity: id => {
+      calls.canvasOpened.push(id)
+      calls.canvasOpenHadEmbedded.push(Boolean(find(tree, node => node.type?.name === 'TeamAgentChat')))
+    },
     beginVisit: id => calls.visits.push(id), endVisit: id => calls.ended.push(id), landOn() {},
     retainCanvasSession: sessionId => ({ sessionId, ready: Promise.resolve(), release() {} }),
     refreshCanvasSessions: () => assert.fail('the fixture catalog already contains each selected session'),
@@ -168,8 +197,18 @@ function fixture({ folded = true, canvas = true } = {}) {
     return draw()
   }
   const chat = () => find(tree, node => node.type?.name === 'TeamAgentChat')
+  const pane = () => find(tree, node => node.type === 'div' && node.props.className?.split(' ').includes('bt-team-split-chat'))
+  const event = (extra = {}) => ({
+    target: paneElement, currentTarget: paneElement, button: 0, buttons: 1, pointerId: 7, pointerType: 'mouse', isPrimary: true,
+    clientX: 400, clientY: 180, defaultPrevented: false, stopped: false,
+    preventDefault() { this.defaultPrevented = true }, stopPropagation() { this.stopped = true }, ...extra,
+  })
   return {
     draw, calls, column, roster, sessions, row, chat,
+    pane,
+    startPopout(extra) { const next = event(extra); doc.emit('pointerdown', next); pane().props.onPointerDownCapture(next); draw(); return next },
+    pointer(name, extra) { const next = event(extra); doc.emit(name, next); draw(); return next },
+    popoutKey(extra) { const next = event({ key: 'Enter', ctrlKey: true, shiftKey: true, ...extra }); pane().props.onKeyDownCapture(next); draw(); return next },
     clickRow(id, detail) { return click(row(id), detail) },
     close() { return click(byLabel(tree, 'Close window')) },
     sessionId: () => find(chat(), node => node.type?.name === 'CanvasSession')?.props.sessionId,
@@ -253,5 +292,103 @@ test('classic sidebar avatar selection continues using openSession for bots and 
   app.draw(); app.clickRow('alpha'); app.clickRow('beta'); app.clickRow('planning')
   assert.deepEqual(app.calls.opened, ['alpha', 'beta', 'planning'])
   assert.equal(app.chat(), undefined)
+  app.unmount()
+})
+
+test('the current conversation pane exposes a keyboard region without a separate pop-out button', () => {
+  const app = fixture()
+  app.draw(); app.clickRow('alpha')
+  assert.equal(app.pane().props.role, 'region')
+  assert.equal(app.pane().props.tabIndex, 0)
+  assert.equal(find(app.draw(), node => node.type === 'button' && node.props.title === 'Pop out to canvas'), undefined)
+  assert.equal(app.sessionId(), 'alpha-current')
+  assert.deepEqual(app.calls.canvasOpened, [])
+  app.unmount()
+})
+
+test('dragging the pane detaches its current bot once after the embedded conversation unmounts', () => {
+  const app = fixture()
+  app.draw(); app.clickRow('alpha')
+  assert.equal(app.sessionId(), 'alpha-current')
+  const press = app.startPopout()
+  assert.equal(press.defaultPrevented, false, 'a pending gesture must leave ordinary clicks available')
+  app.pointer('pointermove', { clientX: 640, clientY: 230 })
+  assert.deepEqual(app.calls.canvasOpened, [], 'moving the preview must not open another conversation')
+  app.pointer('pointerup', { clientX: 650, clientY: 240 })
+  app.pointer('pointerup', { clientX: 650, clientY: 240 })
+  assert.deepEqual(app.calls.canvasOpened, ['alpha'])
+  assert.deepEqual(app.calls.canvasOpenHadEmbedded, [false], 'flushSync must release the embedded occurrence before opening the canvas occurrence')
+  assert.equal(app.chat(), undefined)
+  assert.equal(app.calls.popouts.length, 1)
+  assert.equal(app.calls.popouts[0].entityId, 'alpha')
+  assert.equal(app.calls.popouts[0].offset.x, 240)
+  assert.equal(app.calls.popouts[0].offset.y, 60)
+  assert.deepEqual(app.calls.opened, [])
+  app.unmount()
+})
+
+test('pane keyboard activation detaches the selected bot or room rather than the main-view session', () => {
+  for (const { id, sessionId, modifiers } of [
+    { id: 'beta', sessionId: 'beta-current', modifiers: { ctrlKey: true } },
+    { id: 'planning', sessionId: 'planning', modifiers: { ctrlKey: false, metaKey: true } },
+  ]) {
+    const app = fixture()
+    app.draw(); app.clickRow(id)
+    assert.equal(app.sessionId(), sessionId)
+    const key = app.popoutKey(modifiers)
+    assert.equal(key.defaultPrevented, true)
+    assert.equal(key.stopped, true)
+    assert.deepEqual(app.calls.canvasOpened, [id])
+    assert.deepEqual(app.calls.canvasOpenHadEmbedded, [false])
+    assert.equal(app.calls.popouts.length, 1)
+    assert.equal(app.calls.popouts[0].entityId, id)
+    assert.equal(app.chat(), undefined)
+    assert.deepEqual(app.calls.opened, [])
+    app.unmount()
+  }
+})
+
+test('cancelling a pane drag keeps the current conversation open and never stages a canvas occurrence', () => {
+  const app = fixture()
+  app.draw(); app.clickRow('alpha'); app.startPopout()
+  app.pointer('pointermove', { clientX: 640, clientY: 230 })
+  app.pointer('pointercancel')
+  app.pointer('pointerup', { clientX: 650, clientY: 240 })
+  app.advance(1000)
+  assert.equal(app.sessionId(), 'alpha-current')
+  assert.equal(app.chat().props.entity.id, 'alpha')
+  assert.equal(app.column.dataset.chatClosing, 'false')
+  assert.deepEqual(app.calls.canvasOpened, [])
+  assert.deepEqual(app.calls.popouts, [])
+  app.unmount()
+})
+
+test('switching conversation during a drag cancels the old gesture without detaching the new session', () => {
+  const app = fixture()
+  app.draw(); app.clickRow('alpha'); app.startPopout()
+  app.pointer('pointermove', { clientX: 640, clientY: 230 })
+  app.clickRow('beta')
+  app.pointer('pointerup', { clientX: 650, clientY: 240 })
+  assert.equal(app.sessionId(), 'beta-current')
+  assert.equal(app.chat().props.entity.id, 'beta')
+  assert.deepEqual(app.calls.canvasOpened, [])
+  assert.deepEqual(app.calls.popouts, [])
+  app.unmount()
+})
+
+test('a previous close deadline and detached conversation cannot dismiss the newly selected bot', () => {
+  const app = fixture()
+  app.draw(); app.clickRow('alpha'); app.close(); app.advance(120)
+  app.clickRow('alpha'); app.startPopout()
+  app.pointer('pointermove', { clientX: 640, clientY: 230 })
+  app.pointer('pointerup', { clientX: 650, clientY: 240 })
+  assert.deepEqual(app.calls.canvasOpened, ['alpha'])
+  assert.equal(app.chat(), undefined)
+  app.clickRow('beta'); app.advance(121); app.advance(1000)
+  assert.equal(app.sessionId(), 'beta-current')
+  assert.equal(app.chat().props.entity.id, 'beta')
+  assert.equal(app.row('beta').props['aria-current'], 'page')
+  assert.equal(app.column.dataset.chatClosing, 'false')
+  assert.deepEqual(app.calls.canvasOpened, ['alpha'])
   app.unmount()
 })

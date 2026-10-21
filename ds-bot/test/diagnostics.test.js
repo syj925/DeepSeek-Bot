@@ -73,7 +73,14 @@ test('warnings are kept, cleaned, written to the log, and read back after a rest
   assert.equal(report.entries[0].code, 'RATE_LIMIT', 'newest first')
 
   // Written as JSON lines; a new host reads them back.
-  await new Promise(resolve => setTimeout(resolve, 50))
+  const logPath = join(home, 'logs', 'diagnostics.jsonl')
+  const deadline = Date.now() + 2000
+  while (Date.now() < deadline) {
+    try {
+      if (readFileSync(logPath, 'utf8').trim().split('\n').length === 2) break
+    } catch (error) { if (error.code !== 'ENOENT') throw error }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(readFileSync(join(home, 'logs', 'diagnostics.jsonl'), 'utf8').trim().split('\n').length, 2)
   const again = host(home)
   assert.deepEqual((await again.diagnostics.entries()).map(entry => entry.code), ['EACCES', 'RATE_LIMIT'])

@@ -1,9 +1,9 @@
 import { createElement as h, Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, PeopleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ChatsIcon } from './icons.js'
+import { PlusIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, PeopleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from './icons.js'
 import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
@@ -16,6 +16,8 @@ import { CANVAS_PANEL } from './canvas-session.js'
 import { useFloatingTeam, FLOATING_TEAM_CSS } from './floating-team.js'
 import { TeamAgentChat, TEAM_AGENT_CHAT_CSS } from './team-agent-chat.js'
 import { useMainAgentDrag } from './main-agent-drag.js'
+import { useChatPopoutDrag, stageChatPopout, takeChatPopout, CHAT_POPOUT_CSS } from './chat-popout.js'
+import { conversationTimes, teamConversationOrder } from './team-order.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -288,6 +290,7 @@ export function TeamSidebar(props) {
   const listId = useId()
   const roster = useRoster(value => value)
   const markedUnread = useUi(value => value.unread)
+  const completions = props.useCompletions(value => value)
   const canvasActive = props.usePanelInfo(value => value.activePanelId === CANVAS_PANEL)
   const wide = canvasActive || props.wide
   const [teamChatId, setTeamChatId] = useState(null)
@@ -297,21 +300,12 @@ export function TeamSidebar(props) {
   const floating = useFloatingTeam(canvasActive, root, Boolean(teamChatId), chatClosing)
   const canvasEntity = props.useCanvas(value => value.windows.find(window => window.id === value.active && window.open))
   props.useRegistry(value => value)
+  const conversationStamps = useRef({})
   const updated = useSessions(list => {
-    const stamps = {}
-    for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
-    return JSON.stringify(stamps)
+    conversationStamps.current = conversationTimes(list, roster, conversationStamps.current)
+    return JSON.stringify(conversationStamps.current)
   })
-  const order = useMemo(() => {
-    const stamps = JSON.parse(updated)
-    const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.filter(room => room.task?.status !== 'completed').map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
-      // The Agent sorts by its most recent Session, falling back to when it was added.
-      ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
-    ]
-    return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
-  }, [roster, updated])
+  const order = useMemo(() => teamConversationOrder(roster, JSON.parse(updated), markedUnread, completions), [roster, updated, markedUnread, completions])
   const main = roster.byId[roster.mainBotId]
   useListGlide(listRef, `${wide}:${Boolean(teamChatId && !chatClosing)}:${floating.folded}`, order.map(entry => entry.item.id).join(','))
   useLandOnMainBot(roster, useSessions, actions, canvasActive)
@@ -386,6 +380,25 @@ export function TeamSidebar(props) {
   const splitLayout = canvasActive && teamChatId && !floating.folded
   const activeEntity = teamChatId ? (roster.byId[teamChatId] ?? roster.roomsById[teamChatId]) : null
   const isRoom = Boolean(activeEntity && roster.roomsById[activeEntity.id])
+  const popout = useChatPopoutDrag({
+    enabled: Boolean(splitLayout && !chatClosing),
+    id: activeEntity?.id,
+    onPopout: ({ id, rect, bounds }) => {
+      if (id !== activeEntity?.id) return
+      const view = root.current?.ownerDocument.defaultView
+      // Release the embedded editor before the canvas claims the same Session.
+      clearTimeout(chatCloseTimer.current)
+      flushSync(() => { setTeamChatId(null); setChatClosing(false) })
+      try {
+        stageChatPopout(id, rect, bounds, view)
+        actions.openCanvasEntity(id)
+      } catch (error) {
+        takeChatPopout(id)
+        onSelectTeamChat(id)
+        throw error
+      }
+    },
+  })
   const chatStatus = props.useWork(work => {
     if (!activeEntity) return 'Available'
     if ((work.approvals ?? []).some(item => isRoom ? item.roomId === activeEntity.id : item.botId === activeEntity.id)) return 'Waiting for your approval'
@@ -464,6 +477,11 @@ export function TeamSidebar(props) {
         h('div', { className: 'bt-side' }, navContent)),
       isSplit ? h('div', {
         key: 'chat-shell',
+        role: 'region',
+        tabIndex: 0,
+        'aria-label': activeEntity.name,
+        'aria-description': 'Drag the title or empty space onto the canvas. Press Control or Command, Shift and Enter to open a separate window.',
+        ...popout,
         className: `bt-team-split-chat${chatClosing ? ' bt-chat-closing' : ''}`,
         'data-room-drop-id': isRoom && !chatClosing ? activeEntity.id : undefined,
       },
@@ -484,15 +502,6 @@ export function TeamSidebar(props) {
                 h('path', { d: floating.maximized ? 'M6 6V3h11v11h-3M3 6h11v11H3Z' : 'M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5' }))),
             h('button', {
               type: 'button',
-              className: 'bt-team-chat-btn',
-              title: t('Pop out to canvas'),
-              onClick: () => {
-                actions.openCanvasEntity(activeEntity.id)
-                collapseChat()
-              },
-            }, h(ChatsIcon), h('span', null, t('Pop out to canvas'))),
-            h('button', {
-              type: 'button',
               className: 'bt-team-chat-btn bt-team-chat-btn--icon',
               title: t('Close window'),
               'aria-label': t('Close window'),
@@ -507,10 +516,6 @@ export function TeamSidebar(props) {
             useSessions,
             useWork: props.useWork,
             onOpenConversation: onSelectTeamChat,
-            onPopToCanvas: () => {
-              actions.openCanvasEntity(activeEntity.id)
-              collapseChat()
-            },
             onClose: collapseChat,
           })), h('div', { className: 'bt-team-chat-resize', role: 'separator', tabIndex: 0, 'aria-orientation': 'vertical', 'aria-valuenow': Math.round(floating.chatWidth), 'aria-label': t('Resize conversation'), title: t('Drag to resize conversation'), ...floating.resizeChat })) : null)
   }
@@ -839,6 +844,7 @@ export function BrandName() {
 export const SIDEBAR_CSS = `
 ${FLOATING_TEAM_CSS}
 ${TEAM_AGENT_CHAT_CSS}
+${CHAT_POPOUT_CSS}
 .bt-side-top .bt-brand{cursor:default;padding-left:6px}
 .bt-side-top .bt-brand:hover{background:none}
 .bt-brand .bt-mark{flex:none}

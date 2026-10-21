@@ -6,6 +6,19 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.62] - 2026-10-21
+
+### Added
+
+- Merge department contacts, bundled organization initialization, conversation drag-out, removable desktop widgets, live collaboration records and persistent task result cards from the collaboration branch into `main`.
+
+### Fixed
+
+- Preserve `main`'s incremental group replies, smooth character reveal, reasoning display, inline mentions, provider artwork, employee deletion, explicit model-change requirements, tool inspection and native browser routing during integration.
+- Keep embedded waiting feedback visible between host status updates while leaving group typing and streamed replies to their individual members.
+- Retain the HTTPS publishing workflow and hosted stable update configuration.
+- Retry transient state-file replacement locks while preserving the old snapshot and rejecting saves after another host takes ownership.
+
 ## [0.1.56] - 2026-10-20
 
 ### Fixed

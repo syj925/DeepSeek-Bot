@@ -105,6 +105,50 @@ test('a failed state rename rejects and preserves the saved file', async (t) => 
   }
 })
 
+test('a transient state replacement lock keeps the old snapshot until the retry succeeds', async t => {
+  const { rt, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  const original = fs.readFileSync(statePath)
+  let attempts = 0
+  const restore = patch('rename', rename => async (from, to) => {
+    if (to === statePath && attempts++ < 2) {
+      assert.deepEqual(fs.readFileSync(statePath), original)
+      throw Object.assign(new Error('Temporary reader lock'), { code: 'EPERM' })
+    }
+    return rename(from, to)
+  })
+  try {
+    rt.state.prefs.marker = 'saved after retry'
+    await rt.save()
+    assert.equal(attempts, 3)
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'saved after retry')
+  } finally { restore() }
+})
+
+test('a replacement retry refuses to overwrite state after another host takes ownership', async t => {
+  const { rt, home, statePath } = runtime(t)
+  await rt.load()
+  await rt.save()
+  const original = fs.readFileSync(statePath)
+  let attempts = 0
+  const restore = patch('rename', rename => async (from, to) => {
+    if (to === statePath) {
+      attempts++
+      fs.writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: process.ppid, host: hostname(), token: 'new-owner' }))
+      throw Object.assign(new Error('Temporary reader lock'), { code: 'EPERM' })
+    }
+    return rename(from, to)
+  })
+  try {
+    rt.state.prefs.marker = 'must not overwrite'
+    await assert.rejects(rt.save(), { code: 'ELOCKLOST' })
+    assert.equal(attempts, 1)
+    assert.deepEqual(fs.readFileSync(statePath), original)
+    assert.equal(fs.existsSync(`${statePath}.${process.pid}.tmp`), false)
+  } finally { restore() }
+})
+
 test('malformed state is backed up before a later save', async (t) => {
   const original = '{"version":1,'
   const { rt, statePath } = runtime(t, original)

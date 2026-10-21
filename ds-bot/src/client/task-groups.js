@@ -1,12 +1,54 @@
 import { createElement as h, createContext, useContext, useState } from 'react'
 import { t } from './i18n.js'
 import { BotAvatar } from './mark.js'
+import { dayLabel } from './text.js'
 
 export const TaskGroupNavigation = createContext(null)
 
 export function tasksForConversation(sessionId, roster) {
   const bot = roster.byId[sessionId]
   return (roster.rooms ?? []).filter(room => room.task && room.task.originBotId === (bot?.id ?? sessionId))
+}
+
+// Use durable completion records, not the newest chat reply or an idle employee.
+export function conversationResults(sessionId, roster) {
+  const bot = roster.byId[sessionId]
+  const room = roster.roomsById[sessionId]
+  const rooms = room ? [room] : tasksForConversation(sessionId, roster)
+  const results = rooms.filter(item => item.task?.result && item.task.completedAt).map(item => ({
+    ...item.task.result, id: `result:${item.id}:${item.task.result.cycle}`, at: item.task.completedAt,
+    targetId: item.id, roomId: item.id, sessionId: item.id,
+    previous: item.task.status !== 'completed',
+  }))
+  const owner = bot?.id ?? sessionId
+  for (const item of roster.taskNotices ?? []) {
+    if (item.kind === 'message' || !item.title || item.roomId && rooms.some(value => value.id === item.roomId)) continue
+    if (room ? item.targetId === room.id : !item.roomId && item.targetId === owner) results.push(item)
+  }
+  // Notifications are bounded; private task records survive that notification limit.
+  for (const item of bot?.taskIndex ?? []) {
+    if (item.roomId || !item.title || !item.key || item.key.startsWith('handoff:') || results.some(result => result.id === item.key)) continue
+    results.push({ ...item, id: item.key, targetId: bot.id, botId: bot.id })
+  }
+  return results.sort((a, b) => b.at - a.at)
+}
+
+export function ConversationResult({ item, sessionId, actions, open }) {
+  const navigate = useContext(TaskGroupNavigation) ?? open
+  const label = item.previous ? 'Previous task result' : item.roomId === sessionId ? 'Task completed' : 'Latest completed task'
+  return h('details', { className: 'bt-conversation-result', 'data-result-id': item.id },
+    h('summary', null,
+      h('span', { className: 'bt-result-check', 'aria-hidden': true }, '✓'),
+      h('span', { className: 'bt-result-copy' },
+        h('span', { className: 'bt-result-heading' }, h('strong', null, t(label)), h('time', null, dayLabel(item.at))),
+        h('span', { className: 'bt-result-title', title: item.title }, item.title),
+        h('span', { className: 'bt-result-preview' }, item.summary)),
+      h('span', { className: 'bt-result-expand' }, t('View summary'))),
+    h('div', { className: 'bt-result-details' },
+      h('p', null, item.summary),
+      h('div', { className: 'bt-result-actions' },
+        (item.files ?? []).map(file => h('button', { key: file.path, type: 'button', title: file.path, onClick: () => actions.openTaskResult(item, file) }, '↗ ', file.name)),
+        item.roomId && item.roomId !== sessionId ? h('button', { type: 'button', onClick: () => navigate(item.roomId) }, t('Open task group')) : null)))
 }
 
 export function TaskGroupCard({ room, roster, open }) {
@@ -36,10 +78,12 @@ export function TaskGroupJourney({ sessionId, roster, actions, onOpenConversatio
   const open = onOpenConversation ?? actions.openSession
   const room = roster.roomsById[sessionId]
   const tasks = tasksForConversation(sessionId, roster)
-  if (!room?.task && !tasks.length) return null
+  const results = conversationResults(sessionId, roster)
+  if (!room?.task && !tasks.length && !results.length) return null
   const completed = tasks.filter(item => item.task.status === 'completed')
   return h('section', { className: 'bt-task-journey', 'aria-label': t('Task collaboration') },
     h('style', null, TASK_GROUP_CSS),
+    results.length ? h(ConversationResult, { key: results[0].id, item: results[0], sessionId, actions, open }) : null,
     room?.task ? h('div', { className: 'bt-task-group-status' },
       h('strong', null, room.name),
       h('span', null, t(room.task.status === 'completed' ? 'Archived · send a message to continue this task' : 'Members reply in turn · results stay in this group'))) : null,
@@ -49,6 +93,10 @@ export function TaskGroupJourney({ sessionId, roster, actions, onOpenConversatio
 
 export const TASK_GROUP_CSS = `
 .bt-task-journey{flex:none;max-height:38%;overflow:auto;padding:8px 14px;scrollbar-width:thin;color:#334155;font:12px/1.6 system-ui}
+.bt-conversation-result{border:1px solid #c8e3dc;border-radius:12px;background:#f5fbf9;color:#334155;margin:2px 0 8px}
+.bt-conversation-result>summary{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;cursor:pointer;list-style:none}.bt-conversation-result>summary::-webkit-details-marker{display:none}
+.bt-result-check{color:#177c6c;font-size:17px;flex:none}.bt-result-copy{flex:1;min-width:0}.bt-result-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.bt-result-heading strong{color:#177c6c;font-size:12px}.bt-result-heading time{font-size:10px;color:#64748b}.bt-result-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.bt-result-preview{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;color:#64748b}.bt-result-expand{flex:none;font-size:11px;color:#177c6c}.bt-result-expand:after{content:'⌄';margin-left:5px}.bt-conversation-result[open] .bt-result-expand:after{content:'⌃'}.bt-conversation-result[open] .bt-result-preview{display:none}
+.bt-result-details{padding:0 12px 10px}.bt-result-details p{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere}.bt-result-actions{display:flex;gap:6px;flex-wrap:wrap}.bt-result-actions button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-group-card{border:1px solid #dce9e7;background:linear-gradient(135deg,#f2faf8,#fff 70%);border-radius:14px;padding:12px 14px;margin:8px 0;animation:bt-task-enter .28s ease both;font:12px/1.6 system-ui;color:#334155}
 .bt-task-group-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.bt-task-group-heading strong{font-size:13px}.bt-task-group-heading>span{color:#487c72;font-size:11px}.bt-task-group-card p{margin:6px 0;color:#64748b;overflow-wrap:anywhere}
 .bt-task-group-members{display:flex;flex-wrap:wrap;gap:9px;margin:9px 0}.bt-task-group-members>span{display:flex;align-items:center;gap:5px}

@@ -28,6 +28,7 @@ function eventSurface() {
     },
     removeEventListener(type, listener) { listeners.get(type)?.delete(listener) },
     emit(type, event = {}) { for (const listener of listeners.get(type) ?? []) listener(event) },
+    dispatchEvent(event) { this.emit(event.type, event); return true },
     count(type) { return listeners.get(type)?.size ?? 0 },
   }
 }
@@ -72,7 +73,7 @@ function harness() {
   const window = eventSurface(), document = eventSurface()
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
-    module, exports: module.exports, window, document,
+    module, exports: module.exports, window, document, Event: class { constructor(type) { this.type = type } },
     setTimeout(callback, delay) { const id = ++serial; timers.set(id, { callback, delay, at: clock + delay }); return id },
     clearTimeout: id => timers.delete(id),
     requestAnimationFrame(callback) { const id = ++serial; frames.set(id, callback); return id },
@@ -157,7 +158,7 @@ function fixture() {
     contains: target => target === region || target === scroll || [...tabNodes.values()].includes(target),
   }
   const ops = { id: 'real-ops', name: '运营 Agent', role: '运营主管' }
-  const designer = { id: 'real-designer', name: '设计 Agent', role: '设计主管' }
+  const designer = { id: 'real-designer', name: '设计 Agent', role: '设计主管', avatar: { image: 'sidebar-designer' } }
   const roster = { bots: [ops, designer], rooms: [], byId: { [ops.id]: ops, [designer.id]: designer }, roomsById: {}, mainBotIds: [], teams: [
     { id: 'ops', name: '运营部', members: [ops.id], leaderId: ops.id },
     { id: 'design', name: '设计部', members: [designer.id], leaderId: designer.id },
@@ -193,6 +194,46 @@ function fixture() {
   draw()
   return { render, draw, item, icon, floating, popover, enter, leave, pointer, props, drag, starts, opened, metrics, rects, tabNodes, scroll, rootRect, wrapRect, region }
 }
+
+test('temporary collection preserves real membership and lets each member open and drag independently', () => {
+  const app = fixture(), roster = app.props.roster
+  const coordinator = { id: 'temp-lead', name: '临时员工主管', teamId: 'temp-team', avatar: { image: 'saved-lead' }, employment: 'long-term' }
+  const temps = [{ id: 'temp-one', name: 'Analyst', teamId: 'ops', ownerId: 'real-ops', employment: 'temporary' },
+    { id: 'temp-two', name: 'Reviewer', ownerId: 'real-designer', employment: 'temporary' }]
+  roster.bots.push(coordinator, ...temps)
+  for (const bot of [coordinator, ...temps]) roster.byId[bot.id] = bot
+  roster.teams.push({ id: 'temp-team', name: '临时员工部', purpose: 'Coordinate temporary staffing', leaderId: coordinator.id, members: [coordinator.id] })
+  roster.teams[0].members.push(temps[0].id)
+  const before = JSON.stringify(roster)
+  const groups = app.render.groupDockEntities(roster.bots, roster)
+  const group = groups.find(item => item.key === 'dock:temporary')
+  assert.ok(group)
+  assert.equal(group.leadEntity.id, coordinator.id)
+  assert.equal(group.leadEntity.avatar.image, coordinator.avatar.image)
+  assert.equal(group.dept.agents[0].avatar.image, group.leadEntity.avatar.image)
+  assert.deepEqual(Array.from(group.dept.agents, bot => bot.id), [coordinator.id, ...temps.map(bot => bot.id)])
+  assert.equal(groups.some(item => item.key === 'bot:temp-one'), false)
+  assert.equal(JSON.stringify(roster), before, 'collection does not create departments or change ownership')
+  const node = { getBoundingClientRect: () => app.rects.get('ops'), scrollIntoView() {} }
+  app.tabNodes.set('dock:temporary', node)
+  app.props.roster = { ...roster }
+  app.draw()
+  app.item('dock:temporary').props.onPointerDown({ currentTarget: node })
+  app.draw()
+  assert.equal(app.starts.length, 0, 'collection icon must not drag an arbitrary employee')
+  assert.equal(app.item('dock:temporary').props.draggable, false)
+  const tree = app.render.DockCollaborationPopover(app.popover().props)
+  const cards = findAll(tree, value => hasClass(value, 'bt-collab-card'))
+  assert.equal(cards.length, 3)
+  const payload = []
+  cards[2].props.onDragStart({ dataTransfer: { setData: (...args) => payload.push(args) } })
+  assert.equal(JSON.parse(payload[0][1]).id, 'temp-two')
+  find(cards[2], value => hasClass(value, 'bt-collab-chat-btn')).props.onClick({ stopPropagation() {} })
+  assert.equal(app.opened[0][0], 'temp-two')
+  assert.equal(find(tree, value => hasClass(value, 'bt-dock-supervision-chain')), undefined)
+  assert.equal(app.render.groupDockEntities([], roster).length, 0, 'empty collection has no placeholder')
+  app.render.unmount()
+})
 
 test('hover preserves each original keyed icon while preview and selected department stay independent', () => {
   const app = fixture()
@@ -398,5 +439,85 @@ test('a tab outside the scroll viewport or removed from the Dock closes its depa
   app.rects.set('ops', { ...app.rects.get('ops'), left: 180, right: 238 })
   app.scroll.emit('scroll'); app.render.flushFrame(); app.draw()
   assert.equal(app.popover()?.props.entity.id, 'real-ops', 'a partially visible tab remains usable')
+  app.render.unmount()
+})
+
+
+test('Dock shows departments only without changing independent employees or group identities', () => {
+  const app = fixture()
+  const independent = { id: 'independent', name: 'Standalone' }
+  const room = { id: 'actual-room', name: 'Project', members: ['real-ops'] }
+  app.props.roster.bots.push(independent)
+  app.props.roster.byId[independent.id] = independent
+  app.props.roster.rooms.push(room)
+  app.props.roster.roomsById[room.id] = room
+  const before = JSON.stringify(app.props.roster)
+  const groups = app.render.groupDockEntities([...app.props.roster.bots, room], app.props.roster)
+  assert.deepEqual(Array.from(groups, group => group.key), ['design', 'ops'])
+  const product = groups.find(group => group.key === 'design')
+  assert.equal(product.name, '产品部')
+  assert.equal(product.leadEntity.id, 'real-designer')
+  assert.equal(product.leadEntity.avatar.image, 'sidebar-designer')
+  assert.equal(JSON.stringify(app.props.roster), before)
+  const collaborators = app.render.getCollaboratorBots(product.dept, app.props.roster)
+  assert.equal(collaborators[0].id, 'real-designer')
+  assert.equal(collaborators[0].avatar.image, product.leadEntity.avatar.image)
+  const roomMembers = app.render.getCollaboratorBots({ agents: [app.props.roster.byId['real-designer'], independent] }, app.props.roster)
+  assert.equal(roomMembers[0].id, 'real-designer')
+  assert.equal(roomMembers[0].avatar.image, product.leadEntity.avatar.image, 'group and General Assistant members use the same actual-team skin')
+  assert.equal(roomMembers[1].id, independent.id)
+  assert.deepEqual(Array.from(app.render.groupDockEntities([], app.props.roster)), [])
+  app.render.unmount()
+})
+
+test('Dock tools route to existing settings and wallpaper events and close the active preview', () => {
+  const app = fixture(), settings = [], wallpaper = []
+  app.props.actions.openSettings = (...args) => settings.push(args)
+  app.render.window.addEventListener('ds-bot:open-wallpaper', event => wallpaper.push(event.type))
+  app.enter('ops'); app.render.advance(120); app.draw()
+  assert.ok(app.popover())
+  let tree = app.draw()
+  find(tree, node => node.props['data-dock-tool'] === 'settings').props.onClick()
+  app.draw()
+  assert.deepEqual(settings, [[]])
+  assert.equal(app.popover(), undefined)
+  tree = app.draw()
+  find(tree, node => node.props['data-dock-tool'] === 'appearance').props.onClick()
+  assert.deepEqual(wallpaper, ['ds-bot:open-wallpaper'])
+  app.render.unmount()
+})
+
+
+test('new custom departments appear in Dock and describe their purpose instead of private messages', () => {
+  const app = fixture(), roster = app.props.roster
+  const lead = { id: 'finance-lead', name: 'Finance lead', avatar: { image: 'sidebar-finance' }, teamId: 'finance' }
+  const purpose = 'Manage budgets and review expenses'
+  roster.bots.push(lead); roster.byId[lead.id] = lead
+  roster.teams.push({ id: 'finance', name: '财务部', leaderId: lead.id, members: [lead.id], purpose })
+  const group = app.render.groupDockEntities(roster.bots, roster).find(group => group.key === 'finance')
+  assert.ok(group)
+  assert.equal(group.leadEntity.avatar.image, lead.avatar.image)
+  const tree = app.render.DockCollaborationPopover({ entity: group.leadEntity, department: group.dept, pos: { x: 400, bottom: 100 }, roster,
+    actions: {}, work: { bots: { [lead.id]: { tool: 'private-tool' } }, rooms: {} },
+    useSessions: () => { throw Error('Department introduction must not read private conversation previews') },
+  })
+  assert.equal(find(tree, node => hasClass(node, 'bt-dock-task-preview')).children[0], purpose)
+  const chiefTree = app.render.DockCollaborationPopover({ entity: { id: 'chief', generalAssistant: true }, pos: { x: 400, bottom: 100 }, roster, actions: {} })
+  assert.ok(find(chiefTree, node => hasClass(node, 'bt-dock-task-preview')).children[0])
+  app.render.unmount()
+})
+
+test('Executive office lists Chief and department leads without changing department ownership', () => {
+  const app = fixture(), roster = app.props.roster
+  const chief = { id: 'chief', name: 'Chief', generalAssistant: true, avatar: { image: 'sidebar-chief' } }
+  const lead = roster.byId['real-ops']
+  roster.bots.push(chief); roster.byId[chief.id] = chief
+  roster.teams[0].leaderId = lead.id
+  const chiefDept = app.render.getDepartmentForEntity(chief, roster)
+  assert.deepEqual(Array.from(chiefDept.agents, bot => bot.id), [chief.id, lead.id, 'real-designer'])
+  const groups = app.render.groupDockEntities(roster.bots, roster)
+  assert.equal(groups[0].name, 'Executive office')
+  assert.deepEqual(Array.from(groups[0].dept.agents, bot => bot.id), [chief.id, lead.id, 'real-designer'])
+  assert.equal(roster.teams[0].members.includes(lead.id), true, 'showing management contacts does not move leaders out of their teams')
   app.render.unmount()
 })

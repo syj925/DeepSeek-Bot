@@ -1,4 +1,10 @@
-# QibitAI 0.1.51 源码入口
+# 当前交接入口
+
+当前插件版本为 0.1.62，以 `main` 为开发与发布底座。请先阅读[本轮主干合并说明](docs/main-integration-0.1.62.zh.md)。协作分支的 0.1.61 已合入主干；后续开发先同步 `main`，不要重新以历史源码包覆盖主干。此前的 [UI 设计师与 AI 交接文档](docs/UI-HANDOFF-0.1.59.zh.md) 及下文仅供追溯。
+
+---
+
+# QibitAI 0.1.51 源码入口（历史）
 
 当前源码为员工画布及协作插件 ds-bot 0.1.51，已接入 QibitAI 桌面端；不包含 Electron 桌面壳或用户数据。请先阅读 AGENTS.md、ds-bot/package.json、docs/chief-routing-desktop-0.1.51.zh.md。压缩包内 SOURCE-MANIFEST.json 记录精确 Git 提交和逐文件校验值。
 

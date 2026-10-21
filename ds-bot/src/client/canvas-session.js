@@ -118,7 +118,7 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useWork, 
     : h('div', { className: 'bt-canvas-session-error' }, h('p', null, t('This conversation is open in another window.')),
       h('button', { type: 'button', className: 'bt-canvas-button', onClick: () => surface.current?.activate() }, t('Continue here'))),
   h(ExecutionStatus, { sessionId, useRoster, useWork, useSessionStatus, useSession, useLive, actions }),
-  h(ActivityIndicator, { key: sessionId, sessionId, useRoster, useSessionStatus, useSession, useLive, actions, rootRef: root }),
+  h(ActivityIndicator, { key: sessionId, sessionId, useRoster, useWork, useSessionStatus, useSession, useLive, actions, rootRef: root, inline: true, enabled: ownsEditor && editorReady }),
   ownsEditor && editorReady ? h(StreamFollow, { key: `follow:${sessionId}`, sessionId, rootRef: root }) : null,
   ownsEditor && editorReady ? h(StreamReveal, { key: `reveal:${sessionId}`, sessionId, rootRef: root }) : null,
   roster.roomsById[sessionId] && ownsEditor && editorReady ? h(RoomStreams, { key: `streams:${sessionId}`, sessionId, roster, actions, useUi, rootRef: root }) : null))

@@ -332,19 +332,20 @@ ${AGENT_AVATAR_CSS}
 .bt-dialog .bt-head{height:62px}
 .bt-dialog-log{flex:1;overflow-y:auto;padding:8px 16px 20px;width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
 .bt-dialog-foot{display:flex;justify-content:center;padding:10px 10px 16px}
-.bt-exchange{animation:bt-sheet-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} both,bt-veil-in .24s ease-out both}
-.bt-exchange[data-leaving]{animation:bt-sheet-out .22s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
-@keyframes bt-sheet-in{from{transform:translateY(24px)}}
-@keyframes bt-sheet-out{to{opacity:0;transform:translateY(16px);filter:blur(4px)}}
-.bt-exchange .bt-dialog{position:relative}
-.bt-exchange .bt-dialog-log{max-width:none;margin:0;padding:39px max(16px,calc((100% - 960px)/2)) 76px;scrollbar-width:thin}
-.bt-exchange .bt-tools{display:none}
-.bt-exchange .bt-dialog-foot{position:absolute;left:0;right:0;bottom:0;height:76px;box-sizing:border-box;align-items:flex-end;padding:0 0 28px;background:var(--bt-main);z-index:3;animation:bt-foot-in .3s cubic-bezier(.22,1,.36,1) .3s both}
-.bt-exchange .bt-dialog-foot::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:40px;background:linear-gradient(to top,var(--bt-main),transparent);pointer-events:none}
-.bt-exchange[data-leaving] .bt-dialog-foot{animation:bt-foot-out .22s cubic-bezier(.4,0,1,1) forwards}
-@keyframes bt-foot-in{from{opacity:0;transform:translateY(6px)}}
-@keyframes bt-foot-out{to{opacity:0;transform:translateY(6px)}}
-@media (prefers-reduced-motion:reduce){.bt-exchange,.bt-exchange .bt-dialog-foot{animation-duration:.01s}}
+.bt-exchange-layer{position:fixed;inset:0;z-index:2147483090;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;background:rgba(15,23,42,.12);color:var(--bt-ink);font-family:var(--bt-font-sans,system-ui);pointer-events:auto;animation:bt-veil-in .16s ease-out}
+.bt-exchange-layer[data-local]{position:fixed;inset:auto;padding:8px;background:rgba(15,23,42,.08);z-index:2147483090}
+.bt-exchange-card{width:min(760px,100%);height:min(620px,100%);min-height:0;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--bt-line-2);border-radius:18px;background:var(--bt-main,#fff);box-shadow:0 16px 48px #0f172a26;animation:bt-exchange-in .18s ease-out}
+.bt-exchange-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--bt-line);flex:none}
+.bt-exchange-head>div{min-width:0}.bt-exchange-head strong{font-size:15px;font-weight:600}
+.bt-exchange-pair{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;flex-wrap:wrap;color:var(--bt-ink-2)}
+.bt-exchange-close{display:grid;place-items:center;flex:none;width:30px;height:30px;border:0;border-radius:9px;background:var(--bt-hover);color:var(--bt-ink);cursor:pointer}.bt-exchange-close:hover{background:var(--bt-active)}.bt-exchange-close svg{width:16px;height:16px}
+.bt-exchange-log{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:18px;scrollbar-width:thin}
+.bt-exchange-message-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;flex-wrap:wrap;margin-bottom:2px}.bt-exchange-message-head time{color:var(--bt-ink-3);font-size:11px}
+.bt-exchange-card .bt-tools{display:none}.bt-exchange-card .bt-astack{min-width:0}
+.bt-exchange-status{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 18px;border-top:1px solid var(--bt-line);color:var(--bt-ink-2);font-size:12px;flex:none}.bt-exchange-status>span{min-width:0;overflow-wrap:anywhere}.bt-exchange-status button{flex:none;font-size:12px;height:28px}
+.bt-exchange-layer[data-leaving]{opacity:0;transition:opacity .16s;pointer-events:none}.bt-exchange-layer[data-leaving] .bt-exchange-card{transform:translateY(6px);transition:transform .16s}
+@keyframes bt-exchange-in{from{opacity:0;transform:translateY(8px)}}
+@media(prefers-reduced-motion:reduce){.bt-exchange-layer,.bt-exchange-card{animation:none}.bt-exchange-layer[data-leaving],.bt-exchange-layer[data-leaving] .bt-exchange-card{transition:none}}
 .bt-soft{height:36px;border-radius:999px;border:0;background:var(--bt-hover);color:var(--bt-ink);padding:0 16px;font-size:14px;cursor:pointer}
 .bt-soft:hover{background:var(--bt-active)}
 .bt-time{display:block;text-align:center;font-size:12px;line-height:16px;color:var(--bt-ink-2);padding:6px 0}
@@ -788,10 +789,6 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 `
 
 export const CONVERSATION_CSS = `
-.bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:min(560px,78%)}
-.bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
-.bt-think summary::-webkit-details-marker{display:none}
-.bt-think-text{white-space:pre-wrap;margin-top:6px;padding-left:10px;border-left:2px solid var(--bt-line-2)}
 .bt-event{display:flex;justify-content:center;align-items:center;gap:2px;min-height:24px;margin:2px 0;font-size:12px;line-height:16px;color:var(--bt-ink-2);flex-wrap:wrap}
 .bt-event>span{padding:0 2px}
 .bt-event button{border:0;background:none;color:inherit;font:inherit;display:inline-flex;align-items:center;gap:4px;cursor:pointer;height:24px;padding:4px 6px 4px 4px;border-radius:999px;box-sizing:border-box;transition:background-color .12s ease}
@@ -840,6 +837,8 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 [data-chat-running]:has(> .bt-typing){margin-top:var(--dsh-chat-flow-gap,12px)!important}
 .bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
+.bt-typing-stable{flex:none;height:auto;min-height:40px;padding:6px 14px;box-sizing:border-box}
+.bt-typing-stable .bt-typing-label>.bt-shimmer{white-space:normal;overflow:visible;color:var(--bt-ink-2);background:none;font-size:13px;line-height:20px}
 .bt-typing>.bt-mark,.bt-typing>.bt-cluster{flex-shrink:0}
 .bt-typing>.bt-mark{cursor:pointer;transition:filter .16s ease-out}
 .bt-typing>.bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}

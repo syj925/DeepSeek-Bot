@@ -1,4 +1,6 @@
-QibitAI 0.1.59 adds employee group-work updates, a read-only tool inspection view, and an entry to the actual execution Session's native browser. The extra Bot page reader remains distinct from the host's browser automation tools. [Context and browser routing](docs/qibitai-tool-browser-routing.md). Source integration is separate from publication; the stable install address serves the latest published release.
+QibitAI 0.1.62 integrates department Dock contacts, conversation drag-out, removable desktop widgets, live collaboration records and saved task result cards into `main`. It retains smooth streaming, inline mentions, employee cleanup, user-requested model changes and hosted updates. Bundled organization initialization creates missing preset departments and employees once; existing departments and completed initialization are preserved.
+
+Employee group-work updates, read-only tool inspection and the actual execution Session's native browser entry remain available. The extra Bot page reader remains distinct from the host's browser automation tools. [Context and browser routing](docs/qibitai-tool-browser-routing.md). Source integration is separate from publication; the stable install address serves the latest published release.
 
 QibitAI 0.1.47 integrates the supplied UI handoff: group previews, Dock motion, role animations and the QiBit widget. The four feature cards remain labeled examples; task and permission logic is unchanged.
 

@@ -212,6 +212,7 @@ export function apply(ctx) {
     const current = roster.getSnapshot()
     // Connector and capability states change without a new revision.
     const live = {}
+    if (value.taskNotices !== undefined && JSON.stringify(value.taskNotices) !== JSON.stringify(current.taskNotices ?? [])) live.taskNotices = value.taskNotices
     if (value.taskProgress !== undefined && JSON.stringify(value.taskProgress) !== JSON.stringify(current.taskProgress ?? {})) live.taskProgress = value.taskProgress
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
@@ -719,7 +720,7 @@ export function apply(ctx) {
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
-    exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
+    exchange: (a, b) => call('exchange', { a, b }),
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.

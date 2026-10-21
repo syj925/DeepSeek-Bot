@@ -1,7 +1,9 @@
-QibitAI canvas plugin 0.1.59
+QibitAI canvas plugin 0.1.62
 
-- Add recent group-work updates to each employee's private chat, linking saved replies and verified task results to their original group without merging execution contexts.
-- Add on-demand tool inspection for the actual private or group-member Session. Distinguish registered tools, the last assembled request header, historical declarations and deferred loading; retain employee capability mount states without activating an inactive Agent.
-- Add a compatible Desktop entry to the real execution Session's native browser in classic Agent view, with a route back to the source Bot or group. Browser tab creation does not certify that automation is connected; embedding multiple hidden native guests on the canvas is not supported by the current public host API.
-- Keep the extra `read_browser` page reader separate from full host browser tools. Bind its floating window and selected tabs to an employee and the originating group or private chat, with shared login storage across that employee's tabs.
-- Document host tool loading, shared-computer limits and context retrieval boundaries. Employee models, permissions and existing task ownership remain unchanged.
+- Integrate the collaboration branch into main while retaining incremental group replies, character reveal, inline mentions, provider icons, employee cleanup and explicit user-requested model changes.
+- Add department contacts, executive and temporary staffing collections, settings and appearance controls to the Dock. Seed missing bundled departments and employees once when preset organization is enabled; preserve existing departments and completed initialization.
+- Drag the current conversation onto the canvas without creating another conversation. Keep its draft, identity and existing messages; support keyboard placement and gesture cancellation.
+- Show collaboration records over the source chat with live updates, reading-position preservation, retry feedback and focus restoration. Keep saved task results visible while subsequent work continues.
+- Allow desktop widgets and conversation cards to be removed from the canvas and widgets restored in display settings. Improve waiting feedback without duplicating group member streaming.
+- Preserve tool inspection, employee native-browser routing, group-work updates, permissions and the verified HTTPS update pipeline from main.
+- Retry transient atomic state-file replacement failures without deleting the saved snapshot, and recheck ownership before every retry.

@@ -75,6 +75,7 @@ function useQiBitPlacement(actions) {
     if (!canvas) return undefined
     const measure = () => {
       const box = canvas.getBoundingClientRect(), widget = node.getBoundingClientRect()
+      if (widget.width <= 0 || widget.height <= 0) return
       setArea(old => old.width === box.width && old.height === box.height ? old : { width: box.width, height: box.height })
       const folded = node.dataset.folded === 'true'
       setMetrics(old => old.height === widget.height && old.folded === folded ? old : { height: widget.height, folded })

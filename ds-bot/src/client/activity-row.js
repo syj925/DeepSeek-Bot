@@ -5,13 +5,20 @@ import { Shimmer, PHRASES } from './cells.js'
 import { reducedMotion } from './motion.js'
 import { t } from './i18n.js'
 import { currentPart } from './text.js'
+import { executionState } from './execution-status.js'
 
 // -------------------------------------------------------------------------
 // The activity row: the Bot's mark and a shimmering phrase at the transcript
-// tail while it works. It lives in the shell's running status, steps aside while a
-// reply streams, and holds each phrase long enough to read.
+// tail while it works. Embedded chats use the transcript itself because the
+// shell can remove its running host between updates.
 
 const PHRASE_HOLD_MS = 800
+const WAITING_PHRASES = [
+  'I have your request. Let me think it through',
+  'Thanks for waiting. I am still waiting for a reply',
+  'I have your request; no need to send it again',
+  'I am still waiting for the reply. Check the progress below',
+]
 const drawPhrase = pool => t(pool[Math.min(pool.length - 1, Math.floor(Math.random() * pool.length))])
 export function elapsedLabel(ms) {
   const minutes = Math.floor(ms / 60000)
@@ -21,7 +28,7 @@ export function elapsedLabel(ms) {
 }
 export { reducedMotion }
 
-function useRunningHost(active, rootRef) {
+function useRunningHost(active, rootRef, inline) {
   const [host, setHost] = useState(null)
   useEffect(() => {
     if (!active) { setHost(null); return undefined }
@@ -30,14 +37,14 @@ function useRunningHost(active, rootRef) {
     let frame = 0
     const find = () => {
       frame = 0
-      const node = root.querySelector('[data-chat-flow] > [data-chat-running]')
+      const node = root.querySelector(inline ? '[data-chat-flow]' : '[data-chat-flow] > [data-chat-running]')
       setHost(prev => (prev === node ? prev : node))
     }
     const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
     observer.observe(rootRef ? root : (root.querySelector('[data-conversation-scroll]') ?? document.body), { childList: true, subtree: true })
     find()
     return () => { cancelAnimationFrame(frame); observer.disconnect() }
-  }, [active, rootRef])
+  }, [active, rootRef, inline])
   return host
 }
 
@@ -87,8 +94,11 @@ function useRowEntrances(replacing, rootRef) {
   }, [rootRef])
 }
 
-export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, actions, rootRef }) {
+const useEmptyWork = pick => pick({})
+
+export function ActivityIndicator({ sessionId, useRoster, useWork = useEmptyWork, useSessionStatus, useLive, useSession, actions, rootRef, inline = false, enabled = true }) {
   const roster = useRoster(value => value)
+  const work = useWork(value => value)
   const running = useSessionStatus(map => map.get(sessionId)?.running === true)
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
   // A queued message waits for the next turn, so only a transcript or steering
@@ -100,21 +110,31 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   const entries = useMemo(() => Object.values(JSON.parse(liveKey)), [liveKey])
   const streaming = entries.some(entry => entry.text)
   const tools = entries.filter(entry => !entry.text).sort((a, b) => a.at - b.at)
-  // Group replies own their member's typing state and streamed body. A group
-  // relay can run inside PTC or outlive its tool note, so a generic room row
-  // would otherwise appear beside an employee who is already answering.
+  // Group chats show who is typing on their own while members speak.
   const relaying = tools.some(entry => entry.relay)
-  const visible = running && !streaming && !relaying && bot !== undefined && room === undefined
+  const execution = executionState({ sessionId, roster, work, running, entries, pending: pendingInput > 0 })
+  const blocked = ['error', 'approval', 'question'].includes(execution?.kind)
+  // The host can still be executing a tool between session-status updates.
+  // Old reply text must not hide the waiting row once execution has continued.
+  const active = running || ['waiting', 'tool', 'reply'].includes(execution?.kind)
+  const replying = streaming && !execution?.tool && !tools.length
+  const visible = enabled && active && !blocked && !replying && !relaying && bot !== undefined && room === undefined
   const tool = tools.at(-1)
   const inputRef = useRef(0)
   // A steer keeps the run going, so nothing else resets the row: fresh input is
   // the newest activity, and the phrase and the clock restart from the send.
   const inputAt = Math.max(inputRef.current, pendingInput)
   inputRef.current = inputAt
+  const signal = JSON.stringify([sessionId, active, liveKey, inputAt, execution?.kind, execution?.tool, execution?.activity])
+  const progress = useRef({ signal, at: Date.now() })
+  if (progress.current.signal !== signal) progress.current = { signal, at: Date.now() }
+  const runKey = JSON.stringify([sessionId, active, inputAt])
+  const run = useRef({ key: runKey, at: Date.now() })
+  if (run.current.key !== runKey) run.current = { key: runKey, at: Date.now() }
   const want = !visible ? null
-    : inputAt > (tool?.at ?? 0)
+    : inline || inputAt > (tool?.at ?? 0)
       ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
-      : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
+      : execution?.tool ? { key: `tool:${execution.tool}`, label: execution.tool, pool: ['On it'], state: tool?.state ?? 'working' }
         : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
   const [shown, setShown] = useState(null)
   const wantKey = want?.key ?? null
@@ -153,27 +173,35 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     shift.current = null
     const root = rootRef ? rootRef.current : document
     const scroller = root?.querySelector('[data-conversation-scroll]')
-    if (before === null || !scroller || reducedMotion()) return
+    if (inline || before === null || !scroller || reducedMotion()) return
     const delta = before - scroller.scrollTop
     if (delta > 0) scroller.querySelector('[data-chat-flow]')?.animate([{ transform: `translateY(${-delta}px)` }, { transform: 'none' }], { duration: 140, easing: 'cubic-bezier(.23,1,.32,1)' })
-  }, [phase, rootRef])
+  }, [phase, rootRef, inline])
   // Cancelled tools never report a result, so their notes end with the run.
-  useEffect(() => { if (!running) actions.clearLive(sessionId) }, [running, sessionId])
+  useEffect(() => { if (!active) actions.clearLive(sessionId) }, [active, sessionId])
   // Only rows that take the activity row's place grow out of it.
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300, rootRef)
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     if (phase !== 'in') return undefined
-    const timer = setInterval(() => setNow(Date.now()), 10000)
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [phase])
-  const host = useRunningHost(running, rootRef)
-  if (!host || phase === null || !shown) return null
-  const elapsed = now - shown.at >= 60000 ? elapsedLabel(now - shown.at) : null
-  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined, 'aria-hidden': true },
+  const host = useRunningHost(active && enabled, rootRef, inline)
+  if (!host || !enabled || blocked || phase === null || !shown) return null
+  const elapsed = now - run.current.at >= 60000 ? elapsedLabel(now - run.current.at) : null
+  const slow = now - progress.current.at >= 45000 && markState.current !== 'alert'
+  const waiting = !want?.label && markState.current === 'thinking'
+  const phrase = slow ? t('This is taking longer. No new progress yet')
+    : waiting ? t(WAITING_PHRASES[Math.floor(Math.max(0, now - progress.current.at) / 8000) % WAITING_PHRASES.length]) : shown.text
+  // The shell can append new messages after this independently mounted portal.
+  // Keep waiting last visually without moving DOM nodes owned by either React tree.
+  const row = h('div', { className: `bt-typing${inline ? ' bt-typing-stable' : ''}`, style: inline ? { order: 1 } : undefined, 'data-exiting': phase === 'out' ? '' : undefined, role: 'status', 'aria-live': 'polite' },
     bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 }),
     h('span', { className: 'bt-typing-text' },
-      h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' },
-        h(Shimmer, null, `${shown.text}…`),
-        elapsed ? h('span', { className: 'bt-typing-time' }, `· ${elapsed}`) : null))), host)
+      h('span', { key: `${shown.key}:${phrase}`, className: 'bt-typing-label' },
+        h(Shimmer, null, `${phrase}…`),
+        elapsed ? h('span', { className: 'bt-typing-time' }, `· ${elapsed}`) : null)))
+  return createPortal(row, host)
 }
