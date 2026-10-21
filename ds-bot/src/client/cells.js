@@ -14,6 +14,7 @@ import { ThinkingRow } from './reasoning-stream.js'
 import { replyIdentity } from '../shared/employee-avatar.js'
 import { TaskGroupCard } from './task-groups.js'
 import { subscribeRoomProgress } from './room-progress.js'
+import { ConversationFiles } from './file-navigation.js'
 
 // -------------------------------------------------------------------------
 // Chat cells
@@ -29,7 +30,7 @@ const mdLabels = () => {
 }
 
 // The sender avatar starts the first bubble; following bubbles retain its gutter.
-export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, sessionId, msgKey, useUi, lead, mentions, revealFresh, revealKey }) {
+export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, sessionId, fileSessionId, msgKey, useUi, lead, mentions, revealFresh, revealKey }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -48,7 +49,7 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, streamId, s
         h('div', { className: 'bt-msg-line' },
           lead && index === 0 ? lead : null,
           h('div', { className: 'bt-bubble', 'data-bt-reveal-text': '' },
-            h(MarkdownText, { text: linkMentions(text, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })),
+            h(ConversationFiles, { sessionId: fileSessionId ?? sessionId, conversationId: sessionId, actions }, h(MarkdownText, { text: linkMentions(text, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions }))),
           live ? null : h(MessageTools, { text, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions })),
         picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
           key: emoji, type: 'button', className: 'bt-react', 'aria-label': t('Remove reaction {emoji}', { emoji }), onClick: () => actions.toggleReaction(msgKey, index, emoji),
@@ -129,7 +130,8 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const data = node.data
   const steps = useTurnSteps(String(data.turn))
   const contexts = useTurnContext(String(data.turn))
-  const mentions = useFileMentions({ node, openFile, fileMentions, useTurnData })
+  const scopedOpenFile = useMemo(() => actions.openConversationFile ? (path, options) => actions.openConversationFile(sessionId, path, options, openFile) : openFile, [sessionId, openFile, actions])
+  const mentions = useFileMentions({ node, openFile: scopedOpenFile, fileMentions, useTurnData })
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn)
   const texts = groupPart === 'reasoning' ? [] : data.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text)
   const running = data.status === 'running'
@@ -180,13 +182,13 @@ function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
 }
 
 // One Bot message inside a group chat: avatar, name (with its group role), bubble.
-export function GroupMessage({ bot, text, room, roster, actions, msgKey, useUi, streaming, streamId }) {
+export function GroupMessage({ bot, text, room, roster, actions, msgKey, useUi, streaming, streamId, fileSessionId }) {
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
   return h('div', { className: 'bt-group-msg', 'data-bt-stream-id': streamId },
     h('span', { className: 'bt-group-name', style: { color: inkText(colorOf(bot)) } }, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null),
-    h(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead, streaming, streamId }))
+    h(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room?.id, fileSessionId, msgKey, useUi, lead, streaming, streamId }))
 }
 
 // A centered event line that names a group chat and opens it.
@@ -353,7 +355,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         if (source.failed !== undefined || source.resumed === true || source.stopped === true) return null
         const room = roster.roomsById[sessionId]
         const poster = replyIdentity({ identity: source.identity, botId: source.senderSessionId, name: source.senderName ?? t('a Bot') }, roster)
-        return h(GroupMessage, { bot: poster, text: stripHeader(contentText(data.content)), room, roster, actions, msgKey: `${sessionId}:${data.turn}:post`, useUi, streamId: source.streamId })
+        return h(GroupMessage, { bot: poster, text: stripHeader(contentText(data.content)), room, roster, actions, msgKey: `${sessionId}:${data.turn}:post`, useUi, streamId: source.streamId, fileSessionId: source.fileSessionId })
       }
       if (source.role === 'report') {
         return h(GroupEvent, { prefix: t('Replies from'), room: roster.roomsById[source.roomId], name: t('a group chat'), roster, actions })
@@ -602,7 +604,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       if (reply.kind === 'stopped') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
       }
-      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, streamId: reply.streamId, streaming: !done && reply === live.streaming })
+      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, streamId: reply.streamId, fileSessionId: reply.fileSessionId, streaming: !done && reply === live.streaming })
     }),
     pending.map((id) => {
       const bot = roster.byId[id]

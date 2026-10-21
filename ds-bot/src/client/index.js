@@ -40,6 +40,8 @@ import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-m
 import { noticeApprovals } from './approval-notices.js'
 import { CANVAS_PANEL, CANVAS_CONVERSATION, CanvasConversation, CanvasLauncher, canvasSessionId } from './canvas-session.js'
 import { CanvasWorkspace } from './canvas-workspace.js'
+import { createCanvasFiles } from './canvas-files.js'
+import { CANVAS_FILES_CSS } from './canvas-file-window.js'
 import { canvasStyles } from './canvas-styles.js'
 import { COMPOSER_MOTION_CSS } from './composer-motion.js'
 import { STREAM_REVEAL_CSS } from './stream-reveal.js'
@@ -76,6 +78,8 @@ export function apply(ctx) {
   // view hosts a plain session, which drops only the conversation replacements.
   const surface = createSource({ mode: readMode(), plain: false })
   const canvas = createSource(readCanvas())
+  const canvasFiles = createCanvasFiles()
+  ctx.effect(() => () => canvasFiles.clear(), 'ds-bot: canvas files')
   const completions = createSource({})
   const readingChats = createSource({})
   let canvasPreferred = true
@@ -806,6 +810,7 @@ export function apply(ctx) {
   actions.openCanvasConversation = id => {
     const current = canvas.getSnapshot()
     if (!current.windows.some(window => window.id === id && window.open)) return
+    canvasFiles.blur()
     const next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
     updateCanvas(next)
     actions.openCanvas(false)
@@ -840,6 +845,29 @@ export function apply(ctx) {
     if (target) actions.openSession(target)
     else ctx.layout.selectPanel(null)
   }
+  actions.canvasFileReader = () => ctx.get('remote.workspaceFiles')
+  actions.openCanvasFile = file => {
+    const id = canvasFiles.open(file, canvasSize)
+    if (!canvasVisible()) actions.openCanvas(false)
+    return id
+  }
+  actions.focusCanvasFile = canvasFiles.focus
+  actions.blurCanvasFiles = canvasFiles.blur
+  actions.closeCanvasFile = canvasFiles.close
+  actions.updateCanvasFile = canvasFiles.update
+  actions.openConversationFile = (sessionId, path, options, fallback, conversationId = sessionId) => {
+    if (!canvasVisible()) return fallback?.(path, options)
+    try {
+      return actions.openCanvasFile({ sessionId, path, line: options?.line, conversationId, ownerName: roster.getSnapshot().byId[sessionId]?.name ?? roster.getSnapshot().roomsById[conversationId]?.name })
+    } catch (error) { actions.reportError(error, 'canvas-file') }
+  }
+  actions.openCanvasFileClassic = async file => {
+    try {
+      const snapshot = roster.getSnapshot()
+      const target = file.conversationId ?? snapshot.byId[file.sessionId]?.id ?? file.sessionId
+      await openTaskFile({ sidebar: ctx.get('sidebarRight'), sessionId: partFor(target), sourceSessionId: file.sessionId, path: file.path, navigate: () => actions.openClassicSession(target) })
+    } catch (error) { actions.reportError(error, 'canvas-file') }
+  }
   Object.assign(actions, {
     toggleTaskNotices: () => taskNotices.toggle(),
     closeTaskNotices: () => taskNotices.close(),
@@ -856,8 +884,10 @@ export function apply(ctx) {
       try {
         const snapshot = roster.getSnapshot()
         if (!snapshot.byId[item.targetId] && !snapshot.roomsById[item.targetId]) throw new Error(t('This conversation is no longer available.'))
-        const sessionId = partFor(item.roomId ?? item.sessionId)
-        const opened = await openTaskFile({ sidebar: ctx.get('sidebarRight'), sessionId, sourceSessionId: item.sessionId, path: file.path, navigate: () => actions.openClassicSession(item.roomId ?? item.sessionId) })
+        const sessionId = partFor(item.roomId ?? item.targetId)
+        const opened = await openTaskFile({ sidebar: ctx.get('sidebarRight'), sessionId, sourceSessionId: item.sessionId ?? sessionId, path: file.path,
+          canvas: canvasVisible() || canvasPreferred ? request => actions.openCanvasFile({ ...request, conversationId: item.roomId ?? item.targetId, ownerName: item.name ?? snapshot.byId[item.botId]?.name ?? snapshot.roomsById[item.roomId]?.name }) : undefined,
+          navigate: () => actions.openClassicSession(item.roomId ?? item.targetId) })
         if (opened) { taskNotices.markRead(item.id); taskNotices.close() }
       } catch (error) { actions.reportError(error, 'task-result') }
     },
@@ -993,7 +1023,7 @@ export function apply(ctx) {
   })
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update, canvas, completions, taskNotices } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update, canvas, canvasFiles: canvasFiles.source, completions, taskNotices } })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -1091,6 +1121,7 @@ export function apply(ctx) {
     installCompiledStyles(MEMBER_CSS, 'members'),
     installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
     installCompiledStyles(canvasStyles, 'canvas'),
+    installCompiledStyles(CANVAS_FILES_CSS, 'canvas-files'),
     browsers ? installCompiledStyles(BROWSER_CSS, 'browser') : null,
     installTheme(),
     shadow('sidebar.workspaces', { priority: -10, inject: face }, TeamSidebar),

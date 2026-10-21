@@ -6,6 +6,18 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.63] - 2026-10-21
+
+### Added
+
+- Independent canvas file windows for task artifacts and chat file links, with dragging, resizing, focus, Markdown/CSV/text/image/PDF previews, reload and complete-original downloads.
+- Preserve the completing group member's execution Session in new task results and notifications for file access.
+
+### Fixed
+
+- Stop upgrade bootstrap from creating preset employees before returning existing teams. New installations seed in the background; saved setup intent survives immediate shutdown.
+- Preserve the current chat, draft and reading position when opening generated files on the canvas.
+
 ## [0.1.62] - 2026-10-21
 
 ### Added

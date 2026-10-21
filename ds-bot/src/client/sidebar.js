@@ -455,7 +455,7 @@ export function TeamSidebar(props) {
         savedScrollTop.current = event.currentTarget.scrollTop
       },
     },
-      main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
+      main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint', role: 'status' }, t('Loading your team…')),
       order.filter(entry => !canvasActive || entry.kind !== 'agent').map(entry => (entry.kind === 'bot'
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
         : entry.kind === 'room'

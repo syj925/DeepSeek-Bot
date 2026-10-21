@@ -17,7 +17,7 @@ export function conversationResults(sessionId, roster) {
   const rooms = room ? [room] : tasksForConversation(sessionId, roster)
   const results = rooms.filter(item => item.task?.result && item.task.completedAt).map(item => ({
     ...item.task.result, id: `result:${item.id}:${item.task.result.cycle}`, at: item.task.completedAt,
-    targetId: item.id, roomId: item.id, sessionId: item.id,
+    targetId: item.id, roomId: item.id, sessionId: item.task.result.sessionId ?? item.id,
     previous: item.task.status !== 'completed',
   }))
   const owner = bot?.id ?? sessionId

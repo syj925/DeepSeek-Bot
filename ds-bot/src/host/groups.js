@@ -132,7 +132,7 @@ export function install(rt) {
     if (!room || !room.members.includes(owner.botId) || !info?.exchangeId) return undefined
     if (info.role !== 'room' && info.role !== 'reply' && info.role !== 'retry') return undefined
     if (info.role === 'room' && info.roomId !== room.id) return undefined
-    return { roomId: room.id, botId: owner.botId, streamId: streamIdOf(room.id, owner.botId, info) }
+    return { roomId: room.id, botId: owner.botId, fileSessionId: sessionId, streamId: streamIdOf(room.id, owner.botId, info) }
   }
   const roundFor = (item) => [...rt.roomProgress.values()].find(round => round.roomId === item.roomId
     && round.speaking === item.botId && rt.roomWaiters.has(item.exchangeId)
@@ -148,8 +148,8 @@ export function install(rt) {
       if (!room?.members.includes(item.botId) || item.expiresAt <= Date.now()) { roomStreams.delete(key); continue }
       if (item.roomId !== roomId || roundFor(item) || !item.text.trim() || isPass(item.text)
         || /^\s*\[(?:P(?:A(?:S(?:S\]?)?)?)?)?\s*$/i.test(item.text)) continue
-      const { streamId, botId, name, text, time, status } = item
-      streams.push({ streamId, botId, name, text, time, status })
+      const { streamId, botId, fileSessionId, name, text, time, status } = item
+      streams.push({ streamId, botId, fileSessionId, name, text, time, status })
     }
     return streams.length ? [{ callId: `background:${roomId}`, background: true, streams }] : []
   }
@@ -183,7 +183,7 @@ export function install(rt) {
     }
     if (!item) return
     const round = roundFor(item)
-    if (round) round.streaming = { streamId: item.streamId, botId: item.botId, name: item.name, text: item.text, time: item.time }
+    if (round) round.streaming = { streamId: item.streamId, botId: item.botId, fileSessionId: item.fileSessionId, name: item.name, text: item.text, time: item.time }
   })
 
   // Group execution never imports the employee's private conversation.
@@ -508,7 +508,7 @@ export function install(rt) {
       }
       slot.status = 'posted'
       appendRoom(room, { who: member.name, botId: member.id, text: reply })
-      round.replies.push({ botId: member.id, name: member.name, color: member.color, ...temporaryIdentity(member), ...(streamId ? { streamId } : {}), text: reply, time: Date.now() })
+      round.replies.push({ botId: member.id, fileSessionId: session.id, name: member.name, color: member.color, ...temporaryIdentity(member), ...(streamId ? { streamId } : {}), text: reply, time: Date.now() })
       void rt.save().catch(() => {})
       // Only the admin's "@all" calls everyone, so a member cannot set off a storm.
       const leads = rt.isAdminOf(room, member.id)
@@ -756,7 +756,7 @@ export function install(rt) {
     const quiet = (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
     if (!quiet) room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
-    await postToRoom(room, member, text, { late: true, streamId, ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
+    await postToRoom(room, member, text, { late: true, streamId, fileSessionId: sessionId, ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
       .catch(error => { roomStreams.delete(streamId); rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error) })
   }
   rt.lateRoomReply = lateRoomReply

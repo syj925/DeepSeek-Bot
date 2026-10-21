@@ -1,7 +1,11 @@
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 
 // The public resource viewer must be mounted before it can accept a file.
-export async function openTaskFile({ sidebar, sessionId, sourceSessionId, path, navigate, timeout = 5000 }) {
+export async function openTaskFile({ sidebar, sessionId, sourceSessionId, path, navigate, canvas, timeout = 5000 }) {
+  if (canvas) {
+    canvas({ sessionId: sourceSessionId, path })
+    return true
+  }
   if (!sidebar?.mounted || !sidebar.openResource) throw new Error('The file viewer is unavailable. Open the conversation to find the result.')
   await new Promise((resolve, reject) => {
     let off = () => {}, timer, done = false

@@ -37,7 +37,7 @@ export function install(rt) {
   rt.recordTaskGroupCompletion = completion => {
     const room = rt.roomOf(completion.roomId)
     if (!room?.task || room.task.status === 'completed' || room.admin !== completion.botId) return
-    room.task.pendingCompletion = { cycle: room.task.cycle, title: completion.title, summary: completion.summary, files: completion.files, at: Date.now() }
+    room.task.pendingCompletion = { cycle: room.task.cycle, sessionId: completion.sessionId, title: completion.title, summary: completion.summary, files: completion.files, at: Date.now() }
   }
   rt.finishTaskGroupRound = async (room, round, aborted = false) => {
     if (!room.task) return
@@ -48,7 +48,7 @@ export function install(rt) {
     if (!pending || pending.cycle !== room.task.cycle || blocked) { await rt.save(); return }
     room.task = { ...room.task, status: 'completed', completedAt: Date.now(), completedSeq: room.seq ?? 0, result: pending }
     state.taskNotices = [...(state.taskNotices ?? []), { id: randomUUID(), at: Date.now(), botId: room.admin, name: rt.botOf(room.admin)?.name ?? room.name,
-      targetId: room.id, roomId: room.id, sessionId: room.id, title: pending.title, summary: pending.summary, files: pending.files }].slice(-100)
+      targetId: room.id, roomId: room.id, sessionId: pending.sessionId ?? room.id, title: pending.title, summary: pending.summary, files: pending.files }].slice(-100)
     await rt.save()
     await rt.recordTaskExperiences?.(room.members.map(botId => ({
       botId, title: pending.title, summary: pending.summary, roomId: room.id, cycle: pending.cycle,

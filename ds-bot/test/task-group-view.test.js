@@ -72,3 +72,11 @@ test('result files and linked task group use existing navigation actions', () =>
   find(tree, node => node?.type === 'button' && node.children.includes('Open task group')).props.onClick()
   assert.deepEqual(opened, ['room'])
 })
+
+test('a saved group result retains the completing member workspace rather than borrowing the room', () => {
+  const room = { id: 'room', members: ['chief'], task: { originBotId: 'chief', completedAt: 200,
+    result: { sessionId: 'chief-group-previous-part', title: 'Group report', summary: 'Delivered', cycle: 1 } } }
+  const state = roster({ rooms: [room] })
+  assert.equal(conversationResults('room', state)[0].sessionId, 'chief-group-previous-part')
+  assert.equal(conversationResults('current', state)[0].sessionId, 'chief-group-previous-part')
+})

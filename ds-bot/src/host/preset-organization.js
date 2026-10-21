@@ -7,6 +7,8 @@ const definitions = [
 
 export function install(rt) {
   let pending
+  let timer
+  let stopped = false
   async function initialize() {
     const { state } = rt
     if (state.presetOrganization?.version === 1) return
@@ -18,6 +20,7 @@ export function install(rt) {
     const chief = rt.botOf(state.generalAssistantId)
     if (!chief) return
     for (const [key, name] of definitions) {
+      if (stopped) return
       if (progress.departments[key]) continue
       const existing = rt.findTeam(name)
       if (existing) {
@@ -31,6 +34,7 @@ export function install(rt) {
       } : portraits[key]
       const members = []
       for (const [index, person] of preset.members.entries()) {
+        if (stopped) return
         const slot = `${key}:${index}`
         let employee = rt.botOf(progress.employees[slot]) ?? Object.values(state.bots).find(bot => bot.presetKey === slot)
         if (!employee) {
@@ -43,21 +47,45 @@ export function install(rt) {
             createdBy: chief.id,
             instructions: `${person.role}\nWork within this specialty. Coordinate deliverables in task groups, ask only necessary questions and report verifiable results. Do not start work until assigned. Organizational roles do not grant additional tool permissions.`,
           })
+          if (stopped) return
           progress.employees[slot] = employee.id
           await rt.save()
         }
         members.push(employee.id)
       }
+      if (stopped) return
       const team = await rt.createTeam({ name, purpose: preset.purpose, leaderId: members[0], members })
+      if (stopped) return
       progress.departments[key] = team.id
       await rt.save()
     }
     progress.version = 1
     await rt.save()
   }
-  rt.ensurePresetOrganization = () => {
-    if (rt.config.presetOrganization !== true) return Promise.resolve()
+  const eligible = fresh => !stopped && rt.config.presetOrganization === true
+    && rt.state.presetOrganization?.version !== 1 && (fresh || rt.state.presetOrganization !== undefined)
+  rt.ensurePresetOrganization = ({ fresh = false } = {}) => {
+    if (!eligible(fresh)) return Promise.resolve()
+    clearTimeout(timer)
+    timer = undefined
     pending ??= initialize().finally(() => { pending = undefined })
     return pending
   }
+  rt.schedulePresetOrganization = ({ fresh = false } = {}) => {
+    if (!eligible(fresh) || pending || timer !== undefined) return
+    if (fresh && rt.state.presetOrganization === undefined) {
+      rt.state.presetOrganization = { employees: {}, departments: {} }
+      void rt.save().catch(error => rt.warn('ds-bot: saving preset initialization intent failed: %s', error))
+    }
+    // Return the saved team first. Creating the preset Sessions can be slow
+    // when each Session mounts the user's full host tool composition.
+    timer = setTimeout(() => {
+      timer = undefined
+      void rt.ensurePresetOrganization({ fresh }).catch(error => rt.warn('ds-bot: preset organization initialization failed: %s', error))
+    }, 0)
+  }
+  rt.ctx.effect(() => () => {
+    stopped = true
+    clearTimeout(timer)
+  }, 'ds-bot: preset organization')
 }

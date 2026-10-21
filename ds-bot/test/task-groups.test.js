@@ -8,7 +8,7 @@ function setup() {
   const rt = { state: { exchanges: [], questions: {} }, live: new Map(), roomProgress: new Map(), roomOf: id => id === room.id ? room : undefined,
     botOf: id => ({ id, name: id }), save: async () => {}, deliver: async value => reports.push(value), warn() {} }
   install(rt)
-  const complete = () => rt.recordTaskGroupCompletion({ roomId: room.id, botId: 'chief', title: 'Report', summary: 'Report verified.', files: [] })
+  const complete = () => rt.recordTaskGroupCompletion({ roomId: room.id, botId: 'chief', sessionId: 'group-chief', title: 'Report', summary: 'Report verified.', files: [] })
   const round = (patch = {}) => ({ slots: [{ id: 'chief', status: 'posted' }], failed: [], replies: [{ botId: 'chief', text: 'Delivered.' }], ...patch })
   return { rt, room, reports, complete, round }
 }
@@ -30,6 +30,8 @@ test('coordinator completion archives without deleting history and reports once 
   assert.equal(h.room.log.length, 1)
   assert.equal(h.reports.length, 0)
   assert.equal(h.rt.state.taskNotices.length, 1)
+  assert.equal(h.room.task.result.sessionId, 'group-chief')
+  assert.equal(h.rt.state.taskNotices[0].sessionId, 'group-chief')
   await h.rt.reopenTaskGroup(h.room)
   assert.equal(h.room.task.cycle, 2)
   assert.equal(h.room.task.status, 'active')

@@ -13,6 +13,7 @@ import { memberWork, busyMembers, summaryText } from './member-status.js'
 import { CanvasSession, canvasSessionId, registerSessionBridge } from './canvas-session.js'
 import { CanvasQuickMessage, CanvasAgenda, SPATIAL_WIDGET_CSS, toggleSpatialWidget } from './spatial-widgets.js'
 import { CanvasWallpaper } from './canvas-wallpaper.js'
+import { CanvasFiles } from './canvas-file-window.js'
 import { CANVAS_LIMITS, collapseWindow, groupWindows, moveWindow, openWindow, resizeWindow, setCanvasSelection, setCanvasViewport, setWindowCompact, ungroupWindows, windowHeight, windowWidth } from './canvas-state.js'
 import { t } from './i18n.js'
 import { departmentFor, managerFor, reportsFor } from './designer-data.js'
@@ -893,7 +894,8 @@ function CanvasChatWindow(props) {
       'data-room-drop-id': displayWindow.kind === 'room' && !closing ? displayWindow.entityId : undefined,
       'data-closing': closing || undefined, 'data-sized': dimensions ? true : undefined,
       style: { translate: `${offset.x}px ${offset.y}px`, ...(dimensions ? { width: dimensions.width, height: dimensions.height } : {}) },
-      onPointerDown: event => { event.stopPropagation(); if (!active) actions.updateCanvas(state => setCanvasSelection(state, [], window.id)) },
+      onPointerDown: event => { event.stopPropagation(); actions.blurCanvasFiles?.(); if (!active) actions.updateCanvas(state => setCanvasSelection(state, [], window.id)) },
+      onFocusCapture: () => actions.blurCanvasFiles?.(),
       onPointerMove: event => {
         const current = drag.current
         if (current?.id !== event.pointerId) return
@@ -931,7 +933,7 @@ function CanvasChatWindow(props) {
     }))))
 }
 
-export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, actions, SessionProvider, renderSlot }) {
+export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessions, useWork, actions, SessionProvider, renderSlot }) {
   registerSessionBridge(SessionProvider, renderSlot)
   const roster = useRoster(value => value)
   const state = useCanvas(value => value)
@@ -1493,6 +1495,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useSessions, useWork, ac
         })() : null),
       visible.length === 0 ? h('div', { className: 'bt-canvas-empty' }, h('h2', null, t('Your team workspace')), h('p', null, t('Open employees from the directory. Their conversations stay with them.')), button(t('Employee directory'), () => actions.openNewChat('chat'), PeopleIcon)) : null),
     visible.filter(window => !window.compact).sort((a, b) => a.z - b.z).map((window, order) => h(CanvasChatWindow, { key: window.id, window, active: state.active === window.id, order, size, roster, actions, useSessions, SessionProvider, renderSlot })),
+    useCanvasFiles ? h(CanvasFiles, { useCanvasFiles, actions, size }) : null,
     mergePair ? h(MergeHint, { pair: mergePair, viewport: state.viewport, canvasRef: root }) : null,
     h(DesktopWidget, { id: 'quick', actions }, h(CanvasQuickMessage, { bot: quickBot, actions })),
     h(DesktopWidget, { id: 'agenda', actions }, h(CanvasAgenda, { roster, actions })),

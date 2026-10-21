@@ -31,6 +31,7 @@ const react = {
   useMemo: make => make(), useRef: current => ({ current }), useId: () => 'card-id',
 }
 const timers = new Set()
+const markdownDelegate = { openExternalLink() {}, fileImages: { resolve() {} }, openFile() {} }
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
@@ -40,7 +41,11 @@ runInNewContext(outputFiles[0].text, {
   require: (name) => {
     if (name === 'react') return react
     if (name === 'react-dom') return { createPortal: node => node }
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { MarkdownText: ({ text }) => text }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') return {
+      MarkdownText: ({ text }) => text,
+      useMarkdownDelegate: () => markdownDelegate,
+      MarkdownDelegateProvider: ({ children, ...props }) => h('file-navigation', props, children),
+    }
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
@@ -97,6 +102,18 @@ const show = (root, options) => {
   return out
 }
 const shown = (root, options) => text(show(root, options))
+
+test('group file links retain the member execution Session and inherit external navigation', () => {
+  const opened = []
+  const bubble = expand(GroupMessage({ bot: writer, text: '[report](report.md)', room, roster: team(), fileSessionId: 'writer-group-old-part',
+    actions: { openConversationFile: (...args) => opened.push(args) } }))
+  const navigation = find(bubble, node => node.type === 'file-navigation')
+  assert.equal(navigation.props.openExternalLink, markdownDelegate.openExternalLink)
+  assert.equal(navigation.props.fileImages, markdownDelegate.fileImages)
+  const options = { line: 24 }
+  navigation.props.openFile('report.md', options)
+  assert.deepEqual(opened[0], ['writer-group-old-part', 'report.md', options, markdownDelegate.openFile, 'room'])
+})
 
 test('temporary and durable group bubbles retain the same per-message stream key', () => {
   const streamId = JSON.stringify(['room', 'writer', 'exchange'])

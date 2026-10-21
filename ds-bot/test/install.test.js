@@ -124,6 +124,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool read_task_history',
     'effect ds-bot: task context cleanup',
     'effect ds-bot: portrait jobs',
+    'effect ds-bot: preset organization',
   ])
 })
 

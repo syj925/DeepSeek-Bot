@@ -579,16 +579,17 @@ export function install(rt) {
     void rt.syncModels()
     if (state.mainBotIds.some(id => rt.botOf(id))) {
       if (rt.reconcileGeneralAssistant()) await rt.save()
-      await rt.ensurePresetOrganization()
+      rt.schedulePresetOrganization()
       return
     }
+    const fresh = Object.keys(state.bots).length === 0 && Object.keys(state.rooms).length === 0 && Object.keys(state.teams).length === 0
     // Only the team's first Main Bot is stored as the DeepSeek whale; other Bots get a
     // look from their id, and a Bot made Main Bot later keeps its own.
     bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'deepseek', avatar: { shape: 'whale' }, pickModel: true })
       .finally(() => { bootstrapping = null })
     await bootstrapping
     if (rt.reconcileGeneralAssistant()) await rt.save()
-    await rt.ensurePresetOrganization()
+    rt.schedulePresetOrganization({ fresh })
   }
 
   Object.assign(rt, {

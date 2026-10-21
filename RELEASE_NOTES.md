@@ -1,9 +1,5 @@
-QibitAI canvas plugin 0.1.62
+QibitAI canvas plugin 0.1.63
 
-- Integrate the collaboration branch into main while retaining incremental group replies, character reveal, inline mentions, provider icons, employee cleanup and explicit user-requested model changes.
-- Add department contacts, executive and temporary staffing collections, settings and appearance controls to the Dock. Seed missing bundled departments and employees once when preset organization is enabled; preserve existing departments and completed initialization.
-- Drag the current conversation onto the canvas without creating another conversation. Keep its draft, identity and existing messages; support keyboard placement and gesture cancellation.
-- Show collaboration records over the source chat with live updates, reading-position preservation, retry feedback and focus restoration. Keep saved task results visible while subsequent work continues.
-- Allow desktop widgets and conversation cards to be removed from the canvas and widgets restored in display settings. Improve waiting feedback without duplicating group member streaming.
-- Preserve tool inspection, employee native-browser routing, group-work updates, permissions and the verified HTTPS update pipeline from main.
-- Retry transient atomic state-file replacement failures without deleting the saved snapshot, and recheck ownership before every retry.
+- Open task artifacts, result cards and reply file links in movable, resizable canvas previews. Keep the current conversation, draft and reading position; focus an existing file window on repeated opens.
+- Preview Markdown, CSV/TSV, text, code, images and browser-supported PDF. Offer reload, source view, complete-original downloads, retry and an explicit classic-view option for other formats. Read files through their original Session's public workspace API.
+- Return existing teams immediately after upgrades without adding preset employees. Initialize presets only for new installations, in the background, with saved progress for interrupted setup. Preserve employees, groups, history and completed initialization.

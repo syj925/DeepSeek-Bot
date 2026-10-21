@@ -20,7 +20,7 @@ function start(team, { models = [], reasoning = {}, archiveError, presetOrganiza
   const selected = []
   const archived = []
   const warnings = []
-  let sessions = 0
+  let sessions = Math.max(0, ...Object.keys({ ...team?.bots, ...team?.rooms }).map(id => Number(/^s(\d+)$/.exec(id)?.[1] ?? 0)))
   ctx.logger.warn = (...args) => warnings.push(format(...args))
   Object.assign(ctx, {
     llm: {
@@ -75,6 +75,7 @@ test('installed presets create real departments without model calls and preserve
   const h = start(undefined, { presetOrganization: true })
   t.after(h.stop)
   await Promise.all([h.rt.bootstrap(), h.rt.bootstrap()])
+  await h.rt.ensurePresetOrganization({ fresh: true })
   const s = h.rt.state
   assert.equal(Object.keys(s.bots).length, 21)
   assert.equal(Object.keys(s.teams).length, 6)
@@ -95,20 +96,94 @@ test('installed presets create real departments without model calls and preserve
   assert.equal(Object.keys(restored.rt.state.bots).length, 20, 'deleted presets do not return')
 })
 
-test('preset upgrade preserves existing departments and colliding employee names', async t => {
+test('enabling presets during an upgrade preserves existing employees, groups and departments without creating Sessions', async t => {
   const h = start()
   t.after(h.stop)
   await h.rt.bootstrap()
   const existing = await h.rt.createBot({ name: '人事负责人', role: 'Custom role', avatar: { shape: 'star' }, quiet: true })
   const sales = await h.rt.createBot({ name: 'Sales lead', quiet: true })
-  const team = await h.rt.createTeam({ name: '销售部', purpose: 'User responsibilities', leaderId: sales.id, members: [sales.id] })
-  const before = JSON.stringify([existing, sales, team])
+  await h.rt.createTeam({ name: '销售部', purpose: 'User responsibilities', leaderId: sales.id, members: [sales.id] })
+  const room = await h.rt.createRoom({ name: 'Existing collaboration', members: [existing.id, sales.id] })
+  room.log = [{ id: 'saved-message', who: 'User', text: 'Keep this existing discussion.', time: 100 }]
+  await h.rt.save()
+  const before = JSON.stringify([h.rt.state.bots, h.rt.state.teams, h.rt.state.rooms])
+  h.ctx.sessionController.create = async () => { throw Error('An upgrade must not create preset Sessions') }
   h.rt.config.presetOrganization = true
   await h.rt.bootstrap()
-  assert.equal(JSON.stringify([existing, sales, team]), before)
+  await h.rt.ensurePresetOrganization()
+  assert.equal(JSON.stringify([h.rt.state.bots, h.rt.state.teams, h.rt.state.rooms]), before)
   assert.equal(Object.values(h.rt.state.teams).filter(team => team.name === '销售部').length, 1)
-  assert.ok(h.rt.findBot('人事负责人 2'))
+  assert.equal(h.rt.findBot('人事负责人 2'), undefined)
+  assert.equal(Object.keys(h.rt.state.teams).length, 1)
+  assert.equal(h.rt.state.presetOrganization, undefined)
+})
+
+test('first and subsequent roster reads return while a preset Session is still opening', async t => {
+  const h = start(undefined, { presetOrganization: true })
+  let release
+  let entered
+  const gate = new Promise(resolve => { release = resolve })
+  const opening = new Promise(resolve => { entered = resolve })
+  t.after(async () => { release(); await h.rt.ensurePresetOrganization().catch(() => {}); await h.stop() })
+  const create = h.ctx.sessionController.create
+  let creations = 0
+  h.ctx.sessionController.create = async options => {
+    if (++creations === 2) { entered(); await gate }
+    return create(options)
+  }
+  const within = async operation => {
+    let timer
+    try {
+      return await Promise.race([operation, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Error('Roster read waited for preset Session creation')), 2000)
+      })])
+    } finally { clearTimeout(timer) }
+  }
+  const first = await within(h.call('state', {}))
+  assert.equal(first.ok, true)
+  assert.equal(first.value.bots.length, 1)
+  assert.equal(first.value.bots[0].generalAssistant, true)
+  await within(opening)
+  const second = await within(h.call('state', {}))
+  assert.equal(second.ok, true)
+  assert.equal(second.value.bots.length, 1)
+  assert.equal(creations, 2)
+  release()
+  await h.rt.ensurePresetOrganization()
+  assert.equal(Object.keys(h.rt.state.bots).length, 21)
   assert.equal(Object.keys(h.rt.state.teams).length, 6)
+  assert.equal(h.sent.length, 0)
+})
+
+test('disposing the plugin cancels preset initialization that has not started', async () => {
+  const h = start(undefined, { presetOrganization: true })
+  const create = h.ctx.sessionController.create
+  let creations = 0
+  h.ctx.sessionController.create = async options => { creations++; return create(options) }
+  try {
+    await h.rt.bootstrap()
+    assert.equal(creations, 1)
+  } finally { await h.stop() }
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(creations, 1)
+})
+
+test('a new installation persists its preset intent before background work starts', async t => {
+  const h = start(undefined, { presetOrganization: true })
+  t.after(h.stop)
+  await h.rt.bootstrap()
+  assert.deepEqual(h.rt.state.presetOrganization, { employees: {}, departments: {} })
+  // Queue behind the already captured intent, then dispose before the timer can
+  // create a preset Session. Restart from that snapshot, not from a fresh team.
+  const intent = JSON.parse(JSON.stringify(h.rt.state))
+  await h.ctx.dispose()
+  assert.deepEqual(JSON.parse(readFileSync(join(h.home, 'state.json'))).presetOrganization, intent.presetOrganization)
+  const resumed = start(intent, { presetOrganization: true })
+  t.after(resumed.stop)
+  await resumed.rt.bootstrap()
+  await resumed.rt.ensurePresetOrganization()
+  assert.equal(Object.keys(resumed.rt.state.bots).length, 21)
+  assert.equal(Object.keys(resumed.rt.state.teams).length, 6)
 })
 
 test('preset initialization resumes after interruption without duplicate employees', async t => {
@@ -116,10 +191,11 @@ test('preset initialization resumes after interruption without duplicate employe
   t.after(h.stop)
   const createTeam = h.rt.createTeam
   h.rt.createTeam = async () => { throw Error('Simulated storage failure') }
-  await assert.rejects(h.rt.bootstrap(), /Simulated storage failure/)
+  await h.rt.bootstrap()
+  await assert.rejects(h.rt.ensurePresetOrganization({ fresh: true }), /Simulated storage failure/)
   assert.equal(Object.keys(h.rt.state.bots).length, 2)
   h.rt.createTeam = createTeam
-  await h.rt.bootstrap()
+  await h.rt.ensurePresetOrganization()
   assert.equal(Object.keys(h.rt.state.bots).length, 21)
   assert.equal(Object.keys(h.rt.state.teams).length, 6)
 })

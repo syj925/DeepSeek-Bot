@@ -528,7 +528,7 @@ test('a yielded public reply keeps streaming in the group and the final post sha
   assert.equal(background[0].callId, 'background:r1')
   assert.equal(background[0].background, true)
   const live = background[0].streams[0]
-  assert.deepEqual({ ...live, time: 0 }, { streamId, botId: 'b', name: 'Writer', text: 'First answer', time: 0, status: 'active' })
+  assert.deepEqual({ ...live, time: 0 }, { streamId, botId: 'b', fileSessionId: 'gb', name: 'Writer', text: 'First answer', time: 0, status: 'active' })
   assert.equal(typeof live.time, 'number')
   assert.deepEqual((await host.call('room-progress', { roomId: 'missing' })).value, [])
 
@@ -536,6 +536,7 @@ test('a yielded public reply keeps streaming in the group and the final post sha
   await settle(() => host.agentOf('r1').calls.length === 1)
   const post = host.takePost()
   assert.equal(post.source.streamId, streamId)
+  assert.equal(post.source.fileSessionId, 'gb')
   assert.equal(post.source.late, true)
   const completed = (await host.call('room-progress', { roomId: 'r1' })).value[0].streams[0]
   assert.equal(completed.streamId, streamId)
