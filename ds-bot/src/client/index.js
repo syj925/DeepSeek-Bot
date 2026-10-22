@@ -5,6 +5,7 @@ import { countCards, createSource, EMPTY_ROSTER, indexRoster, isAgentSession } f
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { recoveryNotice } from './recovery-state.js'
+import { installUiTypography } from './ui-typography.js'
 import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, ConnectPlugins, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
@@ -884,6 +885,7 @@ export function apply(ctx) {
       actions.openSession(item.targetId)
       taskNotices.markRead(item.id); taskNotices.close()
     },
+    conversationFiles: (sessionId, options = {}) => call('conversation-files', { sessionId, force: options.force === true }),
     openTaskResult: async (item, file) => {
       try {
         const snapshot = roster.getSnapshot()
@@ -1127,6 +1129,7 @@ export function apply(ctx) {
     installCompiledStyles(canvasStyles, 'canvas'),
     installCompiledStyles(CANVAS_FILES_CSS, 'canvas-files'),
     browsers ? installCompiledStyles(BROWSER_CSS, 'browser') : null,
+    installUiTypography(installStyles),
     installTheme(),
     shadow('sidebar.workspaces', { priority: -10, inject: face }, TeamSidebar),
     shadow('sidebar.brand.mark', { priority: -10 }, BrandMark),

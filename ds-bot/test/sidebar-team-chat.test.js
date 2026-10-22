@@ -81,7 +81,7 @@ function fixture({ folded = true, canvas = true } = {}) {
     closest: selector => selector === '.bt-canvas-frame' ? { querySelector: () => canvasRoot } : null,
     setPointerCapture: id => captured.add(id), hasPointerCapture: id => captured.has(id), releasePointerCapture: id => captured.delete(id),
   }
-  const list = { scrollTop: 0, querySelectorAll: () => [] }
+  const list = { scrollTop: 0, querySelectorAll: selector => selector === '[data-room-id]' ? findAll(tree, node => node.type === 'button' && node.props['data-room-id']).map(node => ({ dataset: { roomId: node.props['data-room-id'] } })) : [] }
   const hook = (run, deps, queue) => {
     const index = cursor++, previous = scope[index]
     if (previous && deps?.length === previous.deps?.length && deps.every((value, at) => Object.is(value, previous.deps[at]))) return
@@ -205,7 +205,7 @@ function fixture({ folded = true, canvas = true } = {}) {
   })
   return {
     draw, calls, column, roster, sessions, row, chat,
-    pane,
+    pane, doc,
     startPopout(extra) { const next = event(extra); doc.emit('pointerdown', next); pane().props.onPointerDownCapture(next); draw(); return next },
     pointer(name, extra) { const next = event(extra); doc.emit(name, next); draw(); return next },
     popoutKey(extra) { const next = event({ key: 'Enter', ctrlKey: true, shiftKey: true, ...extra }); pane().props.onKeyDownCapture(next); draw(); return next },
@@ -391,4 +391,23 @@ test('a previous close deadline and detached conversation cannot dismiss the new
   assert.equal(app.column.dataset.chatClosing, 'false')
   assert.deepEqual(app.calls.canvasOpened, ['alpha'])
   app.unmount()
+})
+
+
+test('Shift range uses visible group rows and another click clears the selected range', () => {
+  const app = fixture({ folded: false })
+  for (const id of ['second', 'third']) {
+    const room = { id, name: id, members: ['alpha'], createdAt: 31 }
+    app.roster.rooms.push(room); app.roster.roomsById[id] = room
+    app.sessions.ids.push(id); app.sessions.byId[id] = { id, updatedAt: 31 }
+  }
+  const tree = app.draw()
+  const rows = findAll(tree, node => node.type === 'button' && node.props['data-room-id'])
+  const first = rows[0].props['data-room-id'], last = rows.at(-1).props['data-room-id']
+  app.clickRow(first)
+  app.row(last).props.onClick({ shiftKey: true, preventDefault() {}, stopPropagation() {} })
+  app.draw()
+  for (const row of rows) assert.equal(app.row(row.props['data-room-id']).props['data-multi-selected'], 'true')
+  app.doc.emit('pointerdown', { target: { closest: () => null }, button: 0 }); app.draw()
+  for (const row of rows) assert.ok(!app.row(row.props['data-room-id']).props['data-multi-selected'])
 })

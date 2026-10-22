@@ -1,3 +1,4 @@
+import { openPresentedFile } from './canvas-presented-file.js'
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { currentPart } from './text.js'
 import { ActivityIndicator } from './activity-row.js'
@@ -34,7 +35,7 @@ export function getSessionBridge() {
 }
 
 // Retention belongs to this occurrence, while the window key stays the Bot id.
-export function CanvasSession({ sessionId, actions, useSessions, SessionProvider, renderSlot, onOpenConversation }) {
+export function CanvasSession({ sessionId, actions, useSessions, SessionProvider, renderSlot, onOpenConversation, taskPanel = false }) {
   const [entry, setEntry] = useState(null)
   const known = useSessions(list => list.byId[sessionId] !== undefined)
   useEffect(() => {
@@ -67,13 +68,13 @@ export function CanvasSession({ sessionId, actions, useSessions, SessionProvider
   if (!known || entry?.sessionId !== sessionId || !entry.lease?.active) return h('div', { className: 'bt-canvas-status', role: 'status' }, t('Loading…'))
   const Provider = SessionProvider || bridgeProvider
   const slot = renderSlot || bridgeSlot
-  return h(Provider, { session: entry.reference }, slot ? slot(CANVAS_CONVERSATION, onOpenConversation ? { onOpenConversation } : {}) : null)
+  return h(Provider, { session: entry.reference }, slot ? slot(CANVAS_CONVERSATION, { ...(onOpenConversation ? { onOpenConversation } : {}), taskPanel }) : null)
 }
 
 function CanvasChat({ renderSlot }) { return renderSlot('conversation.session', { view: 'chat' }) }
 const CONTENT_SLOTS = { views: CanvasChat, widthControls: () => null }
 
-export function CanvasConversation({ sessionId, useSession, useRoster, useWork, useSessionStatus, useLive, useCanvas, useUi, actions, renderFactorySlot, onOpenConversation }) {
+export function CanvasConversation({ sessionId, useSession, useRoster, useWork, useSessionStatus, useLive, useCanvas, useUi, actions, renderFactorySlot, onOpenConversation, taskPanel = false }) {
   const session = useSession(value => value)
   const roster = useRoster(value => value)
   const entity = roster.byId[sessionId] ?? roster.roomsById[sessionId] ?? (roster.bots ?? []).find(bot => currentPart(bot) === sessionId)
@@ -103,16 +104,17 @@ export function CanvasConversation({ sessionId, useSession, useRoster, useWork, 
   }, [sessionId, active, Boolean(onOpenConversation), ownsEditor, editorReady])
   return h(TaskGroupNavigation.Provider, { value: onOpenConversation ?? actions.openSession }, h('div', {
     key: sessionId, ref: root, className: 'bt-canvas-session', 'data-session-id': sessionId,
+    onClickCapture: event => openPresentedFile(event, sessionId, actions),
     'data-bt-room': roster.roomsById[sessionId] ? '' : undefined,
     style: { '--bt-placeholder': JSON.stringify(t('Message {name}', { name: entity?.name ?? '' })), '--bt-first-sep': 'none' },
   }, session.openState === 'error' ? h('div', { role: 'alert' }, t('Could not open conversation')) : null,
   h('style', null, MODEL_RECOVERY_CSS + EXECUTION_STATUS_CSS),
-  h(TaskGroupJourney, { sessionId, roster, actions, onOpenConversation }),
+  !taskPanel ? h(TaskGroupJourney, { sessionId, roster, actions, onOpenConversation }) : null,
   h(ConversationTools, { sessionId, actions }),
-  h(EmployeeWorkContext, { sessionId, roster, actions, onOpenConversation }),
-  h(ModelRecovery, { sessionId, roster, actions, onOpenConversation }),
-  entity?.contextResetError ? h('div', { className: 'bt-context-clear-note', role: 'alert' }, t('Context could not be cleared. Your history is safe; try /clear again.'))
-    : entity?.contextClearedAt ? h('div', { className: 'bt-context-clear-note', role: 'status', title: t('History and long-term memory are retained. Model instructions and tools still use context.') }, t('Context cleared · history retained')) : null,
+  !taskPanel ? h(EmployeeWorkContext, { sessionId, roster, actions, onOpenConversation }) : null,
+  !taskPanel ? h(ModelRecovery, { sessionId, roster, actions, onOpenConversation }) : null,
+  !taskPanel && entity?.contextResetError ? h('div', { className: 'bt-context-clear-note', role: 'alert' }, t('Context could not be cleared. Your history is safe; try /clear again.'))
+    : !entity?.contextResetError && entity?.contextClearedAt ? h('div', { className: 'bt-context-clear-note', role: 'status', title: t('History and long-term memory are retained. Model instructions and tools still use context.') }, t('Context cleared · history retained')) : null,
   ownsEditor && editorReady
     ? renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false }, { slots: CONTENT_SLOTS })
     : h('div', { className: 'bt-canvas-session-error' }, h('p', null, t('This conversation is open in another window.')),

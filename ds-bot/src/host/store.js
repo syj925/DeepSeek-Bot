@@ -101,6 +101,7 @@ export function install(rt) {
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
     state.taskNotices = (Array.isArray(state.taskNotices) ? state.taskNotices : []).filter(item => item && typeof item.id === 'string' && Number.isFinite(item.at)).slice(-100)
+    state.conversationFiles = (Array.isArray(state.conversationFiles) ? state.conversationFiles : []).filter(item => item && typeof item.id === 'string' && typeof item.targetId === 'string' && typeof item.path === 'string' && item.path.length < 4096 && Number.isFinite(item.at)).slice(-500)
     state.prefs ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}

@@ -140,6 +140,9 @@ export function install(rt) {
         case 'usage':
           await rt.load()
           return ok(await rt.usageView({ timeZone: typeof body.timeZone === 'string' ? body.timeZone.slice(0, 64) : undefined }))
+        case 'conversation-files':
+          await rt.load()
+          return ok(await rt.conversationFiles(String(body.sessionId ?? ''), { force: body.force === true }))
         case 'execution':
           await rt.load()
           return ok(rt.executionView(body.sessionId, body.botId))

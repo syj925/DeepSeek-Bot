@@ -2,10 +2,10 @@ export const CHIEF_UNAVAILABLE = 'The General Assistant is also unavailable. Che
 export const CHIEF_DELAYED = 'The General Assistant has not finished after 90 seconds. Check its conversation and model connection; do not submit duplicate requests.'
 
 export function conversationFailures(sessionId, roster) {
-  const entity = roster.byId[sessionId] ?? roster.roomsById[sessionId]
+  const entity = roster.byId?.[sessionId] ?? roster.roomsById?.[sessionId]
   return (roster.modelFailures ?? []).filter(item =>
-    (item.roomId ? item.roomId === sessionId : item.sessionId === sessionId || item.botId === entity?.id)
-    || item.assistance?.sessionId === sessionId || item.assistance?.botId === entity?.id)
+    (item.roomId ? item.roomId === sessionId : item.sessionId === sessionId || (entity?.id && item.botId === entity.id))
+    || item.assistance?.sessionId === sessionId || (entity?.id && item.assistance?.botId === entity.id))
 }
 
 export function recoveryNotice(previous, failures) {

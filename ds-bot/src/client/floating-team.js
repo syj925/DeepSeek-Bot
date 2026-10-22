@@ -391,7 +391,7 @@ export const FLOATING_TEAM_CSS = `
 }
 .bt-team-split-nav .bt-row:is([aria-current=page],[aria-selected="true"]) .bt-row-title{
   color:#1e40af!important;
-  font-weight:600!important;
+  font-weight:500!important;
 }
 .bt-team-split-nav .bt-row-body{
   display:flex!important;

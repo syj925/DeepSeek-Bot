@@ -10,7 +10,7 @@ export function TeamAgentChat({ entity, roster, actions, useSessions, onOpenConv
   const sessionId = roster.roomsById?.[entity.id] ? entity.id : currentPart(entity)
   useEffect(() => preserveReadingPosition(root.current), [sessionId])
   return h('div', { ref: root, className: 'bt-agent-chat-container bt-restored-chat' },
-    h(CanvasSession, { sessionId, actions, useSessions, onOpenConversation }))
+    h(CanvasSession, { sessionId, actions, useSessions, onOpenConversation, taskPanel: true }))
 }
 
 export const TEAM_AGENT_CHAT_CSS = `${RESTORED_CHAT_CSS}

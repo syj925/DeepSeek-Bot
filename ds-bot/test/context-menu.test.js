@@ -12,11 +12,13 @@ const { outputFiles } = await build({
 })
 const module = { exports: {} }
 const effects = [], listeners = new Map()
+let confirmDialog = () => true
 class MenuElement { constructor(inside = false) { this.inside = inside } closest() { return this.inside } }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   Element: MenuElement,
   window: {
+    confirm: message => confirmDialog(message),
     addEventListener: (type, run, capture) => listeners.set(type, { run, capture }),
     removeEventListener: type => listeners.delete(type),
   },
@@ -35,27 +37,28 @@ function nodes(tree, match) {
   return [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))]
 }
 
-function fixture({ room = false, memory, browser, bridge = true, main = false, kind, canvasWindowId } = {}) {
+function fixture({ room = false, memory, browser, bridge = true, main = false, kind, canvasWindowId, ids, extraRooms = [], confirm = true } = {}) {
   const bot = { id: 'writer', sessionId: 'writer-current', name: 'Writer', role: 'Writing' }
   const group = { id: 'planning', name: 'Planning', members: ['writer'] }
   const calls = []
+  confirmDialog = message => { calls.push(['confirm', message]); return confirm }
   const actions = Object.fromEntries([
     'closeMenu', 'showDetails', 'openMemory', 'openSettings', 'openBrowser', 'setFlags', 'markUnread', 'renameBot',
     'duplicateBot', 'openSession', 'setMain', 'deleteBot', 'deleteRoom', 'reportError', 'updateCanvas',
   ].map(name => [name, (...args) => { calls.push([name, ...args]) }]))
   if (!bridge) delete actions.openBrowser
   const roster = {
-    byId: { writer: bot, 'writer-current': bot }, roomsById: { planning: group },
+    byId: { writer: bot, 'writer-current': bot }, roomsById: { planning: group, ...Object.fromEntries(extraRooms.map(value => [value.id, value])) },
     mainBotId: 'chief', mainBotIds: main ? ['chief', 'writer'] : ['chief'], memory, browser,
     agentsById: { agent: { id: 'agent' } },
   }
   const tree = module.exports.ContextMenu({
-    menu: { kind: kind ?? (room ? 'room' : 'bot'), id: kind === 'agent' ? 'agent' : room ? 'planning' : 'writer', x: 10, y: 20, canvasWindowId },
+    menu: { ids, kind: kind ?? (room ? 'room' : 'bot'), id: kind === 'agent' ? 'agent' : room ? 'planning' : 'writer', x: 10, y: 20, canvasWindowId },
     roster, actions,
   })
   const buttons = nodes(tree, node => node.type === 'button' && node.props.role === 'menuitem')
   return {
-    tree, calls, actions,
+    tree, calls, actions, roster,
     labels: buttons.map(button => button.children.find(child => typeof child === 'string')),
     click(label) {
       const button = buttons.find(button => button.children.includes(label))
@@ -146,4 +149,32 @@ test('original Bot controls and Main Bot protections remain available', () => {
   assert.ok(main.labels.includes('Remove Main Bot role'))
   assert.ok(!main.labels.includes('Hide from sidebar'))
   assert.ok(!main.labels.includes('Delete'))
+})
+
+test('batch deletion targets each existing selected group once and keeps going after an error', async () => {
+  const data = fixture({ kind: 'rooms', ids: ['planning', 'other', 'planning', 'missing'], extraRooms: [{ id: 'other', name: 'Other' }] })
+  assert.deepEqual(data.labels, ['Delete 2 groups'])
+  data.actions.deleteRoom = id => { data.calls.push(['deleteRoom', id]); if (id === 'planning') throw new Error('test failure') }
+  data.click('Delete 2 groups')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(data.calls.filter(call => call[0] === 'deleteRoom'), [['deleteRoom', 'planning'], ['deleteRoom', 'other']])
+  assert.equal(data.calls.filter(call => call[0] === 'confirm').length, 1)
+  assert.equal(data.calls.filter(call => call[0] === 'reportError').length, 1)
+})
+
+test('cancelling the batch confirmation performs no deletion', async () => {
+  const data = fixture({ kind: 'rooms', ids: ['planning'], confirm: false })
+  data.click('Delete group')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(data.calls.some(call => call[0] === 'deleteRoom'), false)
+})
+
+test('batch menus ignore stale IDs and recheck their targets at execution time', async () => {
+  assert.equal(fixture({ kind: 'rooms', ids: ['missing'] }).tree, null)
+  const data = fixture({ kind: 'rooms', ids: ['planning', 'other'], extraRooms: [{ id: 'other', name: 'Other' }] })
+  delete data.roster.roomsById.planning
+  data.click('Delete 2 groups')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(data.calls.filter(call => call[0] === 'deleteRoom'), [['deleteRoom', 'other']])
+  assert.ok(data.calls.some(call => call[0] === 'confirm' && call[1] === 'Delete "Other"?'))
 })

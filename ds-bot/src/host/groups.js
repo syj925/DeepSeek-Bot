@@ -46,6 +46,16 @@ const appendRoom = (room, line) => {
   room.log = [...room.log, { ...line, seq: room.seq }].slice(-ROOM_LOG_MAX)
 }
 
+// A normal reply added to the shared log is a user-visible file announcement.
+const appendSharedReply = (rt, room, line) => {
+  const sessionId = room.sessions?.[line.botId] ?? room.id
+  appendRoom(room, { ...line, sessionId, time: Date.now() })
+  if (!line.botId || line.kind || !line.text?.trim()) return
+  void rt.recordConversationFiles?.({ text: line.text, sessionId,
+    targetId: room.id, roomId: room.id, botId: line.botId, title: room.name, at: Date.now() })
+    .catch(error => rt.warn('ds-bot: shared group file indexing deferred: %s', error))
+}
+
 // A member's own lines are already in its Session, so only the others' are news.
 const unseenLines = (room, memberId) => {
   const since = room.seen[memberId]
@@ -476,7 +486,7 @@ export function install(rt) {
       const question = rt.state.questions[questionSession]
       if (question && reply?.failure === undefined) {
         slot.status = 'waiting-answer'
-        appendRoom(room, { who: member.name, botId: member.id, text: cardText(question) })
+        appendRoom(room, { who: member.name, botId: member.id, file: false, text: cardText(question) })
         round.replies.push({ kind: 'question', botId: member.id, name: member.name, color: member.color, ...temporaryIdentity(member), text: question.question, time: Date.now() })
         await rt.save()
         continue
@@ -507,7 +517,7 @@ export function install(rt) {
         continue
       }
       slot.status = 'posted'
-      appendRoom(room, { who: member.name, botId: member.id, text: reply })
+      appendSharedReply(rt, room, { who: member.name, botId: member.id, text: reply })
       round.replies.push({ botId: member.id, fileSessionId: session.id, name: member.name, color: member.color, ...temporaryIdentity(member), ...(streamId ? { streamId } : {}), text: reply, time: Date.now() })
       void rt.save().catch(() => {})
       // Only the admin's "@all" calls everyone, so a member cannot set off a storm.
@@ -545,9 +555,8 @@ export function install(rt) {
       for (const post of posts.filter(item => !item.kickoff && !event(item))) {
         // Image readings go into the log only; `@` names are picked from what the user typed.
         const text = post.images === undefined ? post.text : [post.text, ...await rt.imagesForGroup(post.images, room.id)].filter(Boolean).join('\n')
-        appendRoom(room, post.botId
-          ? { who: rt.botOf(post.botId)?.name ?? post.name ?? 'Bot', botId: post.botId, text }
-          : { who: 'User', text })
+        if (post.botId) appendSharedReply(rt, room, { who: rt.botOf(post.botId)?.name ?? post.name ?? 'Bot', botId: post.botId, text })
+        else appendRoom(room, { who: 'User', text })
       }
       if (posts.some(post => !post.botId && !post.kickoff)) {
         room.botRounds = 0

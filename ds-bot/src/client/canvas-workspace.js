@@ -1,15 +1,17 @@
 import { QiBitCommandCenter } from './qibit-command-center.js'
 import { DesktopWidget } from './desktop-widgets.js'
+import { desktopGrid, snapDesktopWindows } from './canvas-grid.js'
 import { dragGeometry } from './canvas-drag.js'
 import { RESTORED_CHAT_CSS } from './restored-chat-styles.js'
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BotAvatar, RoomAvatar, lookOf } from './mark.js'
 import { previewOf } from './text.js'
-import { PlusIcon, PeopleIcon, ChatsIcon, GearIcon, CloseIcon, FolderIcon, DotsIcon, PencilIcon, CalendarIcon, SearchIcon, ArrowRightIcon } from './icons.js'
+import { PlusIcon, PeopleIcon, ChatsIcon, GearIcon, CloseIcon, FolderIcon, DotsIcon, PencilIcon, CalendarIcon, SearchIcon, ArrowRightIcon, TrashIcon } from './icons.js'
 import { isMainOf } from './sources.js'
 import { ROOM_MODES, shownMode } from './group-settings.js'
 import { memberWork, busyMembers, summaryText } from './member-status.js'
+import { ConversationTaskPanel } from './conversation-task-panel.js'
 import { CanvasSession, canvasSessionId, registerSessionBridge } from './canvas-session.js'
 import { CanvasQuickMessage, CanvasAgenda, SPATIAL_WIDGET_CSS, toggleSpatialWidget } from './spatial-widgets.js'
 import { CanvasWallpaper } from './canvas-wallpaper.js'
@@ -110,7 +112,7 @@ function getRoleTintColor(bot) {
   return '#E2EBF2'
 }
 
-function CanvasGlobalSearch({ actions, roster, work }) {
+function CanvasGlobalSearch({ actions, roster, work, parkRequest }) {
   useEffect(() => {
     const onKey = event => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -122,7 +124,7 @@ function CanvasGlobalSearch({ actions, roster, work }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [actions])
 
-  return h(QiBitCommandCenter, { actions, roster, work, searchIcon: SearchIcon })
+  return h(QiBitCommandCenter, { actions, roster, work, searchIcon: SearchIcon, parkRequest })
 }
 
 const button = (label, onClick, icon, extra = {}) => h('button', { type: 'button', className: `bt-canvas-button glass-button${extra.className ? ` ${extra.className}` : ''}`, onClick, ...extra }, icon ? h(icon) : null, label)
@@ -593,7 +595,7 @@ const safeSetTimeout = (fn, ms) => {
   return null
 }
 
-export function CanvasDepartmentDock({ roster, work, useSessions, actions, size, canvasRoot, activeDeptKey, onStartDrag, drag }) {
+export function CanvasDepartmentDock({ roster, work, useSessions, actions, size, canvasRoot, activeDeptKey, onStartDrag, drag, dismissed = false }) {
   const [dockHover, setDockHover] = useState(null)
   const [previewReady, setPreviewReady] = useState(false)
   const groups = useMemo(() => groupDockEntities([...roster.bots, ...roster.rooms].filter(entity => !entity.hidden), roster), [roster])
@@ -703,7 +705,8 @@ export function CanvasDepartmentDock({ roster, work, useSessions, actions, size,
     }
   }, [canvasRoot, drag])
 
-  return h('div', { ref: hoverRegionRef, className: 'bt-dock-hover-region', 'data-hover-open': Boolean(dockHover), style: { display: 'contents' }, onMouseEnter: cancelClose, onMouseLeave: scheduleClose },
+  useEffect(() => { if (dismissed) closeHover() }, [dismissed])
+  return h('div', { ref: hoverRegionRef, className: 'bt-dock-hover-region', 'data-hover-open': Boolean(dockHover), 'data-dismissed': dismissed || undefined, style: { display: 'contents' }, onMouseEnter: cancelClose, onMouseLeave: scheduleClose },
     h(Dock, {
       role: 'toolbar',
       className: 'bt-canvas-dock agent-dock',
@@ -917,16 +920,17 @@ function CanvasChatWindow(props) {
       },
       onAnimationEnd: event => { if (closing && event.target === event.currentTarget) finish() },
     }, h('div', { className: 'bt-restored-chat-shell' },
-      h('header', { className: 'bt-team-chat-bar', onPointerDown: event => { if (!event.target.closest('button')) start(event) } },
+      h('header', { className: 'bt-team-chat-bar', onPointerDown: event => { if (!event.target.closest('button,[data-no-chat-drag]')) start(event) } },
         h('div', { className: 'bt-team-chat-header-main' },
           displayWindow.kind === 'room' ? h(RoomAvatar, { room: entityOf(displayWindow, roster), roster, size: 36 }) : h(BotAvatar, { bot: entityOf(displayWindow, roster), size: 36 }),
           h('strong', { className: 'bt-team-chat-name' }, entityOf(displayWindow, roster)?.name),
           entityOf(displayWindow, roster)?.generalAssistant ? h('span', { className: 'bt-assistant-badge' }, t('General Assistant')) : null),
         h('div', { className: 'bt-team-chat-tools' },
           button(null, () => actions.openSettings(displayWindow.kind === 'room' ? 'groups' : 'bots', displayWindow.entityId), GearIcon, { title: t('Settings'), 'aria-label': t('Settings') }),
+          h(ConversationTaskPanel, { key: `${displayWindow.entityId}:information`, sessionId: canvasSessionId(displayWindow, roster), roster, actions, onOpenConversation: setConversationId, taskPanel: true }),
           button(null, dismiss, CloseIcon, { title: t('Close window'), 'aria-label': t('Close window') }))),
       h('div', { className: 'bt-agent-chat-container bt-restored-chat' },
-        h(CanvasSession, { sessionId: canvasSessionId(displayWindow, roster), actions, useSessions: props.useSessions, SessionProvider: props.SessionProvider, renderSlot: props.renderSlot, onOpenConversation: setConversationId }))),
+        h(CanvasSession, { sessionId: canvasSessionId(displayWindow, roster), actions, useSessions: props.useSessions, SessionProvider: props.SessionProvider, renderSlot: props.renderSlot, onOpenConversation: setConversationId, taskPanel: true }))),
     ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'].map(edge => h('div', {
       key: edge, className: 'bt-chat-resize', 'data-edge': edge, 'aria-hidden': true,
       title: t('Drag to resize'), onPointerDown: event => start(event, edge),
@@ -956,6 +960,23 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
   const suppressContext = useRef(false)
   const [groupMembers, setGroupMembers] = useState(null)
   const [dropTarget, setDropTarget] = useState(null)
+  const [bottomDrag, setBottomDrag] = useState(null)
+  const [gridPreview, setGridPreview] = useState(null)
+  const [qibitParkRequest, setQibitParkRequest] = useState(0)
+  useEffect(() => {
+    const clearNativeDrop = () => setGridPreview(null)
+    window.addEventListener('dragend', clearNativeDrop)
+    window.addEventListener('drop', clearNativeDrop)
+    return () => {
+      window.removeEventListener('dragend', clearNativeDrop)
+      window.removeEventListener('drop', clearNativeDrop)
+    }
+  }, [])
+  useEffect(() => {
+    const park = event => { if (roster.roomsById[event.detail?.entityId]) setQibitParkRequest(value => value + 1) }
+    window.addEventListener(CHAT_POPOUT_EVENT, park)
+    return () => window.removeEventListener(CHAT_POPOUT_EVENT, park)
+  }, [roster.roomsById])
   const [mergePair, setMergePair] = useState(null)
   const mergePairRef = useRef(null)
   mergePairRef.current = mergePair
@@ -1058,6 +1079,25 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
     })
     return target?.kind === 'room' ? { ...target, keepSurface: true } : target
   }
+  const gridLayout = () => {
+    const layout = actions.canvasArrangementLayout?.()
+    return layout ?? { size: { ...size, insets: { top: 24, left: 24, right: 24, bottom: 96 } }, obstacles: [] }
+  }
+  const snap = (canvas, ids, layout = gridLayout()) => snapDesktopWindows(canvas, ids, layout.size, layout.obstacles)
+  const commitSnap = (canvas, ids, layout, fallback) => {
+    const result = snap(canvas, ids, layout)
+    update(result.fits ? result.state : fallback)
+    if (!result.fits) actions.reportError?.(new Error(t('No free desktop cells. Move an item off the desktop to make room.')), 'canvas-grid')
+    return result
+  }
+  const bottomDrop = (current, event) => {
+    if (!current?.moved || !['avatar', 'window', 'group'].includes(current.kind) || !current.ids?.length) return null
+    const box = current.box
+    const active = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.bottom - 44 && event.clientY <= box.bottom + 8
+    const dock = current.dockBounds
+    const near = active || dock && event.clientX >= dock.left - 60 && event.clientX <= dock.right + 60 && event.clientY >= dock.top - 70
+    return near ? { active } : null
+  }
   const start = (event, kind, id, onTap, onDragStart) => {
     if (event.button !== 0 && !(event.button === 2 && kind === 'marquee')) return
     restoreTransitions()
@@ -1075,7 +1115,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
       update(current, false)
     }
     suppressContext.current = false
-    drag.current = { kind, id, ids, onTap, onDragStart, startX: event.clientX, startY: event.clientY, state: current, box, moved: false, right: event.button === 2 }
+    drag.current = { kind, id, ids, onTap, onDragStart, startX: event.clientX, startY: event.clientY, state: current, box, gridLayout: gridLayout(), dockBounds: root.current.querySelector?.('.bt-canvas-dock')?.getBoundingClientRect(), moved: false, right: event.button === 2 }
     root.current.setPointerCapture(event.pointerId)
   }
   const startDockDrag = (event, entity) => {
@@ -1085,7 +1125,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
     event.stopPropagation()
     const kind = roster.roomsById[entity.id] ? 'room' : 'bot'
     const box = root.current.getBoundingClientRect()
-    drag.current = { kind: 'dock', entity, entityKind: kind, originState: latest.current, startX: event.clientX, startY: event.clientY, moved: false, box }
+    drag.current = { kind: 'dock', entity, entityKind: kind, originState: latest.current, startX: event.clientX, startY: event.clientY, moved: false, box, gridLayout: gridLayout(), dockBounds: root.current.querySelector?.('.bt-canvas-dock')?.getBoundingClientRect() }
     root.current.setPointerCapture(event.pointerId)
   }
   const applyMove = event => {
@@ -1108,17 +1148,22 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
         if (win) {
           const target = groupTargetAt(nextState, [win.id], event.clientX, event.clientY)
           setDropTarget(target?.windowId ?? target?.id ?? null)
-          drag.current = { kind: 'avatar', id: win.id, ids: [win.id], startX: event.clientX, startY: event.clientY, state: nextState, latest: nextState, originState: current.originState, target, box: current.box, moved: true }
+          drag.current = { kind: 'avatar', id: win.id, ids: [win.id], startX: event.clientX, startY: event.clientY, state: nextState, latest: nextState, originState: current.originState, target, box: current.box, gridLayout: current.gridLayout, dockBounds: current.dockBounds, moved: true }
         }
       }
       return
     }
     if (current.kind === 'pan') update(() => setCanvasViewport(current.state, { ...v, x: v.x + dx, y: v.y + dy }), false)
     if (current.kind === 'window' || current.kind === 'group' || current.kind === 'avatar' && current.moved) {
-      const next = dragGeometry(current.state, current.ids, dx / v.zoom, dy / v.zoom, dragBounds.current ?? current.box, current.kind === 'group' ? current.id : undefined)
+      const next = dragGeometry(current.state, current.ids, dx / v.zoom, dy / v.zoom, { ...(dragBounds.current ?? current.box), insets: { ...(dragBounds.current?.insets ?? {}), bottom: 0 } }, current.kind === 'group' ? current.id : undefined)
       current.latest = next
+      const edge = bottomDrop(current, event)
+      setBottomDrag(previous => previous?.active === edge?.active ? previous : edge)
+      current.edge = edge
       current.target = groupTargetAt(next, current.ids, event.clientX, event.clientY)
       setDropTarget(current.target?.windowId ?? current.target?.id ?? null)
+      const preview = edge ? null : snap(next, current.ids, current.gridLayout)
+      setGridPreview(previous => JSON.stringify(previous?.placements) === JSON.stringify(preview?.placements) ? previous : preview)
       // Move only selected desktop nodes. Commit the observable layout on release.
       if (!current.nodes) current.nodes = [...(root.current.querySelectorAll?.('.bt-canvas-world > [data-window-id]') ?? [])].filter(node => current.ids.includes(node.dataset.windowId))
       for (const node of current.kind === 'group' ? [] : current.nodes) {
@@ -1177,7 +1222,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
   const finish = event => {
     if (!drag.current) return
     if (dragFrame.current !== null) { cancelAnimationFrame(dragFrame.current); dragFrame.current = null }
-    if (event.type !== 'pointercancel' && (pendingMove.current || drag.current.moved)) applyMove(event)
+    if (!['pointercancel', 'lostpointercapture'].includes(event.type) && (pendingMove.current || drag.current.moved)) applyMove(event)
     pendingMove.current = null
     const current = drag.current
     for (const node of current.nodes ?? []) { node.style.transform = ''; node.style.willChange = '' }
@@ -1188,7 +1233,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
       releaseFrame.current = requestAnimationFrame(restoreTransitions)
     })
     if (root.current.dataset) delete root.current.dataset.dragging
-    if (current.latest && event.type !== 'pointercancel') {
+    if (current.latest && !['pointercancel', 'lostpointercapture'].includes(event.type)) {
       current.hitCache = null
       current.target = groupTargetAt(current.latest, current.ids, event.clientX, event.clientY)
       update(current.latest, false)
@@ -1196,20 +1241,26 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
     drag.current = null
     setMarquee(null)
     setDropTarget(null)
+    setBottomDrag(null)
+    setGridPreview(null)
     if (root.current.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId)
-    if (event.type === 'pointercancel') {
+    if (['pointercancel', 'lostpointercapture'].includes(event.type)) {
       setMergePair(null)
       if (current.state) update(current.originState ?? current.state)
       actions.saveCanvas()
       return
     }
+    if (current.moved && current.edge?.active) {
+      update(current.ids.reduce((canvas, id) => collapseWindow(canvas, id), current.originState ?? current.state))
+      actions.saveCanvas(); setMergePair(null); return
+    }
     if (current.moved && (current.kind === 'window' || current.kind === 'avatar' || current.kind === 'group')) {
       current.ids?.forEach(id => actions.markCanvasWindowMoved?.(id))
     }
-    actions.saveCanvas()
     setMergePair(null)
     if (current.kind === 'marquee' && !current.right && !current.moved) {
       update(state => setCanvasSelection(state, []))
+      actions.saveCanvas()
       return
     }
     if (current.right && current.moved) suppressContext.current = true
@@ -1220,6 +1271,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
     if (current.moved && current.target) {
       update(current.target.kind === 'room' ? current.originState ?? current.state : current.state)
       proposeGroup(selectedMains(current.state, roster, current.ids), current.target)
+      actions.saveCanvas()
       return
     }
     if (current.moved && current.ids?.length === 1 && ['avatar', 'window'].includes(current.kind)) {
@@ -1229,8 +1281,13 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
         const source = next.windows.find(window => window.id === current.id)
         update(current.state)
         createMergedGroup(source.entityId, targetWin.entityId)
+        actions.saveCanvas()
         return
       }
+    }
+    if (current.moved && ['avatar', 'window'].includes(current.kind)) {
+      const result = commitSnap(current.latest ?? latest.current, current.ids, current.gridLayout, current.originState ?? current.state)
+      if (result.fits && current.ids.some(id => result.state.windows.find(w => w.id === id)?.kind === 'room')) setQibitParkRequest(value => value + 1)
     }
     if (current.kind === 'dock' && !current.moved && event.type !== 'pointercancel') {
       actions.openCanvasEntity(current.entity.id, size)
@@ -1239,6 +1296,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
       if (window?.kind === 'room') current.onTap?.()
       else actions.openCanvasConversation(current.id)
     }
+    actions.saveCanvas()
   }
   const createMergedGroup = (sourceId, targetId) => {
     const members = [sourceId, targetId]
@@ -1292,11 +1350,17 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
       sourceName: roster.byId[id]?.name ?? '', targetName: roster.byId[other.entityId]?.name ?? '',
       source: { x: point.x + 60, y: point.y + 34 }, target: { x: other.x + 60, y: other.y + 34 }, dist: distance, ready: distance < MERGE_COMMIT_DISTANCE } : null)
     setDropTarget(target?.windowId ?? target?.id ?? null)
-    if (!commit) return
+    const preview = !target && !(other && distance < MERGE_COMMIT_DISTANCE) ? snap(probe, [existing?.id ?? 'contact-drop']) : null
+    if (!commit) { setGridPreview(preview); return }
+    setGridPreview(null)
     setDropTarget(null)
     setMergePair(null)
     if (other && distance < MERGE_COMMIT_DISTANCE) { createMergedGroup(id, other.entityId); return }
-    if (!target || target.kind === 'draft' && !existing?.open) actions.placeCanvasMain(id, canvasDropPoint(current, box, x, y))
+    if (!target || target.kind === 'draft' && !existing?.open) {
+      if (!target && !preview?.fits) { actions.reportError?.(new Error(t('No free desktop cells. Move an item off the desktop to make room.')), 'canvas-grid'); return }
+      const place = preview?.placements[0] ?? point
+      actions.placeCanvasMain(id, { x: place.x, y: place.y })
+    }
     if (target) proposeGroup([id], target)
   }
   const contactDropRef = useRef(contactDrop)
@@ -1307,7 +1371,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
       const node = root.current
       const hit = node.ownerDocument.elementFromPoint(x, y)
       const roomId = hit?.closest('[data-room-drop-id]')?.dataset.roomDropId
-      if (phase === 'cancel' || !hit || !node.contains(hit) && !roomId) { setDropTarget(null); setMergePair(null); return }
+      if (phase === 'cancel' || !hit || !node.contains(hit) && !roomId) { setDropTarget(null); setMergePair(null); setGridPreview(null); return }
       contactDropRef.current(id, x, y, phase === 'end')
     }
     window.addEventListener(MAIN_AGENT_POINTER, receive)
@@ -1316,8 +1380,10 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
   const handleDragOver = event => {
     event.preventDefault()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    if (!drag.current && Array.from(event.dataTransfer?.types ?? []).includes('application/x-ds-bot')) setGridPreview({ grid: desktopGrid(gridLayout().size), placements: [] })
   }
   const handleDrop = event => {
+    setGridPreview(null)
     event.preventDefault()
     event.stopPropagation()
     const raw = event.dataTransfer?.getData('application/x-ds-bot') || event.dataTransfer?.getData('text/plain')
@@ -1348,7 +1414,11 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
           win.y = y
           actions.markCanvasWindowMoved?.(win.id)
         }
-        return next
+        if (target) return next
+        const result = snap(next, [winId])
+        if (!result.fits) actions.reportError?.(new Error(t('No free desktop cells. Move an item off the desktop to make room.')), 'canvas-grid')
+        else if (kind === 'room') setQibitParkRequest(value => value + 1)
+        return result.fits ? result.state : current
       })
       actions.saveCanvas?.()
       if (target) proposeGroup([id], target)
@@ -1375,9 +1445,16 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
     doc.addEventListener('drop', drop, true)
     return () => { doc.removeEventListener('dragover', over, true); doc.removeEventListener('drop', drop, true) }
   }, [])
-  return h('div', { ref: root, className: 'bt-canvas canvas-viewport', 'aria-label': t('Employee canvas'), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish, onContextMenu: onCanvasContextMenu, onDragEnter: handleDragOver, onDragOver: handleDragOver, onDrop: handleDrop },
+  return h('div', { ref: root, className: 'bt-canvas canvas-viewport', 'aria-label': t('Employee canvas'), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish, onLostPointerCapture: finish, onDragLeave: event => { if (!event.relatedTarget?.nodeType || !root.current?.contains(event.relatedTarget)) setGridPreview(null) }, onContextMenu: onCanvasContextMenu, onDragEnter: handleDragOver, onDragOver: handleDragOver, onDrop: handleDrop },
     h('style', null, SPATIAL_WIDGET_CSS + RESTORED_CHAT_CSS),
     h('style', null, MAIN_GROUP_CSS),
+    gridPreview ? h('div', { className: 'bt-canvas-snap-grid', 'aria-hidden': true, style: {
+      left: gridPreview.grid.left, top: gridPreview.grid.top,
+      width: gridPreview.grid.right - gridPreview.grid.left, height: gridPreview.grid.bottom - gridPreview.grid.top,
+      backgroundSize: `${gridPreview.grid.width}px ${gridPreview.grid.height}px`,
+    } }, gridPreview.placements.map(place => h('div', { key: place.id, className: 'bt-canvas-snap-cell', style: {
+      left: place.left - gridPreview.grid.left, top: place.top - gridPreview.grid.top, width: place.width, height: place.height,
+    } }))) : null,
     groupMembers ? h(MainAgentGroup, { ...groupMembers, roster, actions, onComplete: completeGroup, onClose: () => setGroupMembers(null) }) : null,
     h('nav', { className: 'bt-canvas-toolbar', 'aria-label': t('Canvas tools') },
       h('strong', null, t('Employee canvas')),
@@ -1394,7 +1471,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
       h(CanvasWallpaper, { canvasRef: root }),
       button(t('Settings'), () => actions.openSettings(), GearIcon),
       button(t('Classic view'), () => actions.openClassicSession())),
-    h(DesktopWidget, { id: 'qibit-command', actions }, h(CanvasGlobalSearch, { actions, roster, work })),
+    h(DesktopWidget, { id: 'qibit-command', actions }, h(CanvasGlobalSearch, { actions, roster, work, parkRequest: qibitParkRequest })),
     h('main', {
       className: 'bt-canvas-stage',
       onContextMenu: onCanvasContextMenu,
@@ -1500,11 +1577,13 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
     h(DesktopWidget, { id: 'quick', actions }, h(CanvasQuickMessage, { bot: quickBot, actions })),
     h(DesktopWidget, { id: 'agenda', actions }, h(CanvasAgenda, { roster, actions })),
     marquee ? h('div', { className: 'bt-canvas-marquee', style: marquee }) : null,
+    bottomDrag ? h('div', { className: 'bt-canvas-trash-edge', 'data-active': bottomDrag.active || undefined, role: 'status' },
+      h(TrashIcon), h('span', null, t(bottomDrag.active ? 'Release to remove from desktop' : 'Drag to the bottom edge to remove from desktop'))) : null,
     h(CanvasDepartmentDock, {
       roster, work, useSessions, actions, size, canvasRoot: root,
       activeDeptKey: activeBot ? getDepartmentForEntity(roster.byId[activeBot.entityId], roster)?.key ?? `bot:${activeBot.entityId}`
         : visible.find(window => window.id === state.active && window.kind === 'room') ? `room:${visible.find(window => window.id === state.active).entityId}` : undefined,
-      onStartDrag: startDockDrag, drag,
+      onStartDrag: startDockDrag, drag, dismissed: Boolean(bottomDrag),
     }),
     null)
 }

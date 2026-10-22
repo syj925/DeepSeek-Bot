@@ -19,7 +19,7 @@ export const canvasStyles = `
   --divider: rgba(0, 0, 0, 0.08);
 
   /* 统一字体排版体系 */
-  --bt-font-sans: "Qibit UI", "Noto Sans SC", system-ui, sans-serif;
+  --bt-font-sans: "Qibit UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --bt-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --bt-fs-xs: 11px;
   --bt-fs-sm: 12px;
@@ -1218,6 +1218,38 @@ export const canvasStyles = `
   line-height: 20px;
   outline: none;
 }
+
+.bt-canvas-snap-grid {
+  position: absolute; z-index: 1; pointer-events: none; border-radius: 16px;
+  background-image: linear-gradient(to right,rgba(255,255,255,.35) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,.35) 1px,transparent 1px);
+  animation: bt-grid-arrive 140ms ease-out;
+}
+.bt-canvas-snap-cell {
+  position: absolute; border: 1.5px dashed rgba(38,116,94,.65); border-radius: 22px;
+  background: rgba(255,255,255,.3); box-shadow: 0 0 0 5px rgba(38,116,94,.07);
+  transition: left 140ms ease-out,top 140ms ease-out;
+}
+@keyframes bt-grid-arrive { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion:reduce) { .bt-canvas-snap-grid { animation: none; } .bt-canvas-snap-cell { transition: none; } }
+.bt-canvas-dock { transition: transform 280ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease; }
+.bt-dock-hover-region[data-dismissed=true] > .bt-canvas-dock {
+  transform: translate(-50%, calc(100% + 120px));
+  opacity: 0;
+  pointer-events: none;
+}
+.bt-canvas-trash-edge {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 52px; z-index: 60;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  pointer-events: none; color: #715d55; font-size: 12px;
+  border-top: 1px dashed rgba(140,92,72,.38);
+  background: linear-gradient(transparent,rgba(255,246,239,.78));
+  animation: bt-trash-arrive 160ms ease-out;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+.bt-canvas-trash-edge > svg { width: 18px; height: 18px; }
+.bt-canvas-trash-edge[data-active=true] { color: #a43b32; border-color: rgba(164,59,50,.7); background: rgba(255,229,221,.86); }
+@keyframes bt-trash-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion:reduce) { .bt-canvas-dock,.bt-canvas-trash-edge { transition: none; animation: none; } }
 
 .bt-canvas-marquee {
   position: absolute;

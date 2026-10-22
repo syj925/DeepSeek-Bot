@@ -6,6 +6,27 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.70] - 2026-10-22
+
+This source snapshot includes the desktop changes from 0.1.67 through 0.1.70.
+
+### Added
+
+- A shared information panel for team chats and detached windows, covering tasks, completed work, deliverable files and error recovery with synchronized read indicators.
+- Source-aware indexing of explicitly shared deliverables, including persistent group file references and bounded historical lookup.
+- Shift selection and confirmed batch deletion of visible groups, plus collision-aware canvas grid placement and bottom-edge removal without deleting conversations.
+
+### Changed
+
+- Apply the supplied UI handoff's local typography and light frosted controls while keeping real departments, employees and existing task behavior.
+- Move the Dock away during nearby drags and park the collapsed assistant when placing a group on the canvas.
+
+### Fixed
+
+- Open delivered-file cards through the canvas preview in embedded chats and detached windows instead of requiring a mounted classic sidebar. Preserve source Session identity and native external-app menus.
+- Preserve validated static portraits when creating employees from animated previews.
+- Avoid unrelated error matches when an assistance record has no Bot identity.
+
 ## [0.1.66] - 2026-10-21
 
 ### Fixed

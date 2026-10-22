@@ -51,6 +51,15 @@ export function install(rt) {
     delete entry.completion
     if (reason?.kind !== 'completed' || retry || switched || state.questions[id] || (rt.approvalsView?.() ?? []).some(value => value.sessionId === id)) return
     if (turn !== undefined && entry.notifiedTurn === turn) return
+    const author = rt.botOf(rt.selfOf(id)), fileRoom = rt.groupOwners.get(id)?.roomId
+    const outwardFile = !fileRoom && (info
+      ? ['reply', 'report', 'retry', 'resume'].includes(info.role) || info.role === 'request' && info.audience === 'user' || info.role === 'handoff' && info.resume === true
+      : opened === true)
+    if (author && outwardFile && !lastCalled && lastText?.trim()) {
+      void rt.recordConversationFiles?.({ text: lastText, sessionId: id, botId: author.id, targetId: author.id,
+        title: author.name, at: Date.now() })
+        .catch(error => rt.warn('ds-bot: shared file indexing deferred: %s', error))
+    }
     if (handoff && !completion) {
       void rt.archiveCompletedTaskSession?.(id, { ...handoff, kind: 'handoff', epoch }).catch(error => rt.warn('ds-bot: task handoff cleanup deferred: %s', error))
     }

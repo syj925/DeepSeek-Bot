@@ -258,6 +258,7 @@ function decide(body) {
 
   // Workspace guidance appended by the harness is context, not a scripted command.
   const userText = textOf(last?.content).split('\n<system-reminder>')[0].trim()
+  if (userText.startsWith('smoke:present-files ') && tools.has('present')) return [tool('present', { files: JSON.parse(userText.slice('smoke:present-files '.length)) })]
   const modelChange = /^smoke:set-model(-unrequested)?\s+(\S+)\s+(\S+)\s*$/.exec(userText)
   if (modelChange) return [tool('update_bot', {
     bot: modelChange[2], model: modelChange[3], ...(!modelChange[1] ? { model_user_requested: true } : {}),

@@ -159,6 +159,29 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
         },
       }, h(Icon), h('span', { className: 'bt-menu-label' }, label))))
   }
+  // Batch context menu for multi-selected rooms (Shift-click range)
+  if (menu.kind === 'rooms') {
+    const currentIds = () => [...new Set(menu.ids ?? [])].filter(id => roster.roomsById[id])
+    const ids = currentIds()
+    const count = ids.length
+    if (count === 0) return null
+    const batchDelete = async () => {
+      const pending = currentIds()
+      if (pending.length === 0) return
+      const message = pending.length === 1
+        ? t('Delete "{name}"?', { name: roster.roomsById[pending[0]].name })
+        : t('Delete {count} selected group chats?', { count: pending.length })
+      if (!window.confirm(message)) return
+      for (const id of currentIds()) {
+        try { await actions.deleteRoom(id) } catch (error) { actions.reportError(error, 'batch-delete') }
+      }
+    }
+    return h('div', { ref, className: 'bt-menu', role: 'menu', 'aria-label': t('Batch actions'), style: place, 'data-leaving': leaving || undefined },
+      h('button', {
+        type: 'button', role: 'menuitem', className: 'bt-danger',
+        onClick: () => { actions.closeMenu(); void batchDelete() },
+      }, h(TrashIcon), count === 1 ? t('Delete group') : t('Delete {count} groups', { count })))
+  }
   const bot = roster.byId[menu.id]
   const room = roster.roomsById[menu.id]
   const entry = bot ?? room

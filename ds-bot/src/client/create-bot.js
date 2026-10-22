@@ -46,7 +46,15 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), teamId: teamId || null, employment, ...(employment === 'temporary' ? { avatar: null } : {}) })
+      let savedImage = image
+      if (selectedAgent && employment !== 'temporary') {
+        const response = await fetch(selectedAgent.poster, { cache: 'force-cache' })
+        if (!response.ok) throw new Error(t('Could not load the character image. Choose it again or upload a photo.'))
+        // Presets are WebP, but the static route may return a generic MIME type.
+        const poster = new Blob([await response.blob()], { type: 'image/webp' })
+        savedImage = await avatarImage(poster)
+      }
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image: savedImage, model, effort, brief }), teamId: teamId || null, employment, ...(employment === 'temporary' ? { avatar: null } : {}) })
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))

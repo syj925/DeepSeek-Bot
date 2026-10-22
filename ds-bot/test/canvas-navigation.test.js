@@ -37,7 +37,7 @@ function renderer() {
   }
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
-    module, exports: module.exports, document: { body: {} }, window: { matchMedia: () => ({ matches: false }) },
+    module, exports: module.exports, document: { body: {}, addEventListener() {}, removeEventListener() {} }, window: { matchMedia: () => ({ matches: false }) },
     setTimeout: callback => { const id = ++timerId; timers.set(id, callback); return id },
     clearTimeout: id => timers.delete(id),
     require: name => ({ react, 'react-dom': { createPortal: node => node }, '@deepseek-ai/dsh-client-ui-primitives': {} })[name],

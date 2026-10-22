@@ -43,7 +43,7 @@ export function qibitWidgetLayout(panel = {}, area = {}, metrics = {}) {
   return { x: anchorX - boxWidth / 2, y: anchorY - heroHeight, width: boxWidth, height: boxHeight, anchorX, anchorY, heroHeight, folded }
 }
 
-function useQiBitPlacement(actions) {
+function useQiBitPlacement(actions, parkRequest) {
   const root = useRef(null), drag = useRef(null), frame = useRef(null), suppressClick = useRef(false)
   const [panel, setPanel] = useState(() => {
     const saved = readSpatialWidget(WIDGET_ID)
@@ -84,6 +84,14 @@ function useQiBitPlacement(actions) {
     observer.observe(canvas); observer.observe(node); measure()
     return () => observer.disconnect()
   }, [])
+  useLayoutEffect(() => {
+    if (!parkRequest) return
+    const canvas = root.current?.closest('.bt-canvas')
+    if (!canvas) return
+    const box = canvas.getBoundingClientRect()
+    const next = qibitWidgetLayout({ x: box.width, y: box.height, folded: true }, box)
+    persist({ x: next.anchorX, y: next.anchorY, folded: true, placement: { width: box.width, height: box.height } })
+  }, [parkRequest])
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current) }, [])
   const paint = next => {
     const node = root.current
@@ -178,7 +186,7 @@ function FeatureCards({ feature, roster, work, actions }) {
   return h('div', { className: 'bt-qibit-cards', id: 'bt-qibit-feature-cards', 'aria-label': copy('Actual work overview', '实际工作概览') }, sections.map((content, index) => h('section', { key: `${feature}:${index}`, className: 'bt-qibit-card bt-qibit-glass', style: { '--card-index': index } }, h('h3', null, names[index]), content)))
 }
 
-export function QiBitCommandCenter({ actions, roster, work = {}, searchIcon: SearchIcon }) {
+export function QiBitCommandCenter({ actions, roster, work = {}, searchIcon: SearchIcon, parkRequest }) {
   const [query, setQuery] = useState('')
   const [feature, setFeature] = useState(null)
   const [sending, setSending] = useState(false)
@@ -190,7 +198,7 @@ export function QiBitCommandCenter({ actions, roster, work = {}, searchIcon: Sea
   const [replay, setReplay] = useState(0)
   const [reduced, setReduced] = useState(false)
   const [visible, setVisible] = useState(true)
-  const { root, layout, handle, clickCharacter } = useQiBitPlacement(actions)
+  const { root, layout, handle, clickCharacter } = useQiBitPlacement(actions, parkRequest)
   const bot = generalAgent(roster)
   const lastHoverTrigger = useRef(0)
   const isHoveredRef = useRef(false)

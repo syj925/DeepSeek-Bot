@@ -14,6 +14,7 @@ import { showsDshRow } from './dsh-offer.js'
 import { botUpdateHint, installedUpdateText } from './update-status.js'
 import { CANVAS_PANEL } from './canvas-session.js'
 import { useFloatingTeam, FLOATING_TEAM_CSS } from './floating-team.js'
+import { ConversationTaskPanel } from './conversation-task-panel.js'
 import { TeamAgentChat, TEAM_AGENT_CHAT_CSS } from './team-agent-chat.js'
 import { useMainAgentDrag } from './main-agent-drag.js'
 import { useChatPopoutDrag, stageChatPopout, takeChatPopout, CHAT_POPOUT_CSS } from './chat-popout.js'
@@ -109,7 +110,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   (wide || canvasActive) && unread && !reading ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
 
-function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, useCompletions, useWork, canvasActive, canvasEntity, wide, marked, teamChatId, onSelectTeamChat }) {
+function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, useCompletions, useWork, canvasActive, canvasEntity, wide, marked, teamChatId, onSelectTeamChat, selectedRoomIds, onRoomClick, onRoomContextMenu }) {
   const id = room.id
   const fallback = useSessions(list => previewOf(list, id))
   const preview = room.preview?.replace(/\s+/g, ' ').trim() || fallback
@@ -125,15 +126,31 @@ function RoomRow({ room, roster, actions, useSessions, useSessionRetainInfo, use
   const workingLine = first ? workLine(first.name, members[0].tool, members.length - 1) : null
   if (room.hidden && !active) return null
   const pinned = room.pinned === true
+  const multiSelected = selectedRoomIds?.includes(id)
   const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
-  const onRowClick = () => {
+  const onRowClick = (event) => {
+    // Shift-click range selection for rooms
+    if (event.shiftKey && onRoomClick?.(id, true)) {
+      event.preventDefault()
+      return
+    }
+    // Normal click: clear multi-select and open
+    if (onRoomClick) onRoomClick(id, false)
     if (canvasActive && onSelectTeamChat) onSelectTeamChat(id)
     else actions.openSession(id)
   }
+  const handleContextMenu = (event) => {
+    event.preventDefault()
+    if (onRoomContextMenu) {
+      onRoomContextMenu(id, event)
+    } else {
+      actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY })
+    }
+  }
   return h('button', {
-    type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': active ? 'true' : undefined,
-    'data-room-id': id, 'data-room-drop-id': canvasActive ? id : undefined, title: room.name, onClick: onRowClick,
-    onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
+    type: 'button', className: 'bt-row team-item', 'aria-label': label, 'aria-current': active ? 'page' : undefined, 'aria-selected': (active || multiSelected) ? 'true' : undefined,
+    'data-room-id': id, 'data-room-drop-id': canvasActive ? id : undefined, 'data-multi-selected': multiSelected ? 'true' : undefined, title: room.name, onClick: onRowClick,
+    onContextMenu: handleContextMenu,
     draggable: true, onDragStart: event => {
       try {
         const payload = JSON.stringify({ id, kind: 'room' })
@@ -351,6 +368,60 @@ export function TeamSidebar(props) {
     }, 140)
     return () => clearTimeout(timer)
   }, [floating.folded])
+  // ---- Multi-select state for Shift-click batch operations on rooms ----
+  const [selectedRoomIds, setSelectedRoomIds] = useState([])
+  const lastClickedRoomId = useRef(null)
+  useEffect(() => {
+    const clear = event => {
+      if (event.type === 'keydown' && event.key !== 'Escape') return
+      if (event.type === 'pointerdown' && event.target?.closest?.('[data-room-id], [role="menu"]')) return
+      setSelectedRoomIds([])
+    }
+    document.addEventListener('pointerdown', clear, true)
+    document.addEventListener('keydown', clear, true)
+    return () => {
+      document.removeEventListener('pointerdown', clear, true)
+      document.removeEventListener('keydown', clear, true)
+    }
+  }, [])
+
+  // Use rendered rows: hidden rooms can still be visible when they are active.
+  const visibleRoomIds = () => Array.from(listRef.current?.querySelectorAll('[data-room-id]') ?? [], row => row.dataset.roomId)
+
+  const onRoomClick = (id, shift) => {
+    if (shift && lastClickedRoomId.current) {
+      const roomOrder = visibleRoomIds()
+      // Shift-click: select range between lastClickedRoomId and id
+      const startIdx = roomOrder.indexOf(lastClickedRoomId.current)
+      const endIdx = roomOrder.indexOf(id)
+      if (startIdx !== -1 && endIdx !== -1) {
+        const lo = Math.min(startIdx, endIdx)
+        const hi = Math.max(startIdx, endIdx)
+        setSelectedRoomIds(roomOrder.slice(lo, hi + 1))
+        return true
+      }
+    }
+    // Normal click: clear multi-select, record anchor
+    lastClickedRoomId.current = id
+    setSelectedRoomIds([])
+    return false
+  }
+
+  const onRoomContextMenu = (id, event) => {
+    const visible = new Set(visibleRoomIds())
+    const ids = selectedRoomIds.filter(value => visible.has(value) && roster.roomsById[value])
+    if (ids.length > 1 && ids.includes(id)) {
+      // Right-click on an already-selected room: keep the whole selection
+      setSelectedRoomIds(ids)
+      actions.openMenu({ kind: 'rooms', ids, x: event.clientX, y: event.clientY })
+    } else {
+      // Right-click on unselected room: clear multi-select, single menu
+      setSelectedRoomIds([])
+      lastClickedRoomId.current = id
+      actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY })
+    }
+  }
+
   const rowProps = {
     roster, actions, useSessions, useUi,
     useSessionStatus: props.useSessionStatus,
@@ -363,6 +434,7 @@ export function TeamSidebar(props) {
     wide,
     teamChatId,
     onSelectTeamChat,
+    selectedRoomIds, onRoomClick, onRoomContextMenu,
   }
   // Typing while the sidebar has focus starts global search.
   const typeToSearch = (event) => {
@@ -497,9 +569,7 @@ export function TeamSidebar(props) {
                 h('span', { className: 'bt-team-chat-status-dot' }),
                 h('span', { className: 'bt-team-chat-status-text' }, t(chatStatus))))),
           h('div', { className: 'bt-team-chat-tools' },
-            h('button', { type: 'button', className: 'bt-team-chat-btn bt-team-chat-btn--icon', title: t(floating.maximized ? 'Restore window' : 'Maximize window'), 'aria-label': t(floating.maximized ? 'Restore window' : 'Maximize window'), onClick: floating.maximize },
-              h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, 'aria-hidden': true },
-                h('path', { d: floating.maximized ? 'M6 6V3h11v11h-3M3 6h11v11H3Z' : 'M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5' }))),
+            h(ConversationTaskPanel, { key: activeEntity.id, sessionId: isRoom ? activeEntity.id : currentPart(activeEntity), roster, actions, onOpenConversation: onSelectTeamChat }),
             h('button', {
               type: 'button',
               className: 'bt-team-chat-btn bt-team-chat-btn--icon',
