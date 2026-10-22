@@ -26,6 +26,7 @@ This source snapshot includes the desktop changes from 0.1.67 through 0.1.70.
 - Open delivered-file cards through the canvas preview in embedded chats and detached windows instead of requiring a mounted classic sidebar. Preserve source Session identity and native external-app menus.
 - Preserve validated static portraits when creating employees from animated previews.
 - Avoid unrelated error matches when an assistance record has no Bot identity.
+- Wait for queued diagnostic log writes during runtime disposal so shutdown and test-profile cleanup cannot race unfinished appends.
 
 ## [0.1.66] - 2026-10-21
 

@@ -118,6 +118,11 @@ export function install(rt) {
   let fresh = []
   let writing = Promise.resolve()
   let fileFailed = false
+  // Profile teardown must not race queued log appends, including warnings from other cleanups.
+  ctx.effect(() => async () => {
+    let pending
+    do { pending = writing; await pending } while (pending !== writing)
+  }, 'ds-bot: diagnostics log')
 
   const clean = text => cleanText(text, { redact: rt.redactSecrets })
 

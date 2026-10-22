@@ -1,3 +1,5 @@
+QibitAI 0.1.70 brings the shared task, deliverable and recovery information panel to team chats and detached windows, preserves group file sources, and opens delivered-file cards in canvas previews. It includes the supplied typography, frosted controls and canvas interaction updates. Runtime shutdown drains queued diagnostic writes before cleanup. See the [UI handoff](UI-HANDOFF.md) and [source notes](docs/source-package-0.1.70.zh.md).
+
 QibitAI 0.1.66 keeps repeated file clicks from restarting an existing preview. Multiple previews and downloads share two concurrent reads; transient failures retry automatically at most twice. Closing or reloading cancels queued reads and retries while preserving each file's source Session.
 
 QibitAI 0.1.65 fixes the `useMarkdownDelegate is not a function` error in canvas file previews and Bot replies by using public Markdown interfaces. Preview contents also render when an older host lacks the file-link provider. Classic Chat retains its original link and image handling.

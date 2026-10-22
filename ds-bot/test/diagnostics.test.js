@@ -9,6 +9,7 @@ import { cleanText, install as installDiagnostics, reportMarkdown } from '../src
 import { failureLine, install as installTurns, turnFailure } from '../src/host/turns.js'
 import { errorCode } from '../src/host/channel.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
+import { fakeContext } from './fake-ctx.js'
 
 test('cleanText hides keys, tokens and the home folder', () => {
   const home = '/home/user'
@@ -35,8 +36,10 @@ test('cleanText hides standalone credentials it was never given', () => {
 
 function host(home, extra = {}) {
   const warnings = []
+  const ctx = fakeContext()
+  ctx.logger.warn = (...args) => warnings.push(args)
   const rt = {
-    ctx: { logger: { warn: (...args) => warnings.push(args) } },
+    ctx,
     home,
     config: {},
     state: { bots: { a: { id: 'a', name: 'Chief', model: 'deepseek/deepseek-chat' } }, mainBotIds: ['a'], rooms: {} },
@@ -46,6 +49,45 @@ function host(home, extra = {}) {
   installDiagnostics(rt)
   return rt
 }
+
+test('runtime disposal waits for the last diagnostic append before its home can be removed', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-diag-'))
+  const path = join(home, 'logs', 'diagnostics.jsonl')
+  const originalAppend = fsp.appendFile
+  let release, entered, completed
+  const blocked = new Promise(resolve => { release = resolve })
+  const started = new Promise(resolve => { entered = resolve })
+  const written = new Promise(resolve => { completed = resolve })
+  fsp.appendFile = async (target, ...args) => {
+    if (target !== path) return originalAppend(target, ...args)
+    entered()
+    await blocked
+    try { return await originalAppend(target, ...args) }
+    finally { completed() }
+  }
+  syncBuiltinESMExports()
+  const rt = host(home)
+  t.after(async () => {
+    release()
+    await written
+    await rt.ctx.dispose()
+    fsp.appendFile = originalAppend
+    syncBuiltinESMExports()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  rt.noteFailure({ text: 'Final shutdown entry', code: 'TEST' })
+  await started
+  let disposed = false
+  const stopping = rt.ctx.dispose().then(() => { disposed = true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(disposed, false, 'a pending diagnostic write must keep disposal open')
+  rt.noteFailure({ text: 'Warning from another cleanup', code: 'TEST' })
+  release()
+  await stopping
+  const log = readFileSync(path, 'utf8')
+  assert.match(log, /Final shutdown entry/)
+  assert.match(log, /Warning from another cleanup/)
+})
 
 test('warnings are kept, cleaned, written to the log, and read back after a restart', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-diag-'))
