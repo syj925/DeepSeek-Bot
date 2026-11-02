@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { install as installTurns } from '../src/host/turns.js'
 import { install as installParts } from '../src/host/parts.js'
@@ -55,6 +55,7 @@ async function start(seed, { providers = { mock: [{ id: 'default', inputModaliti
     if (!agents.has(sessionId)) {
       const calls = []
       agents.set(sessionId, {
+        ctx: fakeContext(),
         session: { id: sessionId, requestHeader: () => undefined },
         id: sessionId,
         calls,
@@ -93,7 +94,7 @@ async function start(seed, { providers = { mock: [{ id: 'default', inputModaliti
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
@@ -102,7 +103,10 @@ async function start(seed, { providers = { mock: [{ id: 'default', inputModaliti
   }
   // Runs every registered waterfall listener; `next` settles the chain.
   const fire = (name, payload) => Promise.all((ctx.listeners.get(name) ?? []).map(listener => listener(payload, () => Promise.resolve(undefined))))
-  const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId } })
+  const tool = async (name, args, sessionId) => {
+    const agent = name === 'complete_task' ? await rt.resolveAgent(sessionId) : agentOf(sessionId)
+    return (agent.ctx.registeredTools.get(name) ?? ctx.registeredTools.get(name)).execute(args, { agent })
+  }
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
@@ -113,8 +117,19 @@ async function start(seed, { providers = { mock: [{ id: 'default', inputModaliti
   }
   // Loading once fills the Session-owner indexes turns.js filters events by.
   await tool('list_bots', {}, 'a')
-  return { ctx, agents, agentOf, emit, fire, tool, call, exchanges, home, stop }
+  return { ctx, rt, agents, agentOf, emit, fire, tool, call, exchanges, home, stop }
 }
+
+test('saving a newly adopted Bot conversation installs completion on its already-resolved Agent', async (t) => {
+  const app = await start(team())
+  t.after(app.stop)
+  const agent = await app.rt.resolveAgent('adopted-bot')
+  assert.equal(agent.ctx.registeredTools.has('complete_task'), false)
+  app.rt.state.bots['adopted-bot'] = { id: 'adopted-bot', sessionId: 'adopted-bot', name: 'Adopted', createdAt: 3 }
+  await app.rt.save()
+  assert.equal(agent.ctx.registeredTools.has('complete_task'), true)
+  assert.equal(app.ctx.registeredTools.has('complete_task'), false)
+})
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
 

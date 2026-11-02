@@ -336,6 +336,7 @@ export function install(rt) {
     }
     // The agents module owns the DSH Agent session index; it installs after this.
     rt.indexAgents?.()
+    rt.syncTaskNoticeTools?.()
   }
   // The Bot a Session speaks for: its own chat, one of its group Sessions, or an
   // earlier segment of either.

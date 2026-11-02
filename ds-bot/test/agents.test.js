@@ -201,11 +201,12 @@ test('a corrupt agents field resets instead of crashing the view', async (t) => 
   assert.deepEqual(view.agents, [])
 })
 
-test('TEAM_TOOLS names exactly the tools ds-bot registers', async (t) => {
+test('TEAM_TOOLS names global team tools and the employee-scoped completion tool', async (t) => {
   // read_browser registers only in the Desktop profile; the flag stands in for it.
   const { stop, ctx } = start(TEAM, { config: { browser: true } })
   t.after(stop)
-  assert.deepEqual([...ctx.registeredTools.keys()].sort(), [...TEAM_TOOLS].sort())
+  assert.deepEqual([...ctx.registeredTools.keys()].sort(), TEAM_TOOLS.filter(name => name !== 'complete_task').sort())
+  assert.equal(ctx.registeredTools.has('complete_task'), false)
 })
 
 test('agent-session honors a known workspace and falls back to the team workspace', async (t) => {

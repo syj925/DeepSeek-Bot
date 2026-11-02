@@ -3,8 +3,9 @@ import { test } from 'node:test'
 import { install } from '../src/host/prompt.js'
 import { fakeContext } from './fake-ctx.js'
 
-function start() {
+function start({ completion = true } = {}) {
   const ctx = fakeContext()
+  ctx.tools.get = (name, agent) => name === 'complete_task' && completion && ['main', 'worker', 'group-worker'].includes(agent?.id)
   const bots = new Map([
     ['main', { name: 'Chief' }],
     ['worker', { name: 'Dev', instructions: 'Check files.' }],
@@ -42,4 +43,15 @@ test('the group relay and non-Bot sessions do not get progress instructions', (t
   assert.match(prompt('room'), /end your turn with an empty reply/)
   assert.doesNotMatch(prompt('room'), /progress|milestone/)
   assert.equal(prompt('outside'), '')
+})
+
+test('completion instructions require the scoped tool to be visible', (t) => {
+  const visible = start()
+  const hidden = start({ completion: false })
+  t.after(() => visible.ctx.dispose())
+  t.after(() => hidden.ctx.dispose())
+  for (const id of ['main', 'worker', 'group-worker']) {
+    assert.match(visible.prompt(id), /visible complete_task tool/)
+    assert.doesNotMatch(hidden.prompt(id), /complete_task/)
+  }
 })

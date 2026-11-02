@@ -16,9 +16,13 @@ function memory() {
 function host() {
   let tool, saves = 0
   const entry = { turn: 1 }, bots = { b: { id: 'b', name: 'Writer' }, a: { id: 'a' } }, rooms = { r: { admin: 'a' } }
-  const rt = { state: { questions: {} }, live: new Map([['b', entry]]), groupOwners: new Map(), ctx: { tools: { register: value => { tool = value } } }, botOf: id => bots[id], selfOf: id => id, roomOf: id => rooms[id], save: async () => { saves++ }, warn() {} }
+  const agent = { id: 'b', session: { id: 'b' }, ctx: { tools: { register: value => { tool = value; return () => {} } }, effect: fn => fn() } }
+  const rt = { state: { questions: {} }, live: new Map([['b', entry]]), groupOwners: new Map(),
+    ctx: { on() {}, effect: fn => fn(), get() {} }, isBotSession: id => id in bots,
+    load: async () => {}, botOf: id => bots[id], selfOf: id => id, roomOf: id => rooms[id], save: async () => { saves++ }, warn() {} }
   install(rt)
-  return { rt, entry, rooms, saves: () => saves, report: (args = {}) => tool.execute({ title: 'Report', summary: 'Checked and delivered.', ...args }, { agent: { id: 'b' } }), finish: (values = {}) => rt.finishTaskNotice(entry, { reason: { kind: 'completed' }, id: 'b', ...values }) }
+  rt.prepareTaskNoticeAgent(agent)
+  return { rt, entry, rooms, saves: () => saves, report: (args = {}) => tool.execute({ title: 'Report', summary: 'Checked and delivered.', ...args }, { agent }), finish: (values = {}) => rt.finishTaskNotice(entry, { reason: { kind: 'completed' }, id: 'b', ...values }) }
 }
 
 test('a declaration only publishes after successful finish, at most once', async () => {
@@ -151,6 +155,19 @@ test('history is bounded and failed persistence removes the unpublished record',
   await h.report(); h.finish()
   await Promise.resolve()
   assert.equal(h.rt.state.taskNotices.length, 99)
+})
+
+test('a cached scoped tool cannot record completion after its conversation loses Bot ownership during file validation', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bot-notice-owner-'))
+  try {
+    const path = join(home, 'report.txt')
+    writeFileSync(path, 'Verified final output')
+    const h = host()
+    const pending = h.report({ files: [path] })
+    h.rt.isBotSession = () => false
+    await assert.rejects(pending, /no longer running/)
+    assert.equal(h.entry.completion, undefined)
+  } finally { rmSync(home, { recursive: true, force: true }) }
 })
 
 test('old history is retained, fresh notices deduplicate across polls and reload', () => {
