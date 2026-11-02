@@ -8,9 +8,10 @@ export const NOTICE_LIMIT = 100
 
 export function install(rt) {
   const { state, ctx } = rt
-  ctx.tools.register(defineTool({
+  let stopped = false
+  const tool = defineTool({
     name: 'complete_task',
-    description: 'Record a finished user deliverable for the task notification center. Call once, only after the requested work is done and verified, before your final delivery reply. Never for ordinary chat, progress, delegation, internal replies or work still awaiting approval. In a group only its coordinator reports the final combined deliverable.',
+    description: 'For a DS Bot employee executing an active task in its current conversation only: record a verified final user deliverable for the task notification center. Call once before the final delivery reply. Never for ordinary chat, progress, delegation, internal replies or work awaiting approval. Only a group coordinator reports its final combined deliverable.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short name of the completed task (at most 100 characters)' },
       summary: { type: 'string', required: true, description: 'One factual sentence describing what was delivered (at most 240 characters)' },
@@ -20,7 +21,7 @@ export function install(rt) {
     async execute(args, exec) {
       const id = exec.agent?.id, entry = rt.live.get(id)
       const bot = rt.botOf(rt.selfOf(id))
-      if (!bot || entry?.turn === undefined) throw new Error('Only an employee with an active task can report completion.')
+      if (stopped || !rt.isBotSession(id) || !bot || entry?.turn === undefined) throw new Error('Only an employee with an active task can report completion.')
       const turn = entry.turn
       const roomId = rt.groupOwners.get(id)?.roomId
       const room = roomId && rt.roomOf(roomId)
@@ -37,12 +38,72 @@ export function install(rt) {
         if (!details?.isFile()) throw new Error(`Output file is not available: ${path}`)
         files.push({ path, name: basename(path) })
       }
-      if (rt.live.get(id) !== entry || entry.turn !== turn) throw new Error('The task is no longer running.')
+      if (stopped || rt.live.get(id) !== entry || entry.turn !== turn || !rt.isBotSession(id)
+        || rt.botOf(rt.selfOf(id))?.id !== bot.id || rt.groupOwners.get(id)?.roomId !== roomId) {
+        throw new Error('The task is no longer running.')
+      }
       if (room?.task && rt.taskGroupBlocked?.(room, id)) return 'The group still has unfinished work or an approval. Wait for the actual results before completing the task.'
       entry.completion = { botId: bot.id, name: bot.name, sessionId: id, targetId: roomId ?? bot.id, ...(roomId ? { roomId } : {}), title: args.title.trim().slice(0, 100), summary: args.summary.trim().slice(0, 240), files }
       return 'Completion recorded. Deliver your final answer now; the notification is sent only after this turn finishes successfully.'
     },
-  }))
+  })
+  const agents = new Map()
+  const registered = new Map()
+  const release = (agent) => {
+    registered.get(agent)?.()
+    registered.delete(agent)
+  }
+  const sync = (agent) => {
+    if (stopped) return
+    const id = agent.session?.id
+    if (!rt.isBotSession(id) || !rt.botOf(rt.selfOf(id))) { release(agent); return }
+    if (registered.has(agent)) return
+    if (typeof agent.ctx?.tools?.register !== 'function') {
+      rt.warn('ds-bot: completion reporting requires the employee Agent scoped-tool API')
+      return
+    }
+    registered.set(agent, agent.ctx.tools.register(tool))
+  }
+  const track = (agent) => {
+    const id = agent?.session?.id
+    if (stopped || typeof id !== 'string') return
+    if (agents.get(id)?.deref() !== agent) {
+      const previous = agents.get(id)?.deref()
+      if (previous) release(previous)
+      agents.set(id, new WeakRef(agent))
+      agent.ctx?.effect(() => () => {
+        release(agent)
+        if (agents.get(id)?.deref() === agent) agents.delete(id)
+      }, 'ds-bot: employee completion tool')
+    }
+    sync(agent)
+  }
+  rt.prepareTaskNoticeAgent = track
+  rt.syncTaskNoticeTools = () => {
+    for (const [id, reference] of agents) {
+      const agent = reference.deref()
+      if (agent) sync(agent)
+      else agents.delete(id)
+    }
+  }
+  ctx.on('agent/created', async ({ agent }) => {
+    track(agent)
+    await rt.load()
+    sync(agent)
+  })
+  ctx.effect(() => {
+    const startup = rt.load().then(() => {
+      if (stopped) return
+      for (const agent of ctx.get?.('agents')?.list() ?? []) track(agent)
+      rt.syncTaskNoticeTools()
+    }).catch(error => rt.warn('ds-bot: completion tool initialization failed: %s', error))
+    return async () => {
+      stopped = true
+      await startup
+      for (const agent of registered.keys()) release(agent)
+      agents.clear()
+    }
+  }, 'ds-bot: scoped completion tools')
   rt.finishTaskNotice = (entry, { reason, retry, switched, id, turn, info, opened, lastText, lastCalled }) => {
     let completion = entry.completion
     const handoff = entry.taskHandoff

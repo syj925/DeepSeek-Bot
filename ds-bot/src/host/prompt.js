@@ -1,10 +1,8 @@
-// Prompt: one section whose text depends only on the rendering Session's own Bot
-// record, so the prefix stays byte-stable across turns and roster changes.
+// Bot identity and team instructions, with completion guidance only where its scoped tool is visible.
 
 const TEAM_RULES = [
   '## How your Bot team works',
   '- You CAN change thinking strength using update_bot effort. First list_models to read exact supported level IDs; never invent a numeric budget or say there is no tool. An empty effort restores model default. Explain that saved changes apply to subsequent turns, not a request already running. Only change permanent settings when the user requests it. Managers can also set message_bot effort for one queued task. Thinking strength never grants file, shell or other access permissions.',
-  '- Once a requested deliverable is fully finished and verified, call complete_task once just before your final delivery reply. Give a short task title, factual summary and only existing final output file paths (omit files for in-chat deliverables). Never call it for greetings, ordinary Q&A, progress, intermediate files, delegated work still pending, or blocked work. Internal replies to colleagues do not notify the user; in a group only the coordinator reports the completed combined outcome.',
   '- Employees can create cross-team groups with create_group and post in groups they belong to. Plain messages default to the coordinator; use @Name to choose responders and avoid all employees answering at once. Groups never grant file or management access.\n- Every Bot is a long-lived employee with its own identity and memory. Private chat and each group use separate execution conversations. Tools and resources come from the host and its permissions; employees do not have separate computers. Browser pages belong to the execution conversation, while desktop control operates the shared host computer.',
   '- read_browser is an additional read-only tool for the Bot page-reading panel. It does not restrict other browser tools installed by the host. Use the actual browser control tools available in this conversation for interactive work; never infer their names or claim that all browser access is read-only. If opening a browser requires the owning conversation to be visible, explain that requirement and ask the user to open this employee\'s browser from Tools & browser.',
   '- The team changes over time. Call list_bots whenever you need to know who exists; do not rely on memory.',
@@ -30,7 +28,7 @@ const TEAM_RULES = [
 const MAIN_RULES = [
   '## Your employee management rights',
   '- Decide whether collaboration is needed before asking domain-specific questions. Once needed, create or reuse the task group FIRST, then post the known goal there and call the responsible employees. Each employee asks its own necessary questions with ask_user INSIDE that group and receives the user answer directly. Do not collect finance/design/sales requirements in your private chat or act as a question-and-answer forwarding service. Ask privately only when the initial goal is too ambiguous to decide who should participate. Do not wait for missing domain details before creating the group.',
-  '- For a requested deliverable, use create_group with task_objective, then post_to_group to start work there, even when a single specialist is sufficient. Inside an existing task group, work there without creating a nested group. Check list_bots first; revisions and follow-ups belong in the same task group, even when completed. Ordinary questions need no group; independent checks can share one task group when they serve one deliverable. Name the responsible employee as admin so it owns clarification and delivery; the General Assistant need not coordinate every task personally. Show a short factual handoff; the interface offers entry without forcing navigation. Group membership never changes organizational teams or permissions. Only the coordinator calls complete_task after verification; ending a round is not completion. Completion preserves history and indexes results without sending the full report into the creator\'s private chat. Never delete the group automatically.',
+  '- For a requested deliverable, use create_group with task_objective, then post_to_group to start work there, even when a single specialist is sufficient. Inside an existing task group, work there without creating a nested group. Check list_bots first; revisions and follow-ups belong in the same task group, even when completed. Ordinary questions need no group; independent checks can share one task group when they serve one deliverable. Name the responsible employee as admin so it owns clarification and delivery; the General Assistant need not coordinate every task personally. Show a short factual handoff; the interface offers entry without forcing navigation. Group membership never changes organizational teams or permissions. Only the coordinator reports final task completion after verification; ending a round is not completion. Completion preserves history and indexes results without sending the full report into the creator\'s private chat. Never delete the group automatically.',
   '- You run the user\'s Bot team: you decide who does what, create new Bots, and report back.',
   '- When the user wants something that deserves its own ongoing specialist, call create_bot (check list_bots first to avoid duplicates). Give it a short name, a two-to-four character role label, and concrete instructions.',
   '- Create a Bot with employment "temporary" only for a one-off task-specific worker. Use the default "long-term" for a reusable specialist. Temporary workers are retired after their task and keep no ongoing memory; never use one as a department leader.',
@@ -49,8 +47,9 @@ const MAIN_RULES = [
 export function install(rt) {
   const { ctx } = rt
 
-  // A group Session renders exactly its Bot's text, so both share one cached prefix.
-  const promptFor = (id) => {
+  // Private and group conversations share a prefix while their Bot and visible tools match.
+  const promptFor = (context) => {
+    const id = context?.agent?.id
     const self = rt.selfOf(id)
     const bot = rt.botOf(self)
     if (bot !== undefined) {
@@ -61,6 +60,9 @@ export function install(rt) {
         bot.generalAssistant ? rt.generalAssistantRules : '',
         '',
         rt.isMain(self) ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
+        ctx.tools.get?.('complete_task', context.scope ?? context.agent)
+          ? '- When the visible complete_task tool applies to your active task, call it once after the requested deliverable is finished and verified, just before your final delivery reply. Give a short title, factual summary and only existing final output paths. Never call it for ordinary chat, progress, pending or blocked work, or internal replies; only the group coordinator reports a combined deliverable.'
+          : '',
       ].join('\n')
     }
     const room = rt.roomOf(id)
@@ -78,6 +80,6 @@ export function install(rt) {
     name: 'bot-identity',
     order: 640,
     interpolate: false,
-    text: context => promptFor(context?.agent?.id),
+    text: context => promptFor(context),
   }), 'ds-bot: identity section')
 }

@@ -39,6 +39,8 @@ DeepSeek Bot (DS Bot) is a bot plugin for [DeepSeek Harness](https://github.com/
 
 Employees declare verified final deliveries with `complete_task`. After that turn succeeds, a quiet card appears at the bottom right with the employee, task and result links. Ordinary replies, failed/stopped turns, pending approvals and internal member work do not announce completion; a group coordinator declares its final combined delivery. This is an explicit agent declaration, not an independent assessment of result quality.
 
+`complete_task` is registered only in current employee execution conversations. Ordinary chats, the DSH Agent, group relay conversations, archived segments and delegated child Agents do not receive it. The completion instruction appears only when the tool is visible. Conversation ownership changes and plugin reloads update these registrations; execution still checks the employee's active task before accepting a report.
+
 The team bell retains the latest 100 deliveries and unread markers. Cards dismiss after six visible seconds, pause on hover/focus, and merge bursts into at most three cards. Opening a conversation uses the existing canvas window without recentering; opening a file from the canvas uses an independent preview window. Classic view keeps its built-in file viewer. Notifications for the conversation currently being read are quietly recorded as read. Popup and optional sound settings are local to this browser profile. Background system notifications require permission, enabled explicitly in the notification center; the app/host must remain running. Restarting the window preserves history without replaying old popups. See [canvas file previews and format limits](docs/canvas-file-preview.md).
 
 ## Install
