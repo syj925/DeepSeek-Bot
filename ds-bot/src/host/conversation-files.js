@@ -48,7 +48,7 @@ export function install(rt) {
 
   async function inspect({ text = '', files: explicitFiles = [], sessionId, targetId, roomId, botId, title, at, trustedFiles = false }) {
     const candidates = sharedFilePaths(text).map(path => ({ path, trusted: false }))
-    if (trustedFiles) for (const file of explicitFiles) if (typeof file?.path === 'string') candidates.push({ path: file.path, trusted: true })
+    if (trustedFiles) for (const file of explicitFiles) if (typeof file?.path === 'string') candidates.push({ path: file.path, trusted: true, requireExisting: file.requireExisting === true })
     if (!candidates.length) return []
     let root
     const needsRoot = candidates.some(candidate => !candidate.trusted)
@@ -81,8 +81,12 @@ export function install(rt) {
       seen.add(id)
       const details = actual ? await stat(actual).catch(() => undefined) : undefined
       if (details && !details.isFile()) continue
+      if (!details && (!candidate.trusted || candidate.requireExisting)) continue
+      // The authorization preset explicitly separates source material from output.
+      const inputRoot = state.chiefPermissionPolicy?.inputRoot
+      if (!candidate.trusted && inputRoot && inside(path, resolve(inputRoot))) continue
       files.push({ id, targetId, sessionId, ...(roomId ? { roomId } : {}), botId, title, at: at ?? 0,
-        path, name: basename(path), available: Boolean(details?.isFile()),
+        path, name: basename(path), available: Boolean(details?.isFile()), verified: true,
         ...(details?.isFile() ? { modifiedAt: details.mtimeMs, size: details.size } : {}) })
     }
     return files
@@ -119,7 +123,8 @@ export function install(rt) {
       // Stored announcements retain their original worker and folder after context resets.
       for (const file of [...(state.conversationFiles ?? [])].reverse()) {
         if (file.targetId !== targetId) continue
-        try { await add({ ...file, files: [{ path: file.path }], trustedFiles: true }) } catch { partial = true }
+        if (state.chiefPermissionPolicy?.inputRoot && inside(file.path, resolve(state.chiefPermissionPolicy.inputRoot))) continue
+        try { await add({ ...file, files: [{ path: file.path, requireExisting: !file.verified && !file.available }], trustedFiles: true }) } catch { partial = true }
       }
       // Group logs contain only messages shared with the group. Do not index user text.
       if (room) {

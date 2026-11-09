@@ -4,6 +4,7 @@ import { failureLabel } from './diagnostics.js'
 import { conversationFailures } from './recovery-state.js'
 
 export function recoveryAdvice(code) {
+  code = String(code ?? '').replace(/^QIBITAI_/, '')
   if (['AUTH', 'QUOTA', 'ACCOUNT_QUOTA'].includes(code)) return 'Check the API key and account balance before retrying.'
   if (code === 'INVALID_REQUEST') return 'Check model compatibility and request settings. Repeating the same request may fail again.'
   if (code === 'CONTEXT_WINDOW_EXCEEDED') return 'The model context limit was exceeded. Check the model or continue in a new conversation part.'
@@ -45,7 +46,8 @@ function RecoveryCard({ failure, roster, actions, openConversation }) {
       !failure.chief && !assistance ? h('button', { type: 'button', disabled: working, onClick: () => run('diagnose') }, t('Ask General Assistant to diagnose')) : null,
       assistance ? h('button', { type: 'button', onClick: () => openConversation(assistance.botId) }, t('View diagnosis')) : null,
       h('button', { type: 'button', onClick: () => actions.openSettings('bots', chiefFailed && assistance ? assistance.botId : failure.botId) }, t('Check model settings')),
-      h('button', { type: 'button', onClick: copy }, t(copied ? 'Copied' : 'Copy error details'))),
+      h('button', { type: 'button', onClick: copy }, t(copied ? 'Copied' : 'Copy error details')),
+      h('button', { type: 'button', disabled: working, className: 'bt-recovery-handled', title: t('Remove from pending actions; keep the error record.'), onClick: () => run('handled') }, t('Mark as handled'))),
     error ? h('p', { role: 'status' }, error) : null)
 }
 

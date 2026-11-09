@@ -15,6 +15,7 @@ export function install(rt) {
       title: { type: 'string', required: true, description: 'Short name of the completed task (at most 100 characters)' },
       summary: { type: 'string', required: true, description: 'One factual sentence describing what was delivered (at most 240 characters)' },
       files: { type: 'array', items: { type: 'string' }, description: 'Up to 10 existing absolute paths of final output files, not scripts or intermediate files. Omit for an in-chat deliverable.' },
+      task_id: { type: 'string', description: 'Independent task ID returned by register_task or read_task_record. Required when the execution conversation has more than one task.' },
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
     async execute(args, exec) {
@@ -24,8 +25,13 @@ export function install(rt) {
       const turn = entry.turn
       const roomId = rt.groupOwners.get(id)?.roomId
       const room = roomId && rt.roomOf(roomId)
+      if (room?.task?.managed && !room.task.workTaskId) throw new Error('The independent task record has not been saved. Retry task registration before declaring a delivery.')
       const info = entry.info
-      if (room ? room.admin !== bot.id : info && !['reply', 'retry'].includes(info.role) && !(info.role === 'request' && info.audience === 'user')) {
+      if (room && room.admin !== bot.id) {
+        const coordinator = rt.botOf(room.admin)?.name ?? room.admin
+        return `Internal work: completion was NOT recorded. Only this group's coordinator (${coordinator}) can call complete_task. Report your result here; the coordinator must verify it and record completion in this group, even if you are the General Assistant.`
+      }
+      if (!room && info && !['reply', 'retry'].includes(info.role) && !(info.role === 'request' && info.audience === 'user')) {
         return 'Internal work: report back in the conversation. Only the user-facing coordinator sends the completion notification.'
       }
       if (typeof args.title !== 'string' || !args.title.trim() || typeof args.summary !== 'string' || !args.summary.trim()) throw new Error('A task title and delivery summary are required.')
@@ -38,6 +44,12 @@ export function install(rt) {
         files.push({ path, name: basename(path) })
       }
       if (rt.live.get(id) !== entry || entry.turn !== turn) throw new Error('The task is no longer running.')
+      const tracked = rt.workTaskForSession?.(id, args.task_id)
+      if (args.task_id && !tracked) throw new Error('This task is not assigned to the current execution conversation.')
+      if (tracked) {
+        await rt.submitWorkTask(tracked.id, { sessionId: id, title: args.title.trim().slice(0, 100), summary: args.summary.trim().slice(0, 240), files, turn, epoch: entry.taskEpoch })
+        return 'Delivery saved as a separate version, awaiting user acceptance in the information panel. Explain what was delivered and any limitations. Do not say the user accepted it or continue changing the delivered files.'
+      }
       if (room?.task && rt.taskGroupBlocked?.(room, id)) return 'The group still has unfinished work or an approval. Wait for the actual results before completing the task.'
       entry.completion = { botId: bot.id, name: bot.name, sessionId: id, targetId: roomId ?? bot.id, ...(roomId ? { roomId } : {}), title: args.title.trim().slice(0, 100), summary: args.summary.trim().slice(0, 240), files }
       return 'Completion recorded. Deliver your final answer now; the notification is sent only after this turn finishes successfully.'

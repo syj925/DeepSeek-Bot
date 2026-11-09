@@ -25,14 +25,17 @@ export function install(rt) {
       if (!room.members.includes(successor)) room.members.push(successor)
       room.admin = successor
     }
-    room.task = { ...room.task, status: 'active', cycle: (room.task.cycle ?? 1) + 1, resumedAt: Date.now() }
+    const previous = room.task
+    const nextTask = room.task.workTaskId ? await rt.nextWorkTaskForRoom?.(room) : undefined
+    room.task = { ...room.task, status: 'active', cycle: (room.task.cycle ?? 1) + 1, resumedAt: Date.now(), ...(nextTask ? { workTaskId: nextTask.id } : {}) }
     delete room.task.pendingCompletion
+    delete room.task.review
     delete room.task.reportFailed
     delete room.task.contextArchivedAt
     delete room.task.contextPolicy
     delete room.task.resetSessions
     delete room.task.retirementQueued
-    await rt.save()
+    try { await rt.save() } catch (error) { room.task = previous; throw error }
   }
   rt.recordTaskGroupCompletion = completion => {
     const room = rt.roomOf(completion.roomId)
@@ -41,12 +44,22 @@ export function install(rt) {
   }
   rt.finishTaskGroupRound = async (room, round, aborted = false) => {
     if (!room.task) return
+    // Managed tasks complete through user acceptance, never merely because a group
+    // round ended. Legacy rooms keep their previous completion behavior below.
+    if (room.task.workTaskId || room.task.managed) return
     const pending = room.task.pendingCompletion
     delete room.task.pendingCompletion
     const blocked = aborted || round.failed.length > 0 || round.slots.some(slot => ['waiting', 'speaking', 'working', 'waiting-answer', 'waiting-approval', 'failed', 'missed'].includes(slot.status))
       || round.replies.some(reply => ['failed', 'working', 'approval', 'missed', 'stopped', 'cut', 'resumed'].includes(reply.kind)) || rt.taskGroupBlocked(room)
-    if (!pending || pending.cycle !== room.task.cycle || blocked) { await rt.save(); return }
+    if (!pending || pending.cycle !== room.task.cycle || blocked) {
+      if (room.task.status !== 'completed') room.task.review = {
+        status: blocked ? 'blocked' : 'needs-review', at: Date.now(),
+        botId: room.admin, cycle: room.task.cycle,
+      }
+      await rt.save(); return
+    }
     room.task = { ...room.task, status: 'completed', completedAt: Date.now(), completedSeq: room.seq ?? 0, result: pending }
+    delete room.task.review
     state.taskNotices = [...(state.taskNotices ?? []), { id: randomUUID(), at: Date.now(), botId: room.admin, name: rt.botOf(room.admin)?.name ?? room.name,
       targetId: room.id, roomId: room.id, sessionId: pending.sessionId ?? room.id, title: pending.title, summary: pending.summary, files: pending.files }].slice(-100)
     await rt.save()

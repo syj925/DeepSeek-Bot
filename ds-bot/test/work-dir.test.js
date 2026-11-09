@@ -130,6 +130,119 @@ const until = async (check) => {
 const textOf = message => message.content.map(block => block.text ?? '').join('\n')
 const handoffOf = agent => agent.calls.filter(([kind, message]) => kind === 'followup' && message.source?.role === 'handoff').map(([, message]) => textOf(message)).at(-1)
 
+test('a new private task preserves history and experience but detaches unfinished work without carrying its context', async t => {
+  const h = await start()
+  t.after(h.stop)
+  const bot = h.rt.botOf('b')
+  bot.taskIndex = [{ key: 'past', title: 'OLD_HISTORY_SENTINEL', summary: 'Previous customer requirements' }]
+  await h.tool('remember', { topic: 'task-lessons', text: 'Verify spreadsheet source links before delivery.' }, 'b')
+  let task = await h.rt.createWorkTask({ sessionId: 'b', objective: 'OLD_TASK_SENTINEL', criteria: ['Old criteria'], steps: [{ id: 'one', title: 'Research' }, { id: 'two', title: 'Deliver' }] })
+  task = await h.rt.updateWorkTaskProgress({ sessionId: 'b', taskId: task.id, expectedRevision: task.revision, stepId: 'one', status: 'done', checkpoint: 'OLD_CHECKPOINT_SENTINEL' })
+  const result = await h.call('start-new-task', { botId: 'b', expectedSessionId: 'b' })
+  assert.equal(result.ok, true)
+  const fresh = result.value.sessionId
+  assert.notEqual(fresh, 'b')
+  assert.equal(h.rt.botOf('b').taskContextIsolation, true)
+  assert.equal(h.state().bots.b.taskIndex[0].title, 'OLD_HISTORY_SENTINEL')
+  assert.equal(h.rt.workTaskForSession(fresh), undefined)
+  const saved = h.rt.workTasksView().find(item => item.id === task.id)
+  assert.equal(saved.status, 'blocked')
+  assert.equal(saved.blocker.code, 'TASK_SWITCHED')
+  assert.equal(saved.steps[0].checkpoint, 'OLD_CHECKPOINT_SENTINEL')
+  assert.equal(saved.bindings.every(item => item.active === false), true)
+  assert.doesNotMatch(handoffOf(h.agentOf(fresh)), /OLD_.*SENTINEL/)
+  assert.equal(await h.tool('read_task_record', {}, fresh), '[]')
+  assert.equal(JSON.parse(await h.tool('read_task_record', { task_id: task.id }, fresh)).id, task.id)
+  await assert.rejects(h.tool('register_task', { task_id: task.id }, fresh), /task-history controls/)
+  const experience = await h.call('job-experience-view', { botId: 'b' })
+  assert.match(experience.value.entries[0].text, /Verify spreadsheet/)
+  assert.equal(h.state().rooms.r1.sessions.b, 'gb')
+  const stale = await h.call('start-new-task', { botId: 'b', expectedSessionId: 'b' })
+  assert.equal(stale.ok, false)
+  assert.match(stale.error.message, /conversation changed/)
+  const next = await h.rt.createWorkTask({ sessionId: fresh, objective: task.objective, criteria: task.criteria })
+  assert.notEqual(next.id, task.id, 'Repeating a request in a clean context creates a distinct task')
+})
+
+test('private acceptance resets exactly its execution context and keeps the accepted delivery and history', async t => {
+  const h = await start()
+  t.after(h.stop)
+  let task = await h.rt.createWorkTask({ sessionId: 'b', objective: 'Deliver a verified result', criteria: ['Verified'] })
+  task = await h.rt.updateWorkTaskProgress({ sessionId: 'b', taskId: task.id, expectedRevision: task.revision, stepId: 'delivery', status: 'done', checkpoint: 'CHECKED_RESULT_SENTINEL' })
+  task = await h.rt.submitWorkTask(task.id, { sessionId: 'b', title: 'Result', summary: 'SAVED_RESULT_SENTINEL', files: [] })
+  const deliveries = structuredClone(task.deliveries)
+  task = await h.rt.controlWorkTask({ taskId: task.id, expectedRevision: task.revision, action: 'accept' })
+  assert.equal(task.status, 'completed')
+  assert.equal(task.acceptance.postProcess, 'done')
+  assert.deepEqual(task.deliveries, deliveries)
+  const fresh = h.rt.chatOf('b')
+  assert.notEqual(fresh, 'b')
+  assert.doesNotMatch(handoffOf(h.agentOf(fresh)), /SAVED_RESULT_SENTINEL|CHECKED_RESULT_SENTINEL/)
+  assert.equal(h.rt.acceptedTaskNeedsContextReset(fresh), false)
+  assert.equal(h.rt.workTaskForSession(fresh), undefined)
+  assert.equal(h.rt.botOf('b').taskIndex[0].summary, 'SAVED_RESULT_SENTINEL')
+  assert.equal(h.state().rooms.r1.sessions.b, 'gb')
+  assert.equal(h.rt.chatOf('a'), 'a')
+  await h.rt.repairWorkTaskAcceptance(task.id)
+  assert.equal(h.rt.chatOf('b'), fresh, 'Retrying bookkeeping cannot reset the next task again')
+})
+
+test('a new-task switch refuses live work, unanswered delegation and input arriving during session creation', async t => {
+  const h = await start()
+  t.after(h.stop)
+  h.rt.liveOf('b').turn = 1
+  await assert.rejects(h.rt.startNewTaskConversation({ botId: 'b', expectedSessionId: 'b' }), /Finish or stop/)
+  delete h.rt.liveOf('b').turn
+  h.rt.state.exchanges.push({ id: 'waiting', role: 'request', from: 'b', to: 'a', audience: 'bot' })
+  await assert.rejects(h.rt.startNewTaskConversation({ botId: 'b', expectedSessionId: 'b' }), /Finish or stop/)
+  h.rt.state.exchanges.push({ role: 'reply', replyTo: 'waiting' })
+  const create = h.ctx.sessionController.create
+  h.ctx.sessionController.create = async options => {
+    const result = await create(options)
+    h.agentOf('b').inbox.nextTurn.push({ id: 'arrived', content: [{ type: 'text', text: 'Keep working here' }] })
+    return result
+  }
+  await assert.rejects(h.rt.startNewTaskConversation({ botId: 'b', expectedSessionId: 'b' }), /could not be created/)
+  assert.equal(h.rt.chatOf('b'), 'b')
+  assert.equal(h.agentOf('b').inbox.nextTurn.length, 1)
+})
+
+test('an accepted legacy private task resets before the next user input instead of replaying its messages', async t => {
+  const h = await start()
+  t.after(h.stop)
+  let task = await h.rt.createWorkTask({ sessionId: 'b', objective: 'Old accepted task', criteria: ['Done'] })
+  task = await h.rt.updateWorkTaskProgress({ sessionId: 'b', taskId: task.id, expectedRevision: task.revision, stepId: 'delivery', status: 'done', checkpoint: 'Old checkpoint' })
+  task = await h.rt.submitWorkTask(task.id, { sessionId: 'b', summary: 'Old result' })
+  const reset = h.rt.resetTaskSession
+  h.rt.resetTaskSession = async () => false
+  task = await h.rt.controlWorkTask({ taskId: task.id, expectedRevision: task.revision, action: 'accept' })
+  assert.equal(task.acceptance.postProcess, 'pending')
+  h.rt.resetTaskSession = reset
+  const input = { id: 'user-next', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'NEW_USER_INPUT' }] }
+  assert.deepEqual(await h.preStep('b', [input]), { kind: 'reject' })
+  await until(() => h.rt.chatOf('b') !== 'b')
+  await settle()
+  const fresh = h.rt.chatOf('b')
+  const messages = h.agentOf(fresh).calls.map(([, message]) => textOf(message)).join('\n')
+  assert.match(messages, /NEW_USER_INPUT/)
+  assert.doesNotMatch(messages, /Old accepted task|Old checkpoint|Old result/)
+  await h.rt.repairWorkTaskAcceptance(task.id)
+  assert.equal(h.rt.chatOf('b'), fresh)
+  assert.equal(h.rt.workTasksView()[0].acceptance.postProcess, 'done')
+})
+
+test('an automatic new-task switch blocked by delegation keeps input for a choice without retrying itself', async t => {
+  const h = await start()
+  t.after(h.stop)
+  h.rt.state.exchanges.push({ id: 'waiting', role: 'request', from: 'b', to: 'a', audience: 'bot' })
+  const input = { id: 'next', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '新任务：创建一个不同的报告。' }] }
+  assert.deepEqual(await h.preStep('b', [input]), { kind: 'reject' })
+  await until(() => h.rt.taskInputsView().b !== undefined)
+  assert.equal(h.rt.chatOf('b'), 'b')
+  assert.match(h.rt.taskInputsView().b.text, /创建一个不同的报告/)
+  assert.equal(h.agentOf('b').calls.length, 0, 'The trigger must not be queued repeatedly')
+})
+
 // Approvals that answer `outcome` and keep every request. Sessions run in `mode`, the
 // default, unless `modes` names another for them; 'workspace-write' writes inside the
 // Session's folder only. Under the 'never' policy DSH answers 'rejected' without asking.

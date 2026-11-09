@@ -567,7 +567,8 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, segment, lines, number, resume, overflow, failed, bare, folder, completedTask, manualClear }) {
+  function handoffPackage({ room, segment, lines, number, resume, overflow, failed, bare, folder, completedTask, manualClear, newTask }) {
+    if (newTask) return `[New task · part ${number}]\nThe user started a separate task context. Earlier conversations, task requirements and results remain archived, but none are carried into this task. Do not resume earlier work. Keep your configured identity and permissions. Retrieve saved experience only when relevant to the next user request. Wait for that request.`
     if (manualClear) return `[Context cleared · part ${number}]\nThe user explicitly cleared this conversation's working context. Previous messages remain archived but are not part of this task. No task is being declared complete. Keep your identity, permissions and durable memory. Wait for the next user request; do not resume earlier work.`
     if (completedTask) return [
       `[Completed task · part ${number}]`,
@@ -677,10 +678,10 @@ export function install(rt) {
 
   // `hard`: past the hard line or the window, the part moves on even without a note
   // from the model. `folder`: the part moves on because its working folder changed.
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, completedTask = false, manualClear = false, hard = overflow || folder } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, completedTask = false, manualClear = false, newTask = false, ignoreInputId, hard = overflow || folder } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
-    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, completedTask, manualClear }
+    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, completedTask, manualClear, newTask, ignoreInputId }
     switches.set(agent.id, job)
     return runSwitch(agent, job)
       .then(() => job.moved === true)
@@ -705,6 +706,13 @@ export function install(rt) {
         if (!job.noteFailed) partBase.set(agent.id, tokensOf(agent.session) ?? 0)
         // The stopped turn goes on where it was.
         const back = job.carry.splice(0)
+        if (newTask && back.length) {
+          // A failed automatic switch must not replay its trigger into the same
+          // old part and request the identical switch forever.
+          await rt.inspectTaskInput?.(currentOf(job), back, { forceAsk: true })
+            .catch(error => rt.warn('ds-bot: task switch input could not be held: %s', error))
+          return
+        }
         if (resume) {
           const carried = job.joined?.length ? { joined: job.joined } : {}
           back.unshift(createUserMessage({
@@ -719,10 +727,10 @@ export function install(rt) {
   // A completed private task starts the next user request in a fresh part. The old
   // transcript remains available in the earlier-chat view, but no longer rides along
   // in the active model context.
-  rt.resetTaskSession = async sessionId => {
+  rt.resetTaskSession = async (sessionId, { newTask = false, ignoreInputId } = {}) => {
     const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
     if (!agent || !rt.isBotSession(sessionId) || switches.has(sessionId)) return false
-    return startSwitch(agent, { hard: true, bare: true, completedTask: true })
+    return startSwitch(agent, { hard: true, bare: true, completedTask: !newTask, newTask, ignoreInputId })
   }
 
   async function runSwitch(agent, job) {
@@ -757,6 +765,7 @@ export function install(rt) {
     const bot = rt.botOf(job.botId)
     const room = rt.roomOf(job.roomId)
     if (bot === undefined || (job.roomId !== undefined && room === undefined)) return
+    if (job.newTask && (room || await rt.privateContextBusy?.(agent.id, { ignoreInputId: job.ignoreInputId }))) throw new Error('The conversation has pending work; its task context was not changed.')
     if (job.completedTask && room && room.task?.status !== 'completed') return
     const session = agent.session
     const tokens = tokensOf(session)
@@ -770,7 +779,7 @@ export function install(rt) {
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
     let written
     let failure
-    if (!job.manualClear && !job.completedTask && !job.overflow && job.failed === undefined && !whole) {
+    if (!job.newTask && !job.manualClear && !job.completedTask && !job.overflow && job.failed === undefined && !whole) {
       try {
         written = await writeNote(agent, AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)]), { folder: job.folder })
       } catch (error) {
@@ -790,7 +799,8 @@ export function install(rt) {
     }
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', bot.name, failure)
     const previous = parts.at(-2)
-    const noted = job.manualClear ? { note: 'The user cleared working context. Earlier messages are archived, not carried into the next task.', contextCleared: true }
+    const noted = job.newTask ? { note: 'The user started a separate task. Earlier messages and requirements remain archived.', taskBoundary: true }
+      : job.manualClear ? { note: 'The user cleared working context. Earlier messages are archived, not carried into the next task.', contextCleared: true }
       : job.completedTask ? { note: 'Task completed. Retrieve its result through read_task_history; earlier messages remain archived.', taskCompleted: true }
       : written !== undefined ? { note: written.note }
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : 'failed', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) }
@@ -812,7 +822,11 @@ export function install(rt) {
       await ctx.workspaceRegistry.archiveSession(freshId)
       return
     }
-    const segment = { sessionId: agent.id, endedAt: Date.now(), ...(tokens !== undefined ? { tokens } : {}), ...noted, ...(job.completedTask || job.manualClear ? { archivePending: true } : {}) }
+    if (job.newTask && await rt.privateContextBusy?.(agent.id, { ignoreInputId: job.ignoreInputId })) {
+      await ctx.workspaceRegistry.archiveSession(freshId)
+      throw new Error('New work arrived before the task switch. Finish it before starting a new task.')
+    }
+    const segment = { sessionId: agent.id, endedAt: Date.now(), ...(tokens !== undefined ? { tokens } : {}), ...noted, ...(job.newTask || job.completedTask || job.manualClear ? { archivePending: true } : {}) }
     if (room !== undefined) {
       room.segments ??= {}
       ;(room.segments[bot.id] ??= []).push(segment)
@@ -825,6 +839,13 @@ export function install(rt) {
     } else {
       ;(bot.segments ??= []).push(segment)
       bot.sessionId = freshId
+      const pendingInput = state.taskInputs?.[bot.id]
+      if (pendingInput?.sessionId === agent.id) {
+        pendingInput.sessionId = freshId
+        if (job.newTask || job.completedTask) pendingInput.newContext = true
+      }
+      if (job.newTask || job.completedTask || job.manualClear) bot.taskContextIsolation = true
+      if (job.newTask || job.completedTask) bot.taskInputFreshSession = freshId
       if (job.manualClear) {
         bot.contextClearedAt = Date.now()
         delete bot.contextResetError
@@ -840,6 +861,7 @@ export function install(rt) {
     }
     await rt.save()
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
+    await rt.replaceWorkTaskSession?.(agent.id, freshId, { detach: job.newTask || job.completedTask })
     void rt.moveSchedules(agent.id, freshId)
     job.moved = true
     const resume = job.resume || job.overflow
@@ -852,7 +874,7 @@ export function install(rt) {
       folderRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
       rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', bot.name, intended, cwd)
     }
-    const text = handoffPackage({ room, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder, completedTask: job.completedTask, manualClear: job.manualClear })
+    const text = handoffPackage({ room, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder, completedTask: job.completedTask, manualClear: job.manualClear, newTask: job.newTask })
     freshParts.set(freshId, estimateTokens(text))
     fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
     await ctx.sessions.flush(fresh.session)
@@ -885,12 +907,15 @@ export function install(rt) {
       job.carry.push(...payload.messages)
       return { kind: 'reject' }
     }
+    if (payload.step === 1 && rt.chatOwners.has(agent.id) && rt.acceptedTaskNeedsContextReset?.(agent.id)) {
+      return switchBeforeStep(agent, payload, { completedTask: true, bare: true, hard: true })
+    }
     if (rt.chatOwners.has(agent.id) && payload.messages.some(isClear)) {
       const botId = rt.chatOwners.get(agent.id)
       const answered = new Set(state.exchanges.filter(item => item.role === 'reply').map(item => item.replyTo))
       const pending = state.exchanges.some(item => item.role === 'request' && item.audience !== 'user' && !item.fromRoomId && (item.from === botId || item.to === botId) && !answered.has(item.id))
       const attached = payload.messages.some(message => isClear(message) && message.content.some(block => block.type !== 'text'))
-      if (attached || readOnly() || state.questions[agent.id] || (rt.approvalsView?.() ?? []).some(item => item.sessionId === agent.id) || pending || payload.step > 1) {
+      if (attached || readOnly() || state.taskInputs?.[botId] || state.questions[agent.id] || (rt.approvalsView?.() ?? []).some(item => item.sessionId === agent.id) || pending || payload.step > 1) {
         clearReplies.set(agent.id, {
           text: attached ? (rt.uiLanguage?.() === 'en' ? 'Context was not cleared. Send /clear on its own, without attachments.' : '尚未清理上下文。请单独发送 /clear，不要附带文件或图片。')
             : rt.uiLanguage?.() === 'en'
@@ -904,6 +929,14 @@ export function install(rt) {
       rt.liveOf(agent.id).switched = true
       void startSwitch(agent, { manualClear: true, bare: true, hard: true, carry: payload.messages.filter(message => !isClear(message)) })
       return { kind: 'reject' }
+    }
+    if (payload.step === 1 && !readOnly()) {
+      const intent = await rt.inspectTaskInput?.(agent.id, payload.messages)
+      if (intent === 'new') return switchBeforeStep(agent, payload, { newTask: true, bare: true, hard: true })
+      if (intent === 'ask') {
+        rt.pauseTaskInput?.(agent)
+        return { kind: 'reject' }
+      }
     }
     const fresh = freshParts.get(agent.id)
     if (fresh !== undefined) {

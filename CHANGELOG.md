@@ -6,6 +6,80 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.82] - 2026-11-09
+
+### Changed
+
+- Remove unavailable file entries from an individual conversation's output list, with an undo action. Keep disk files, task history and delivery archives intact; renewed deliveries and verified restored files remain visible.
+- Add collapse and expand controls to information-panel sections. Save list removals and section choices per conversation in the desktop browser profile, synchronize open windows, and keep collapsed editor drafts mounted.
+
+## [0.1.81] - 2026-11-09
+
+### Changed
+
+- Keep unavailable output files in a collapsed row, outside the usable-file count and the first four visible files. Retain a bounded list and recheck action inside the fold; restored files return to the normal list after refresh.
+
+## [0.1.80] - 2026-11-09
+
+### Fixed
+
+- Start a new private task in a fresh execution context while retaining transcripts, task checkpoints, delivery versions and job experience. Pause and detach unfinished work for explicit continuation. Refuse switches during execution, questions, approvals or unanswered private delegation.
+- Reset private execution context after task acceptance. Preserve accepted deliveries on failure, keep finalization retryable and enforce the boundary before the next user turn. Leave other employees and groups unchanged.
+- Retrieve relevant memory by query in isolated tasks instead of injecting full personal and team memory snapshots. Default task-record reads return only the current task; explicit history lookup remains available.
+- Recognize explicit new-task and continuation requests without an extra model call. Hold ambiguous input for a choice next to the composer, preserve attachments through restarts and failed switches, and guard against duplicate choices from different windows.
+- Let users mark recovery reminders handled without replaying work or deleting diagnostic records. A later successful reply resolves older model failures in the same conversation; empty replies, delegation handoffs and replies from other employees do not.
+- Align job-experience edit and more buttons at narrow widths, replacing the spaced text ellipsis with a compact icon. Keep Tasks, Deliveries and Pending as separate information-panel tabs.
+
+## [0.1.79] - 2026-11-09
+
+### Changed
+
+- Restore the compact output-file list. Keep task acceptance and delivery version details inside expandable task history; latest saved files retain their exact delivery identity.
+- Show a short task-and-author source line below job experience. Expand it to inspect the recorded task summary or open its source conversation. Keep provenance through user edits; mark manual and untraceable entries explicitly.
+
+## [0.1.78] - 2026-11-09
+
+### Changed
+
+- Reduce Tasks to task history and related group links, and Deliveries to files and job experience. Preserve acceptance and pending-action controls.
+- Bind private-chat experience to the current employee without an owner selector. Fold group members' experience separately; keep editing inline and removal under More.
+
+### Added
+
+- Read and edit the existing employee task-lessons topic through the information panel, with durable change history, stale-write protection and retrieval by the employee's memory tools. Keep temporary employees and read-only hosts from writing lasting experience.
+
+## [0.1.77] - 2026-11-09
+
+### Changed
+
+- Organize conversation information into Tasks, Deliveries and Pending actions. Show the current stage first and fold goals, saved steps, older deliveries and history until requested.
+- Keep versioned downloads, acceptance, rework drafts and recovery controls accessible across categories without changing task execution or the chat layout.
+
+## [0.1.73] - 2026-10-23
+
+### Fixed
+
+- Return task-group submissions and revisions to their caller/coordinator without requiring an @mention. Keep bounded rounds and show unresolved review/blocker status instead of silently marking the task complete.
+- Exclude nonexistent inferred file paths and configured prospecting inputs from discovered outputs; retain missing-file warnings for previously verified deliverables.
+- Show scoped workspace/browser execution issues in the conversation information panel, independently of model failures. Add evidence and fallback guidance for prospecting.
+- Recover locks left by a previous machine boot even when another process reuses the old PID. Preserve locks belonging to live writers in the current boot.
+
+## [0.1.72] - 2026-10-22
+
+### Fixed
+
+- Unresolved errors from an earlier turn no longer hide the current execution status or employee waiting indicator in embedded and detached chats. Preserve historical recovery records while prioritizing real approval/question blockers and ongoing work.
+
+## [0.1.71] - 2026-10-22
+
+### Added
+
+- Opt-in Chief task authorization for public search, scoped prospecting input reads and new CSV/text outputs. Grants belong to one employee conversation and execution turn, expire within 30 minutes, and never change permanent permissions.
+- Pending approvals, grant revocation and recent authorization activity in the shared conversation information panel. Chief can resume eligible pending group operations without dispatching them again.
+- Fail-closed checks for caller identity, paths, active sessions, revocation and audit persistence. Shell, connectors, existing file overwrites and other operations retain host/user approval.
+
+This is an authorization MVP, not a complete prospecting workflow or a new spreadsheet engine. See `docs/chief-task-permissions-mvp.zh.md` for usage and boundaries.
+
 ## [0.1.70] - 2026-10-22
 
 This source snapshot includes the desktop changes from 0.1.67 through 0.1.70.

@@ -109,7 +109,10 @@ test('internal delegation and non-coordinating group members are suppressed', as
   assert.match(await h.report(), /Internal work/)
   h.finish()
   h.rt.groupOwners.set('b', { roomId: 'r' })
-  assert.match(await h.report(), /Internal work/)
+  const refused = await h.report()
+  assert.match(refused, /completion was NOT recorded/)
+  assert.match(refused, /coordinator \(a\)/)
+  assert.equal(h.entry.completion, undefined)
   h.rooms.r.admin = 'b'
   await h.report(); h.finish()
   assert.equal(h.rt.state.taskNotices.length, 1)

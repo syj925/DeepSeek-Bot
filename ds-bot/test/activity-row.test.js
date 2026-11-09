@@ -162,7 +162,7 @@ test('embedded waiting survives a missing or replaced native host and ends with 
   page.unmount()
 })
 
-test('embedded waiting yields to approval, question, failure and another editor owner', () => {
+test('embedded waiting yields to blockers and editor ownership but not historical errors', () => {
   const data = fixture(), root = transcript(), page = runtime({ querySelector: () => null })
   const work = {}
   const props = { ...data.props('writer'), useWork: pick => pick(work), rootRef: { current: root.root }, inline: true }
@@ -176,7 +176,10 @@ test('embedded waiting yields to approval, question, failure and another editor 
   assert.equal(page.draw(props), null)
   data.roster.questions = {}
   data.roster.modelFailures = [{ sessionId: 'writer' }]
+  assert.ok(page.draw(props), 'a retained failure must not hide the next running turn')
+  data.status.set('writer', { running: false })
   assert.equal(page.draw(props), null)
+  data.status.set('writer', { running: true })
   data.roster.modelFailures = []
   assert.ok(page.draw(props))
   assert.equal(page.draw({ ...props, enabled: false }), null)

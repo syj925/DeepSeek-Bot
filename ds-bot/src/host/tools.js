@@ -357,6 +357,8 @@ export function install(rt) {
       admin: { type: 'string', description: 'Member who leads the group; defaults to you' },
       mode: MODE_PARAM,
       task_objective: { type: 'string', description: 'Requested deliverable owned by this task group, including a task with just one specialist. Omit for ordinary social groups or simple questions. Reuse an existing task group for revisions.' },
+      task_steps: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', required: true }, title: { type: 'string', required: true } }, additionalProperties: false }, description: 'For a new task group: 1 to 12 ordered, checkable work steps. Each has a unique short id and a concrete title. Omit only if there is one delivery step.' },
+      acceptance_criteria: { type: 'array', items: { type: 'string' }, description: 'Additional explicit requirements from the user for this new task. The original objective is always retained; do not invent or weaken requirements.' },
     },
     output,
     async execute(args, exec) {
@@ -372,7 +374,8 @@ export function install(rt) {
         const objective = typeof args.task_objective === 'string' ? args.task_objective.trim().slice(0, 1000) : ''
         const existing = objective && Object.values(state.rooms).find(room => room.task?.originBotId === self && room.task.objective === objective)
         const room = existing || await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, createdBy: self,
-          ...(objective ? { task: { objective, originBotId: self, status: 'active', cycle: 1, createdAt: Date.now() } } : {}) })
+          ...(objective ? { task: { objective, originBotId: self, status: 'active', cycle: 1, createdAt: Date.now(), ...(rt.createWorkTask ? { managed: true } : {}) } } : {}) })
+        if (objective && (!existing || room.task?.managed && !room.task.workTaskId)) await rt.startWorkTaskForRoom?.(room, exec.agent?.id, { steps: args.task_steps, criteria: args.acceptance_criteria })
         return `Created group "${room.name}" with ${room.members.map(id => rt.botOf(id).name).join(', ')}. ${admin.id === self ? 'You are' : `${admin.name} is`} its admin. It is in the user's sidebar; use post_to_group to start a discussion there.`
       } catch (error) {
         return `Could not create the group: ${error.message}`

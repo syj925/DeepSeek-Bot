@@ -48,7 +48,15 @@ function SetRow({ label, hint, children }) {
 
 function GeneralPage({ roster, actions, run }) {
   const [hidden, setHidden] = useState(hiddenWidgets)
+  const [savingPermission, setSavingPermission] = useState(false)
   return [
+    h(SetSection, { key: 'permissions', title: t('Task permissions') },
+      h(SetRow, { label: t('Let Chief authorize prospecting tasks'), hint: t('Public search, reading prospecting-inputs, and creating new CSV or text reports in outputs/prospecting. One turn, at most 30 minutes. Other operations still need approval.') },
+        h('input', { type: 'checkbox', role: 'switch', className: 'bt-permission-switch', disabled: savingPermission, 'aria-label': t('Let Chief authorize prospecting tasks'), checked: roster.chiefPermissions?.policy.enabled === true,
+          onChange: event => { setSavingPermission(true); void Promise.resolve(run(actions.setChiefPermissions(event.target.checked))).finally(() => setSavingPermission(false)) } })),
+      roster.chiefPermissions?.policy.enabled ? h('p', { className: 'bt-settings-intro bt-permission-folders' },
+        t('Input folder: {path}', { path: roster.chiefPermissions.policy.inputRoot }), h('br'),
+        t('Output folder: {path}', { path: roster.chiefPermissions.policy.outputRoot })) : null),
     h(SetSection, { key: 'canvas', title: t('Desktop appearance') },
       h(SetRow, { label: t('Canvas wallpaper'), hint: t('Choose a local image as your desktop background.') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { actions.closeSettings(); window.dispatchEvent(new Event('ds-bot:open-wallpaper')) } }, t('Change wallpaper'))),

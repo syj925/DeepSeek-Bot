@@ -42,3 +42,22 @@ test('questions and approvals override running, without leaking unrelated group 
   assert.equal(state(room).kind, 'question')
   assert.equal(state({ ...base, roster: { ...base.roster, modelFailures: [{ sessionId: 'part' }] } }).kind, 'error')
 })
+
+test('retained errors do not mask a new private turn, live tool, queued input or real blockers', () => {
+  const failed = { ...base, roster: { ...base.roster, modelFailures: [{ sessionId: 'part', code: 'STREAM_INTERRUPTED' }] } }
+  assert.equal(state(failed).kind, 'error')
+  assert.equal(state({ ...failed, running: true }).kind, 'waiting')
+  assert.equal(state({ ...failed, pending: true }).kind, 'queued')
+  assert.equal(state({ ...failed, work: { bots: { b: { since: 123, tool: 'read_file' } } } }).kind, 'tool')
+  assert.equal(state({ ...failed, running: true, work: { approvals: [{ sessionId: 'part' }] } }).kind, 'approval')
+  assert.equal(state({ ...failed, running: true, roster: { ...failed.roster, questions: { part: {} } } }).kind, 'question')
+  assert.equal(failed.roster.modelFailures.length, 1, 'recovery history stays available in the information panel')
+})
+
+test('a failed group member does not hide another member still working', () => {
+  const group = { ...base, sessionId: 'room', roster: { ...base.roster, roomsById: { room: { id: 'room' } },
+    modelFailures: [{ sessionId: 'worker-a', roomId: 'room' }] },
+    work: { rooms: { room: [{ botId: 'worker-b', since: 456, tool: 'web_search' }] } } }
+  assert.equal(state(group).kind, 'tool')
+  assert.equal(state({ ...group, work: {} }).kind, 'error')
+})

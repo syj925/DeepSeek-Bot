@@ -164,6 +164,7 @@ export function install(rt) {
     : approval === undefined ? (({ approval: _, ...rest }) => rest)(record) : { ...record, approval }))
 
   async function resumeTurn(sessionId, record) {
+    if (rt.workTaskForSession?.(sessionId) || rt.roomOf(record.roomId)?.task?.workTaskId) return
     const bot = rt.botOf(record.botId)
     if (bot === undefined || bot.retiredAt) return
     const text = resumeText(record)
@@ -190,6 +191,7 @@ export function install(rt) {
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
   // cancelled is sent again.
   async function resendQueued(sessionId, list) {
+    if (rt.workTaskForSession?.(sessionId) || list.some(item => rt.roomOf(item.args?.roomId)?.task?.workTaskId)) return
     // A Session that moved on to a new part since is reached at its current one.
     const current = (args) => {
       if (rt.isBotSession(sessionId)) return sessionId
@@ -217,6 +219,9 @@ export function install(rt) {
     // Agents and inboxes are read before anything wakes their Sessions.
     const cut = []
     for (const [sessionId, record] of Object.entries(noted)) {
+      // A managed task retains its checkpoint and waits for the user's Continue
+      // action. Do not wake its old inbox while inspecting restart notes.
+      if (rt.workTaskForSession?.(sessionId) || rt.roomOf(record.roomId)?.task?.workTaskId) continue
       const first = firstTurn.get(sessionId)
       if (first === 'turn/end') continue
       // Still running: noted again, as if it had started here.

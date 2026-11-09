@@ -1,3 +1,15 @@
+QibitAI 0.1.82 adds removal and undo for unavailable output-list entries and remembers collapsed information-panel sections per conversation. These local display preferences keep disk files, task history, saved deliveries and employee memory intact.
+
+QibitAI 0.1.81 folds unavailable output-file records into one row, keeping the main list for usable files. The fold retains file records and a recheck action. Restored files return to the main list after refresh.
+
+QibitAI 0.1.80 gives new private tasks a fresh execution context while preserving history and experience. Explicit new-task and continuation requests are recognized; ambiguous input during a recorded task waits for a choice next to the chat composer. Accepting a private task also resets its context. Isolated tasks retrieve relevant memory by query instead of injecting whole memory files. Errors can be marked handled, and a later successful reply clears earlier model-error reminders for the same conversation. The information panel keeps its Tasks, Deliveries and Pending sections. See [task context boundaries](docs/task-context-isolation.zh.md).
+
+QibitAI 0.1.79 restores the compact output-file list, with acceptance and version details in expandable task history. Job experience displays a short task-and-author source line; expand it for the retained task summary and source conversation. Manual additions are labeled separately, and missing sources are not guessed.
+
+QibitAI 0.1.78 simplifies the information panel: Tasks contains task history and related group links; Deliveries contains output files and editable job experience. Private chats bind experience directly to their employee; groups show collapsed member entries. Edits update the employee's existing memory topic, retain a change log and reject stale concurrent changes.
+
+QibitAI task-records preview adds independent Bot task records inside the existing information panel: ordered checkpoints, retained delivery versions, explicit continuation, and user acceptance. Existing employee chats, groups and permissions remain in place; legacy tasks are not migrated. See [implementation and boundaries](docs/independent-tasks-mvp.zh.md).
+
 QibitAI 0.1.66 keeps repeated file clicks from restarting an existing preview. Multiple previews and downloads share two concurrent reads; transient failures retry automatically at most twice. Closing or reloading cancels queued reads and retries while preserving each file's source Session.
 
 QibitAI 0.1.65 fixes the `useMarkdownDelegate is not a function` error in canvas file previews and Bot replies by using public Markdown interfaces. Preview contents also render when an older host lacks the file-link provider. Classic Chat retains its original link and image handling.

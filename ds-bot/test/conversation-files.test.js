@@ -36,15 +36,25 @@ async function fixture(t) {
 const answer = text => ({ type: 'assistant/message', time: 200, data: { message: { content: [{ type: 'text', text }] } } })
 const trigger = source => ({ type: 'user/message', time: 100, data: { source } })
 
-test('active group backfills shared files and missing paths with worker source; user paths and other groups stay out', async t => {
+test('legacy nonexistent prose paths and prospecting input material do not count as outputs', async t => {
+  const f = await fixture(t)
+  const input = await f.file('group', 'criteria.md')
+  f.rt.state.chiefPermissionPolicy = { inputRoot: f.folders.group }
+  f.rt.state.conversationFiles = [{ id: 'input', targetId: 'r', path: input, available: true },
+    { id: 'bogus', targetId: 'r', path: join(f.folders.private, 'no proof shop.html'), available: false }]
+  f.rooms.r.log = [{ botId: 'b', text: '`criteria.md` `missing.md`', seq: 1 }]
+  assert.deepEqual((await f.rt.conversationFiles('r')).files, [])
+})
+
+test('active group backfills existing shared files; unverified missing paths and user input stay out', async t => {
   const f = await fixture(t), path = await f.file('group')
   f.rooms.r.log = [{ botId: 'b', text: '`report.md` and `missing.md`', seq: 1 }, { text: '`input.md`', seq: 2 }, { botId: 'b', file: false, text: '`question.md`', seq: 3 }]
   const result = await f.rt.conversationFiles('r')
   assert.equal(result.partial, false)
-  assert.equal(result.files.length, 2)
+  assert.equal(result.files.length, 1)
   assert.equal(result.files.find(item => item.available).path, path)
   assert.equal(result.files.find(item => item.available).sessionId, 'group')
-  assert.equal(result.files.find(item => !item.available).name, 'missing.md')
+  assert.equal(result.files.some(item => !item.available), false)
   assert.equal(f.rooms.r.task.status, 'active')
   assert.equal((await f.rt.conversationFiles('private')).files.length, 0)
   await assert.rejects(f.rt.conversationFiles('group'), /no longer available/)

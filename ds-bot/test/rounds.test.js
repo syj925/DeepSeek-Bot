@@ -152,6 +152,52 @@ async function team(call, sent) {
   return room
 }
 
+test('task revision without a mention automatically returns to the coordinator for verification', async t => {
+  const h = start(); t.after(h.stop)
+  h.rt.recordTaskExperiences = async () => {}
+  h.rt.flushTaskContexts = async () => {}
+  const created = await team(h.call, h.sent)
+  const room = h.rt.roomOf(created.id)
+  room.task = { status: 'active', cycle: 1, objective: 'Five verified candidates' }
+  room.mode = 'admin'
+  await h.emit(room.id, h.userMessage('Start'))
+  const running = h.relay(room.id, 'review-loop')
+  const seen = []
+  for (const [index, text] of ['@Writer prepare the CSV.', 'The CSV is ready.', '@Writer correct the unsupported paid-usage claim.', 'Revised CSV; no mention needed.', 'Verified the revised CSV.'].entries()) {
+    const turn = await turnFor(h.sent, ...seen)
+    assert.ok(turn, `missing turn ${index}`)
+    seen.push(turn)
+    assert.equal(h.rt.selfOf(turn.sessionId), index % 2 === 0 ? room.admin : room.members.find(id => id !== room.admin))
+    if (index === 4) h.rt.recordTaskGroupCompletion({ roomId: room.id, botId: room.admin, sessionId: turn.sessionId, title: 'Candidates', summary: 'Verified', files: [] })
+    await h.answer(turn.sessionId, turn.message.source.exchangeId, text, index + 1)
+  }
+  await running
+  assert.equal(room.task.status, 'completed')
+  assert.equal(room.task.review, undefined)
+  assert.equal(h.sent.filter(item => item.message.source.role === 'room').length, 5)
+})
+
+test('task correction loops stay bounded and leave a visible review status', async t => {
+  const h = start(); t.after(h.stop)
+  const created = await team(h.call, h.sent)
+  const room = h.rt.roomOf(created.id)
+  room.task = { status: 'active', cycle: 1 }; room.mode = 'admin'
+  await h.emit(room.id, h.userMessage('Start'))
+  let done = false
+  const running = h.relay(room.id, 'bounded-review').then(() => { done = true })
+  const seen = []
+  for (let index = 0; index < 12 && !done; index++) {
+    const turn = await waitFor(() => h.sent.find(item => !seen.includes(item) && item.message.source.role === 'room') ?? (done ? false : undefined))
+    if (!turn) break
+    seen.push(turn)
+    await h.answer(turn.sessionId, turn.message.source.exchangeId, h.rt.selfOf(turn.sessionId) === room.admin ? '@Writer revise again.' : 'Revision submitted.', index + 1)
+  }
+  await running
+  assert.ok(seen.length <= 9)
+  assert.equal(room.task.status, 'active')
+  assert.ok(['blocked', 'needs-review'].includes(room.task.review.status))
+})
+
 test('a message the composer queues mid-round joins the round and leaves the Session\'s queue', async (t) => {
   const { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent } = start()
   t.after(stop)

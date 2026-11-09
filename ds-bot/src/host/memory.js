@@ -542,9 +542,10 @@ export function install(rt) {
     news.set(botId, { at: Date.now(), op, text: splitMeta(String(line ?? '').replace(/^- /, '')).text.slice(0, NEWS_TEXT_MAX) })
   }
 
-  function addEntry({ scope, topic, text, meta, actor, label }) {
+  function addEntry({ scope, topic, text, meta, actor, label, guard }) {
     return queued(async () => {
       writable(scope, actor)
+      guard?.()
       const files = loadScope(scope)
       const [same] = matchEntries(allEntries(files), text).filter(entry => squash(entry.text) === squash(text))
       if (same !== undefined) return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
@@ -586,9 +587,10 @@ export function install(rt) {
   }
 
   // The entry keeps its place; `topic` only narrows where to look.
-  function replaceEntry({ scope, topic, match, text, meta, actor, label }) {
+  function replaceEntry({ scope, topic, match, text, meta, actor, label, guard }) {
     return queued(async () => {
       writable(scope, actor)
+      guard?.()
       const old = findOne(loadScope(scope), topic, match, label)
       const line = formatEntry(text, meta)
       const lines = [...old.file.lines]
@@ -603,9 +605,10 @@ export function install(rt) {
     })
   }
 
-  function removeEntry({ scope, topic, match, actor, label }) {
+  function removeEntry({ scope, topic, match, actor, label, guard }) {
     return queued(async () => {
       writable(scope, actor)
+      guard?.()
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
       const before = old.file.lines[old.line]
@@ -654,10 +657,19 @@ export function install(rt) {
     const names = topicNames(scope)
     return names.length > 0 ? [`Topics: ${names.map(name => `[[${name}]]`).join(', ')}`] : []
   }
-  function memorySection(bot) {
+  const ISOLATED_MEMORY = '## Task memory boundary'
+  function memorySection(bot, isolated = false) {
     const own = ownScope(bot.id)
     const main = parseMemory(readText(join(dirOf(own), MAIN)))
     const team = parseMemory(readText(join(dirOf(TEAM), MAIN)))
+    if (isolated) return [
+      '# Your memory', ISOLATED_MEMORY,
+      'This task has its own working context. Saved employee memory, team memory, job experience and earlier tasks remain available, but are not loaded into this prompt.',
+      'Use recall with specific keywords from the current request to retrieve only relevant knowledge or methods. Do not carry over old customer lists, dates, filters, task instructions or conclusions without an explicit reason in the current request. Current user requirements take priority.',
+      'For reusable methods, search recall topic "task-lessons" with query keywords. Retrieve earlier task records only when the user asks to continue, compare or reuse them; do not browse unrelated history.',
+      'Keep task-only facts in the task record, not lasting memory. The remember and forget tools keep their existing permissions.',
+      teamRule(rt.isMain(bot.id), writesTeam(bot.id)),
+    ].join('\n')
     return [
       '# Your memory',
       memoryRules(reviewOn),
@@ -666,6 +678,7 @@ export function install(rt) {
       '## Your memory (MEMORY.md)',
       ...shownEntries(main),
       ...topicLine(own),
+      ...(main.links.includes('task-lessons') ? ['Before repeating related work, use recall topic "task-lessons" to consult your saved job experience. Apply only relevant lessons; the user\'s current requirements take priority.'] : []),
       '',
       '## Team memory, shared by every Bot (team/MEMORY.md)',
       ...shownEntries(team),
@@ -683,12 +696,14 @@ export function install(rt) {
     // A section frozen under another role (made a Main Bot or a group admin since, or no
     // longer one) is frozen again, so the rule it states matches what the tools allow.
     const rule = teamRule(rt.isMain(bot.id), writesTeam(bot.id))
+    const isolated = rt.isTaskContextIsolated?.(sessionId) === true
+    const matches = text => text.includes(rule) && text.includes(ISOLATED_MEMORY) === isolated
     const kept = frozen.get(sessionId)
-    if (kept !== undefined && kept.includes(rule)) return kept
+    if (kept !== undefined && matches(kept)) return kept
     const path = snapshotPath(sessionId)
     let text = existsSync(path) ? readText(path) : ''
-    if (text === '' || !text.includes(rule)) {
-      text = memorySection(bot)
+    if (text === '' || !matches(text)) {
+      text = memorySection(bot, isolated)
       if (rt.readOnly() === undefined) {
         try {
           mkdirSync(dirname(path), { recursive: true })
@@ -839,10 +854,10 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'recall',
-    description: 'Search your memory and the team memory, or read one topic whole. It also finds entries saved after this conversation began. With no arguments, lists what is saved where.',
+    description: 'Search your memory and the team memory. In an isolated task, provide specific query words from the current request; only matching entries are returned, never a whole old topic or task summary. Other conversations can read one topic whole or list memory with no arguments.',
     parameters: {
-      query: { type: 'string', description: 'Words to look for, separated by spaces. An entry must have all of them; when none has, those with the most are shown' },
-      topic: { type: 'string', description: 'A topic to read whole, as listed with [[topic]]' },
+      query: { type: 'string', description: 'Words from the current task, separated by spaces. Required in an isolated task; only entries matching all words are returned there. Other conversations may return partial matches.' },
+      topic: { type: 'string', description: 'Optional topic filter, as listed with [[topic]]. Isolated tasks still require query keywords; other conversations can read the whole topic.' },
       scope: { type: 'string', description: 'Omit for yours and the team\'s; "own", "team", or a Bot\'s name (Main Bots only)' },
     },
     output,
@@ -853,8 +868,13 @@ export function install(rt) {
       const self = caller.bot.id
       const { scopes, error } = readScopes(args.scope, self)
       if (error) return error
-      const loaded = scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), files: loadScope(scope) }))
-      if (args.topic !== undefined && String(args.topic).trim() !== '') {
+      const isolated = rt.isTaskContextIsolated?.(exec.agent?.id) === true
+      const query = String(args.query ?? '').trim().slice(0, 120)
+      if (isolated && !query) return 'Provide specific query keywords relevant to this task. Stored memory and job experience are preserved but not loaded wholesale into a new task.'
+      const topicFilter = isolated && args.topic ? cleanTopic(args.topic) : undefined
+      if (isolated && args.topic && !topicFilter) return 'Choose an existing memory topic and specific query keywords.'
+      const loaded = scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), files: loadScope(scope).filter(file => !topicFilter || file.topic === topicFilter) }))
+      if (!isolated && args.topic !== undefined && String(args.topic).trim() !== '') {
         const topic = cleanTopic(args.topic)
         for (const { label, files } of loaded) {
           const file = files.find(item => item.topic === topic)
@@ -864,7 +884,6 @@ export function install(rt) {
         return `No topic [[${String(args.topic).slice(0, 60)}]] there. Topics: ${known.join(', ') || 'none yet'}.`
       }
       const where = (tag, file) => `${tag} · ${file.topic === undefined ? MAIN : `[[${file.topic}]]`}`
-      const query = String(args.query ?? '').trim().slice(0, 120)
       if (query === '') {
         return loaded.map(({ tag, label, files }) => {
           const [main, ...topics] = files
@@ -876,16 +895,16 @@ export function install(rt) {
       }
       const terms = [...new Set(squash(query).split(' ').filter(Boolean))].slice(0, QUERY_TERMS_MAX)
       const scored = loaded.flatMap(({ tag, files }) => allEntries(files).map((entry) => {
-        const hay = squash(`${entry.text} ${entry.file.topic ?? ''}`)
+        const hay = squash(isolated ? entry.text : `${entry.text} ${entry.file.topic ?? ''}`)
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
       })).filter(hit => hit.count > 0)
       const every = scored.filter(hit => hit.count === terms.length)
-      const hits = (every.length > 0 ? every : scored.sort((a, b) => b.count - a.count)).slice(0, RECALL_MAX)
+      const hits = (isolated || every.length > 0 ? every : scored.sort((a, b) => b.count - a.count)).slice(0, isolated ? 5 : RECALL_MAX)
       const labels = loaded.map(item => item.label).join(' and ')
       if (hits.length === 0) return `Nothing in ${labels} mentions "${query}". read_own_chat searches what was said.`
       return [
         every.length > 0 ? `Entries with "${query}" in ${labels}:` : `No entry has all of "${query}"; entries with the most of these words:`,
-        ...hits.map(({ entry, tag }) => `[${where(tag, entry.file)}] ${formatEntry(entry.text, entry.meta).slice(2)}`),
+        ...hits.map(({ entry, tag }) => `[${where(tag, entry.file)}] ${formatEntry(entry.text, isolated ? { source: entry.meta.source, added: entry.meta.added } : entry.meta).slice(2)}`),
       ].join('\n')
     },
   }))
@@ -958,6 +977,13 @@ export function install(rt) {
     }
   }
 
+  const taskSourceMetadata = (bot, record) => {
+    const indexed = bot.taskIndex?.find(item => item.key === record.key)
+    const sourceText = (value, limit) => looksSecret(String(value ?? '')) ? '' : String(value ?? '').replace(/\s+/g, ' ').slice(0, limit)
+    return { 'task-title': sourceText(indexed?.title ?? record.title, 120), 'task-author': sourceText(bot.name, 80),
+      'task-summary': sourceText(indexed?.summary ?? record.summary, 360),
+      'task-room': indexed?.roomId ?? record.roomId, 'task-session': indexed?.sessionId ?? record.sessionId }
+  }
   rt.learnCompletedTask = async (bot, record) => {
     if (config.memory === false || bot.retiredAt || rt.isTemporaryBot?.(bot.id)) return
     const answer = await botShot(bot,
@@ -966,12 +992,13 @@ export function install(rt) {
       { sessionId: record.sessionId ?? rt.chatOf(bot.id), kind: 'memory' })
     const lessons = JSON.parse(answer.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''))
     if (!Array.isArray(lessons) || lessons.length > 3 || lessons.some(text => typeof text !== 'string')) throw new Error('Invalid task lesson response')
+    const provenance = taskSourceMetadata(bot, record)
     for (const raw of lessons) {
       const text = cleanEntry(raw)
       if (entryProblem(text)) continue
       await addEntry({ scope: ownScope(bot.id), topic: 'task-lessons', text,
         actor: { id: bot.id, name: bot.name, session: record.sessionId }, label: 'your memory',
-        meta: { source: `completed task ${record.key}`, by: bot.name, added: today() } })
+        meta: { source: `completed task ${record.key}`, by: bot.name, added: today(), ...provenance } })
     }
     rt.renewMemory(rt.chatOf(bot.id))
   }
@@ -1081,6 +1108,69 @@ export function install(rt) {
     const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
     await removeEntry({ scope, topic, match: String(body.text ?? ''), actor: USER, label: scope.kind === 'team' ? 'the team memory' : `${bot.name}'s memory` })
     return memoryView({ botId: bot.id })
+  }
+
+  const experienceFile = botId => loadScope(ownScope(botId)).find(file => file.topic === 'task-lessons')
+  const experienceRevision = (botId, file) => createHash('sha256').update(`${botId}\n${file?.content ?? ''}`).digest('hex')
+  const experienceId = (file, entry) => createHash('sha256').update(`${entry.line}\n${file.lines[entry.line]}`).digest('hex')
+  const experienceBot = body => {
+    const bot = rt.botOf(String(body.botId ?? ''))
+    if (!bot || bot.retiredAt) throw new Error('This employee is no longer available.')
+    return bot
+  }
+  const experienceSource = (bot, meta) => {
+    const source = meta.source ?? '', taskKey = source.startsWith('completed task ') ? source.slice(15) : null
+    if (taskKey) {
+      const record = bot.taskIndex?.find(item => item.key === taskKey)
+      const roomId = meta['task-room'] || record?.roomId
+      return { kind: 'task', taskKey, title: meta['task-title'] || record?.title || null,
+        author: meta['task-author'] || (meta.by !== 'user' ? meta.by : null) || bot.name,
+        summary: meta['task-summary'] || record?.summary || null,
+        targetId: roomId ? state.rooms[roomId] ? roomId : null : record ? bot.id : null,
+        edited: Boolean(meta.edited) }
+    }
+    if (['job experience panel', 'memory panel'].includes(source)) return { kind: 'manual' }
+    const anchor = /^part (\d+) #(\d+)/.exec(source)
+    return anchor ? { kind: 'conversation', part: Number(anchor[1]), seq: Number(anchor[2]), targetId: bot.id }
+      : { kind: 'unknown' }
+  }
+  function jobExperienceView(body) {
+    const bot = experienceBot(body), file = experienceFile(bot.id)
+    return { botId: bot.id, revision: experienceRevision(bot.id, file), limit: MEMORY_LIMITS.entry,
+      entries: (file?.entries ?? []).map(entry => ({ id: experienceId(file, entry), text: entry.text,
+        source: entry.meta.source ?? null, provenance: experienceSource(bot, entry.meta),
+        added: entry.meta.added ?? null, edited: entry.meta.edited ?? null })) }
+  }
+  async function jobExperienceSave(body) {
+    const bot = experienceBot(body), scope = ownScope(bot.id), topic = 'task-lessons'
+    if (rt.isTemporaryBot?.(bot.id)) throw new Error('Temporary employees do not keep lasting job experience.')
+    if (!['add', 'edit', 'remove'].includes(body.action)) throw new Error('Unknown experience action.')
+    const file = experienceFile(bot.id)
+    const guard = () => {
+      experienceBot(body)
+      if (rt.isTemporaryBot?.(bot.id)) throw new Error('Temporary employees do not keep lasting job experience.')
+      if (typeof body.revision !== 'string' || experienceRevision(bot.id, experienceFile(bot.id)) !== body.revision) {
+        throw new Error('This experience changed elsewhere. Refresh it before saving; your draft is retained.')
+      }
+    }
+    guard()
+    const target = file?.entries.find(entry => experienceId(file, entry) === body.entryId)
+    if (body.action !== 'add' && !target) throw new Error('This experience is no longer available. Refresh the list.')
+    const text = cleanEntry(body.text)
+    if (body.action !== 'remove') {
+      const problem = entryProblem(text)
+      if (problem) throw new Error(problem)
+    }
+    const options = { scope, topic, actor: USER, label: `${bot.name}'s job experience`, guard }
+    const sourceMeta = target?.meta.source?.startsWith('completed task ')
+      ? taskSourceMetadata(bot, { key: target.meta.source.slice(15) }) : {}
+    const meta = { ...sourceMeta, ...target?.meta, source: target?.meta.source ?? 'job experience panel',
+      added: target?.meta.added ?? today(), by: 'user', edited: today() }
+    if (body.action === 'add') await addEntry({ ...options, text, meta })
+    else if (body.action === 'edit') await replaceEntry({ ...options, match: target.text, text, meta })
+    else await removeEntry({ ...options, match: target.text })
+    for (const sessionId of new Set([bot.id, rt.chatOf(bot.id), ...rt.groupSessionsOf(bot.id)])) renewMemory(sessionId)
+    return jobExperienceView(body)
   }
 
   // ---------------------------------------------------------------------------
@@ -1392,6 +1482,8 @@ export function install(rt) {
   }
 
   async function memoryEndpoint(endpoint, body) {
+    if (endpoint === 'job-experience-view') return jobExperienceView(body)
+    if (endpoint === 'job-experience-save') return jobExperienceSave(body)
     if (endpoint === 'memory-view') return memoryView(body)
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)

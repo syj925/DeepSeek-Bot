@@ -177,6 +177,113 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 
+test('task isolation invalidates full memory snapshots and retrieves only relevant experience text', async t => {
+  const app = start({ config: { memoryReview: false } })
+  t.after(() => app.stop())
+  await app.tool('remember', { text: 'OLD_PRIVATE_CUSTOMER_SENTINEL' }, 'b2')
+  await app.tool('remember', { text: 'OLD_TEAM_CUSTOMER_SENTINEL', scope: 'team' }, 'm1')
+  await app.tool('remember', { text: 'For spreadsheet delivery verify source links.', topic: 'task-lessons' }, 'b2')
+  await app.tool('remember', { text: 'For hiring check interview criteria.', topic: 'task-lessons' }, 'b2')
+  app.rt.renewMemory('b2')
+  const legacy = app.section('b2')
+  assert.match(legacy, /OLD_PRIVATE_CUSTOMER_SENTINEL/)
+  assert.match(legacy, /OLD_TEAM_CUSTOMER_SENTINEL/)
+  app.rt.botOf('b2').taskContextIsolation = true
+  const isolated = app.section('b2')
+  assert.match(isolated, /Task memory boundary/)
+  assert.doesNotMatch(isolated, /OLD_PRIVATE_CUSTOMER_SENTINEL|OLD_TEAM_CUSTOMER_SENTINEL|For spreadsheet delivery|For hiring/)
+  assert.match(await app.tool('recall', { topic: 'task-lessons' }, 'b2'), /specific query keywords/)
+  const found = await app.tool('recall', { topic: 'task-lessons', query: 'spreadsheet source' }, 'b2')
+  assert.match(found, /verify source links/)
+  assert.doesNotMatch(found, /hiring|OLD_PRIVATE|OLD_TEAM/)
+  const unrelated = await app.tool('recall', { query: 'spreadsheet hiring' }, 'b2')
+  assert.doesNotMatch(unrelated, /verify source links|check interview criteria/)
+  const stored = (await app.call('job-experience-view', { botId: 'b2' })).value
+  assert.equal(stored.entries.length, 2)
+  assert.match(app.read('bots', 'b2', 'MEMORY.md'), /OLD_PRIVATE_CUSTOMER_SENTINEL/)
+  assert.match(app.read('team', 'MEMORY.md'), /OLD_TEAM_CUSTOMER_SENTINEL/)
+})
+
+test('job experience edits the real employee topic without a model call and keeps its provenance', async t => {
+  const app = start({ config: { memoryReview: false } })
+  t.after(() => app.stop())
+  app.section('b2')
+  await app.tool('remember', { text: 'Verify sources before exporting a client list.', topic: 'task-lessons' }, 'b2')
+  await app.tool('remember', { text: 'User prefers short replies.' }, 'b2')
+  await app.tool('remember', { text: 'Use a different workflow.', topic: 'task-lessons' }, 'b3')
+  const before = (await app.call('job-experience-view', { botId: 'b2' })).value
+  assert.equal(before.entries.length, 1)
+  assert.match(before.entries[0].source, /part 1/)
+  const changed = await app.call('job-experience-save', { botId: 'b2', action: 'edit', revision: before.revision,
+    entryId: before.entries[0].id, text: 'Read back the spreadsheet and verify source links before delivery.' })
+  assert.equal(changed.ok, true)
+  assert.notEqual(changed.value.revision, before.revision)
+  assert.equal(changed.value.entries[0].source, before.entries[0].source)
+  assert.ok(changed.value.entries[0].edited)
+  assert.match(await app.tool('recall', { topic: 'task-lessons' }, 'b2'), /Read back the spreadsheet/)
+  assert.match(app.read('bots', 'b2', 'MEMORY.md'), /short replies/)
+  assert.match(app.read('bots', 'b3', 'task-lessons.md'), /different workflow/)
+  assert.match(app.section('b2'), /Before repeating related work/)
+  assert.equal(app.journal().at(-1).actor, 'user')
+  assert.equal(app.requests.length, 0)
+})
+
+test('concurrent experience edits reject stale revisions and never overwrite the first saved value', async t => {
+  const app = start({ config: { memoryReview: false } })
+  t.after(() => app.stop())
+  const empty = (await app.call('job-experience-view', { botId: 'b2' })).value
+  const results = await Promise.all(['Verify the source.', 'Verify company ownership.'].map(text => app.call('job-experience-save',
+    { botId: 'b2', revision: empty.revision, action: 'add', text })))
+  assert.equal(results.filter(result => result.ok).length, 1)
+  assert.match(results.find(result => !result.ok).error.message, /changed elsewhere/)
+  const current = (await app.call('job-experience-view', { botId: 'b2' })).value
+  assert.equal(current.entries.length, 1)
+  const wrongBot = await app.call('job-experience-save', { botId: 'b3', revision: current.revision, action: 'add', text: 'Never put this in another employee.' })
+  assert.equal(wrongBot.ok, false)
+  const invalid = await app.call('job-experience-save', { botId: 'b2', revision: current.revision, action: 'edit', entryId: 'invented', text: 'Replacement' })
+  assert.equal(invalid.ok, false)
+  assert.deepEqual((await app.call('job-experience-view', { botId: 'b2' })).value, current)
+})
+
+test('experience validation preserves memory and removals update recall and the change log', async t => {
+  const app = start({ config: { memoryReview: false } })
+  t.after(() => app.stop())
+  const empty = (await app.call('job-experience-view', { botId: 'b2' })).value
+  for (const text of ['', 'x'.repeat(301), 'Password is hunter2']) {
+    assert.equal((await app.call('job-experience-save', { botId: 'b2', revision: empty.revision, action: 'add', text })).ok, false)
+  }
+  assert.deepEqual((await app.call('job-experience-view', { botId: 'b2' })).value, empty)
+  const saved = (await app.call('job-experience-save', { botId: 'b2', revision: empty.revision, action: 'add', text: 'Verify export columns before delivery.' })).value
+  const removed = await app.call('job-experience-save', { botId: 'b2', revision: saved.revision, entryId: saved.entries[0].id, action: 'remove' })
+  assert.equal(removed.ok, true)
+  assert.equal(removed.value.entries.length, 0)
+  assert.doesNotMatch(app.section('b2'), /Before repeating related work/)
+  assert.equal(app.journal().at(-1).op, 'remove')
+  assert.match(app.journal().at(-1).before, /Verify export columns/)
+  assert.equal(app.requests.length, 0)
+})
+
+test('job experience respects disabled memory, temporary employees and read-only hosts', async t => {
+  const disabled = start({ config: { memory: false } })
+  const app = start({ config: { memoryReview: false } })
+  t.after(async () => { await disabled.stop(); await app.stop() })
+  for (const endpoint of ['job-experience-view', 'job-experience-save']) {
+    assert.match((await disabled.call(endpoint, { botId: 'b2' })).error.message, /Memory is turned off/)
+  }
+  const before = (await app.call('job-experience-view', { botId: 'b2' })).value
+  const payload = { botId: 'b2', action: 'add', revision: before.revision, text: 'Verify source links before export.' }
+  app.rt.botOf('b2').employment = 'temporary'
+  assert.match((await app.call('job-experience-save', payload)).error.message, /Temporary employees/)
+  app.rt.botOf('b2').employment = 'permanent'
+  const readOnly = app.rt.readOnly
+  app.rt.readOnly = () => 'Another host owns this team.'
+  assert.equal((await app.call('job-experience-save', payload)).ok, false)
+  assert.deepEqual((await app.call('job-experience-view', { botId: 'b2' })).value, before)
+  app.rt.readOnly = readOnly
+  assert.equal(existsSync(join(app.home, 'memory', 'bots', 'b2', 'task-lessons.md')), false)
+  assert.equal(app.requests.length, 0)
+})
+
 test('remember saves one entry with its source, and forget removes it, both in the journal', async (t) => {
   const { tool, read, journal, stop } = start()
   t.after(() => stop())
@@ -1093,6 +1200,49 @@ test('task lessons use validated topic memory; task outputs never enter the defa
   await h.rt.learnCompletedTask(bot, record)
   assert.equal(h.requests.length, 2)
   assert.match(await h.tool('remember', { text: 'Temporary task fact' }, 'b2'), /Temporary employees/)
+})
+
+test('task experience preserves its real task title, author and summary through editing and missing history', async t => {
+  const app = start({ config: { memoryReview: false }, replies: ['["Verify source links before exporting."]'] })
+  t.after(() => app.stop())
+  await app.rt.load()
+  const bot = app.rt.botOf('b2')
+  bot.taskIndex = [{ key: 'r1:2', title: 'Verified prospect list', summary: 'Checked five companies and their official sites.', roomId: 'r1', sessionId: 'b2' }]
+  await app.rt.learnCompletedTask(bot, { key: 'r1:2', title: 'Verified prospect list', evidence: 'Five official sites checked.', sessionId: 'b2' })
+  let view = (await app.call('job-experience-view', { botId: bot.id })).value
+  assert.deepEqual(view.entries[0].provenance, { kind: 'task', taskKey: 'r1:2', title: 'Verified prospect list', author: 'Writer',
+    summary: 'Checked five companies and their official sites.', targetId: 'r1', edited: false })
+  view = (await app.call('job-experience-save', { botId: bot.id, revision: view.revision, action: 'edit', entryId: view.entries[0].id, text: 'Read back the exported file and verify every source.' })).value
+  assert.equal(view.entries[0].provenance.author, 'Writer')
+  assert.equal(view.entries[0].provenance.edited, true)
+  bot.taskIndex = []
+  const after = (await app.call('job-experience-view', { botId: bot.id })).value
+  assert.deepEqual(after.entries[0].provenance, view.entries[0].provenance)
+  assert.equal(app.requests.length, 1)
+})
+
+test('legacy experience resolves only its exact task key and manual notes never claim a task source', async t => {
+  const app = start({ config: { memoryReview: false } })
+  t.after(() => app.stop())
+  await app.rt.load()
+  const bot = app.rt.botOf('b2')
+  bot.taskIndex = [{ key: 'legacy:1', title: 'Legacy task', summary: 'Original recorded summary.', sessionId: 'b2' }]
+  const folder = join(app.home, 'memory', 'bots', 'b2')
+  mkdirSync(folder, { recursive: true })
+  writeFileSync(join(folder, 'task-lessons.md'), '# task-lessons\n- Check official sources. [source: completed task legacy:1; by: Writer]\n- Check file columns. [source: completed task missing:2; by: Writer]\n')
+  let view = (await app.call('job-experience-view', { botId: bot.id })).value
+  assert.equal(view.entries[0].provenance.title, 'Legacy task')
+  assert.equal(view.entries[0].provenance.summary, 'Original recorded summary.')
+  assert.equal(view.entries[1].provenance.title, null)
+  assert.equal(view.entries[1].provenance.targetId, null)
+  view = (await app.call('job-experience-save', { botId: bot.id, revision: view.revision, action: 'edit', entryId: view.entries[0].id, text: 'Read official sources before exporting.' })).value
+  bot.taskIndex = []
+  view = (await app.call('job-experience-view', { botId: bot.id })).value
+  assert.equal(view.entries[0].provenance.title, 'Legacy task')
+  assert.equal(view.entries[0].provenance.summary, 'Original recorded summary.')
+  view = (await app.call('job-experience-save', { botId: bot.id, revision: view.revision, action: 'add', text: 'Check filenames before export.', source: 'completed task forged' })).value
+  assert.equal(view.entries.at(-1).provenance.kind, 'manual')
+  assert.equal(app.requests.length, 0)
 })
 
 test('malformed lesson extraction fails without writing invented memory', async t => {

@@ -4,12 +4,12 @@
 //
 // The lock is a small JSON file (pid, host, a random token) whose mtime the holder bumps
 // on a timer. On the same host, its process decides whether it is live; `staleMs` only
-// covers other hosts and unreadable files. A reused pid after a crash keeps the second
-// host read-only until that process ends. The token, not the pid, decides ownership: a
+// covers other hosts and unreadable files. Locks predating this machine's boot cannot
+// belong to a live process, even when its pid has been reused. The token decides ownership: a
 // holder that finds another token has lost the lock.
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
-import { hostname } from 'node:os'
+import { hostname, uptime } from 'node:os'
 
 export function pidAlive(pid) {
   try {
@@ -21,7 +21,7 @@ export function pidAlive(pid) {
   }
 }
 
-export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostname(), pid = process.pid, isAlive = pidAlive, now = Date.now } = {}) {
+export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostname(), pid = process.pid, isAlive = pidAlive, now = Date.now, bootTime = Date.now() - uptime() * 1000 } = {}) {
   const token = randomUUID()
   let timer
 
@@ -39,7 +39,13 @@ export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostn
   const live = (holder) => {
     if (holder === undefined) return false
     if (holder === null) return age() < staleMs
-    if (holder.host === host) return holder.pid !== pid && isAlive(holder.pid)
+    if (holder.host === host) {
+      // Allow timestamp rounding; require both creation and last heartbeat before boot.
+      // Never use heartbeat expiry alone to steal from a suspended live writer.
+      const beforeBoot = Number.isFinite(holder.since) && holder.since < bootTime - 60_000
+        && now() - age() < bootTime - 10_000
+      return !beforeBoot && holder.pid !== pid && isAlive(holder.pid)
+    }
     return age() < staleMs
   }
   const owns = () => read()?.token === token

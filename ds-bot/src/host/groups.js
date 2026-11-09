@@ -112,6 +112,7 @@ const slotLabel = (slot) => {
 
 const adminNote = room => [
   'You are this group\'s admin.',
+  room.task?.status === 'active' ? 'You own final acceptance for this task group, even when the General Assistant is a member. Check the latest deliverables against every user criterion, not just file existence and working links. Return specific failures to their author. When verified and no work remains, call complete_task here before your final delivery; a reply saying "passed" does not close the task. Do not hand final acceptance back to the General Assistant.' : '',
   room.mode === 'admin' ? 'Plain messages come to you first: answer them, or call the members who should answer with @Name.' : '',
   '"@all" calls every member. When the user asks, change the group with update_group.',
 ].filter(Boolean).join(' ')
@@ -203,6 +204,7 @@ export function install(rt) {
     const known = room.sessions[member.id]
     if (known !== undefined) {
       await rt.ensureCapabilities(known)
+      if (room.task?.workTaskId && rt.state.workTasks?.[room.task.workTaskId]?.status !== 'completed') await rt.bindWorkTaskSession?.(room.task.workTaskId, { sessionId: known, botId: member.id, roomId: room.id })
       return { id: known, brief: undefined }
     }
     const id = await rt.createSession(`${member.name} · ${room.name}`, { dir: rt.workDirOf({ botId: member.id, roomId: room.id }) })
@@ -220,6 +222,7 @@ export function install(rt) {
       .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', member.name, room.name, error))
     await rt.save()
     await rt.ensureCapabilities(id)
+    if (room.task?.workTaskId && rt.state.workTasks?.[room.task.workTaskId]?.status !== 'completed') await rt.bindWorkTaskSession?.(room.task.workTaskId, { sessionId: id, botId: member.id, roomId: room.id })
     return { id, brief: undefined }
   }
   rt.ensureGroupSession = groupSessionFor
@@ -247,6 +250,8 @@ export function install(rt) {
       room.task?.result ? `Previous completed task result (reference only): ${JSON.stringify(room.task.result)}` : '',
       'If your assigned part needs user input, call ask_user here in this group. The card identifies you and its answer calls you directly. Do not ask the coordinator to collect or forward answers. Other members may continue independent work, but never invent an answer or declare the task complete while questions remain open.',
       leads ? adminNote(room) : '',
+      leads && room.task && round.replies.some(reply => reply.toolCalls) ?
+        `Host-recorded tool invocations for submitted replies in this round (counts are invocations, NOT proof of success; no arguments or outputs are included):\n${JSON.stringify(round.replies.filter(reply => reply.toolCalls).map(reply => ({ employee: reply.name, session: reply.fileSessionId, calls: reply.toolCalls })))}\nFor these recorded turns, an unlisted tool was not invoked. Other turns without a record have unknown coverage. Check execution claims against this record; web_fetch is not web_search. Never certify a claimed search from prose alone, or infer successful results from call counts. If a required action is missing, report that separately from artifact quality and return a concrete correction.` : '',
       earlier.length ? `Earlier in the group, before this round (context only):\n${transcript(earlier)}` : '',
       current.length
         ? `This round so far${spokeThisRound ? ', since your last message' : ', starting with the new message'} (oldest first):\n${transcript(current)}`
@@ -518,7 +523,8 @@ export function install(rt) {
       }
       slot.status = 'posted'
       appendSharedReply(rt, room, { who: member.name, botId: member.id, text: reply })
-      round.replies.push({ botId: member.id, fileSessionId: session.id, name: member.name, color: member.color, ...temporaryIdentity(member), ...(streamId ? { streamId } : {}), text: reply, time: Date.now() })
+      const toolCalls = rt.live.get(session.id)?.toolCalls
+      round.replies.push({ botId: member.id, fileSessionId: session.id, name: member.name, color: member.color, ...temporaryIdentity(member), ...(streamId ? { streamId } : {}), ...(toolCalls ? { toolCalls: { ...toolCalls } } : {}), text: reply, time: Date.now() })
       void rt.save().catch(() => {})
       // Only the admin's "@all" calls everyone, so a member cannot set off a storm.
       const leads = rt.isAdminOf(room, member.id)
@@ -527,7 +533,18 @@ export function install(rt) {
       const { all, found: named } = mentionsIn(reply, everyone)
       const found = named.filter(other => other.id !== member.id)
       const callees = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
-      if (!slot.summary) callMembers(round, turns, index, callees, `${member.name} mentioned you`, leads ? ROOM_ADMIN_TURNS_EACH : ROOM_TURNS_EACH, member.id)
+      if (!slot.summary) {
+        callMembers(round, turns, index, callees, `${member.name} mentioned you`, leads ? ROOM_ADMIN_TURNS_EACH : ROOM_TURNS_EACH, member.id)
+        // A task submission returns to its coordinator even without an @mention.
+        // Keep the existing per-member and overall turn limits.
+        if (room.task?.status === 'active' && !leads && !callees.length && !room.task.pendingCompletion
+          && !room.members.some(id => rt.state.questions[room.sessions?.[id]])) {
+          const reviewer = everyone.find(bot => bot.id === slot.by && bot.id !== member.id)
+            ?? everyone.find(bot => bot.id === room.admin)
+          if (reviewer && reviewer.id !== member.id) callMembers(round, turns, index, [reviewer],
+            'Review the submitted work. Verify the actual output and evidence. If acceptable, complete_task; otherwise @mention its author with specific corrections or explain the blocker.', ROOM_ADMIN_TURNS_EACH)
+        }
+      }
     }
   }
 
@@ -541,6 +558,7 @@ export function install(rt) {
       const room = rt.roomOf(exec.agent?.id)
       if (room === undefined) return JSON.stringify({ error: 'Not a group chat' })
       ensureRoomLog(room)
+      if (room.task) delete room.task.review
       // Everything queued since the last relay is posted in order, so messages that the
       // Session folds into one turn are not lost; the newest one picks the speakers.
       const queued = rt.roomInbox.get(room.id) ?? []
@@ -731,7 +749,8 @@ export function install(rt) {
     if (opener.quiet) return []
     const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
-    if (opener.late) return found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy)
+    if (opener.late) return found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy
+      || !opener.askedBy && room.task?.status === 'active' && bot.id === room.admin)
     if (found.length > 0 && !all) return found
     if (!all && room.mode === 'admin' && admin) return [admin]
     return admin ? [admin, ...members.filter(bot => bot !== admin)] : members

@@ -33,13 +33,18 @@ import * as update from './src/host/update.js'
 import * as dshUpdate from './src/host/dsh-update.js'
 import * as channel from './src/host/channel.js'
 import * as conversationFiles from './src/host/conversation-files.js'
+import * as chiefPermissions from './src/host/chief-permissions.js'
 import * as taskNotices from './src/host/task-notices.js'
 import * as taskModels from './src/host/task-models.js'
 import * as recovery from './src/host/recovery.js'
 import * as taskGroups from './src/host/task-groups.js'
 import * as employeePortraits from './src/host/employee-portraits.js'
 import * as taskContext from './src/host/task-context.js'
+import * as taskInput from './src/host/task-input.js'
+import * as workTasks from './src/host/work-tasks.js'
+import * as workTaskIntegration from './src/host/work-task-integration.js'
 import * as toolInspection from './src/host/tool-inspection.js'
+import * as toolIssues from './src/host/tool-issues.js'
 import * as presetOrganization from './src/host/preset-organization.js'
 
 export { COLORS } from './src/host/constants.js'
@@ -71,6 +76,6 @@ export function createRuntime(ctx, config = {}) {
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of [...MODULES, taskGroups, taskContext, employeePortraits, presetOrganization]) module.install(rt)
+for (const module of [...MODULES, toolIssues, chiefPermissions, taskGroups, taskContext, taskInput, workTasks, workTaskIntegration, employeePortraits, presetOrganization]) module.install(rt)
   return rt
 }

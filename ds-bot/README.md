@@ -1,5 +1,13 @@
 # ds-bot
 
+Version `0.1.82` adds removal and undo for unavailable output-list entries, plus remembered collapse controls on information-panel sections. These are local presentation preferences scoped to each conversation. Disk files, task records, saved delivery versions and employee memory are retained.
+
+Version `0.1.81` folds unavailable output-file records into one row. Usable files keep their display positions and count; expanding the row shows the retained records and a recheck action. Restored files return to the normal list after refresh.
+
+Version `0.1.80` isolates new private-task contexts and resets them after acceptance while retaining history, saved deliveries and job experience. Explicit new-task or continuation requests are recognized locally; ambiguous input during a recorded task waits for a choice next to the composer. Errors can be marked handled, with earlier model-error reminders also resolved by a later successful reply in the same conversation. The information panel retains separate Tasks, Deliveries and Pending tabs.
+
+The `0.1.76` preview adds independent task records to the existing Bot information panel. Multi-step deliverables can retain checkpoints and delivery versions, wait for user acceptance, and continue explicitly after interruptions. Legacy conversations and permissions remain unchanged. File checks cover archive integrity; business acceptance still requires reviewing the actual result. This package does not install or replace the desktop shell.
+
 The DS Bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It turns dsh into a team of long-lived Bots that talk to you, to each other and in group chats. See the [project page](../README.md) for an overview, install steps and screenshots.
 
 > Early release (v0.1). Features, tools and the saved data format can still change.

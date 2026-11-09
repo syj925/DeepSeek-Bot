@@ -8,11 +8,17 @@ export function executionState({ sessionId, roster, work, running, entries, pend
   const bot = roster.byId[sessionId] ?? roster.bots?.find(item => currentPart(item) === sessionId)
   const room = roster.roomsById[sessionId]
   const belongs = item => room ? item.roomId === room.id : !item.roomId && (item.sessionId === sessionId || item.botId === bot?.id)
-  if (conversationFailures(sessionId, roster).some(item => !item.retrying)) return { kind: 'error', label: 'Execution needs attention' }
   if ((work.approvals ?? []).some(belongs)) return { kind: 'approval', label: 'Waiting for your approval' }
+  if (bot && roster.taskInputs?.[bot.id] && !room) return { kind: 'question', label: 'Choose whether to continue or start a new task' }
   if (roster.questions?.[sessionId] || Object.values(roster.questions ?? {}).some(belongs)) return { kind: 'question', label: 'Waiting for your answer' }
   const doing = room ? work.rooms?.[room.id] ?? [] : work.bots?.[bot?.id] && !work.bots[bot.id].roomId ? [work.bots[bot.id]] : []
-  if (!running && !doing.length) return pending ? { kind: 'queued', label: 'Request submitted · waiting to start' } : null
+  // Recovery records survive until a later turn succeeds. They must not mask
+  // that turn's live work (or hide its waiting indicator) in either chat layout.
+  if (!running && !doing.length) {
+    if (pending) return { kind: 'queued', label: 'Request submitted · waiting to start' }
+    return conversationFailures(sessionId, roster).some(item => !item.retrying)
+      ? { kind: 'error', label: 'Execution needs attention' } : null
+  }
   const tools = entries.filter(item => !item.text && !item.relay).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
   const rawTool = tools.at(-1)?.label ?? doing.find(item => item.tool)?.tool
   const tool = rawTool ? (tools.at(-1)?.label ?? workPhrase(rawTool)) : tools.length ? t('Running tool') : undefined

@@ -51,6 +51,24 @@ test('an old same-host lock stays live while its process is alive', (t) => {
   assert.equal(late.owns(), false)
 })
 
+test('a previous-boot lock cannot be held by a reused PID from another application', t => {
+  const path = join(tempHome(t), 'state.lock'), now = Date.now(), bootTime = now - 100_000
+  writeFileSync(path, JSON.stringify({ pid: 101, host: hostname(), token: 'previous-boot', since: bootTime - 100_000 }))
+  const old = new Date(bootTime - 25_000); utimesSync(path, old, old)
+  const lock = homeLock(path, { pid: 202, isAlive: () => true, bootTime })
+  t.after(() => lock.release())
+  assert.equal(lock.claim(), undefined)
+  assert.equal(lock.owns(), true)
+})
+
+test('old creation time with a current heartbeat never steals a live writer', t => {
+  const path = join(tempHome(t), 'state.lock'), bootTime = Date.now() - 100_000
+  writeFileSync(path, JSON.stringify({ pid: 101, host: hostname(), token: 'live', since: bootTime - 100_000 }))
+  const lock = homeLock(path, { pid: 202, isAlive: () => true, bootTime })
+  t.after(() => lock.release())
+  assert.equal(lock.claim().token, 'live')
+})
+
 test('an old lock from another host is taken over', (t) => {
   const path = join(tempHome(t), 'state.lock')
   writeFileSync(path, JSON.stringify({ pid: 101, host: 'elsewhere', token: 'far' }))

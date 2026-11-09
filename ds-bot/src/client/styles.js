@@ -488,6 +488,9 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-set-copy{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
 .bt-set-hint{font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink-2) 50%,var(--bt-ink-3))}
 .bt-set-control{flex:none;display:flex;align-items:center;gap:6px}
+.bt-permission-folders{padding:0 12px 12px;overflow-wrap:anywhere}
+.bt-permission-switch{appearance:none;width:34px;height:20px;margin:0;border:0;border-radius:12px;background-color:#cbd5e1;background-image:radial-gradient(circle,#fff 60%,transparent 66%);background-size:18px 18px;background-position:1px center;background-repeat:no-repeat;cursor:pointer;transition:background-color .15s ease,background-position .15s ease}
+.bt-permission-switch:checked{background-color:#187761;background-position:15px center}.bt-permission-switch:disabled{opacity:.55;cursor:wait}.bt-permission-switch:focus-visible{outline:2px solid #187761;outline-offset:3px}
 .bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-set-paste{flex-direction:column;align-items:stretch;gap:8px}

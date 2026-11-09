@@ -5,12 +5,14 @@ import { countCards, createSource, EMPTY_ROSTER, indexRoster, isAgentSession } f
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { recoveryNotice } from './recovery-state.js'
+import { savedWorkTaskFile, saveTaskSnapshotDownload } from './work-tasks.js'
 import { installUiTypography } from './ui-typography.js'
 import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, ConnectPlugins, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { HeaderPill } from './header.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
+import { TaskInputDock } from './task-input.js'
 import { BOTS_SOURCE, CHATS_SOURCE, atSources, mentionRows } from './at-menu.js'
 import { ComposerInlineMentions } from './inline-mentions.js'
 import { VOICE_BUNDLE } from './speech.js'
@@ -220,8 +222,12 @@ export function apply(ctx) {
     const current = roster.getSnapshot()
     // Connector and capability states change without a new revision.
     const live = {}
+    for (const key of ['pendingApprovals', 'chiefPermissions', 'toolIssues']) {
+      if (value[key] !== undefined && JSON.stringify(value[key]) !== JSON.stringify(current[key])) live[key] = value[key]
+    }
     if (value.taskNotices !== undefined && JSON.stringify(value.taskNotices) !== JSON.stringify(current.taskNotices ?? [])) live.taskNotices = value.taskNotices
     if (value.taskProgress !== undefined && JSON.stringify(value.taskProgress) !== JSON.stringify(current.taskProgress ?? {})) live.taskProgress = value.taskProgress
+    if (value.workTasks !== undefined && JSON.stringify(value.workTasks) !== JSON.stringify(current.workTasks ?? [])) live.workTasks = value.workTasks
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
     if (value.modelFailures !== undefined && JSON.stringify(value.modelFailures) !== JSON.stringify(current.modelFailures ?? [])) {
@@ -711,6 +717,9 @@ export function apply(ctx) {
     answerQuestion: (sessionId, questionId, answer) => after(call('answer-question', { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
     answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
+    setChiefPermissions: enabled => after(call('chief-permissions', { enabled })),
+    reviewApprovalWithChief: id => after(call('chief-approval-review', { id })),
+    revokeTaskPermission: sessionId => after(call('revoke-task-permission', { sessionId })),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),
@@ -737,6 +746,8 @@ export function apply(ctx) {
     memoryView: (botId, flags = {}) => call('memory-view', { botId, ...flags }),
     memoryAsk: (botId, text) => call('memory-ask', { botId, text }),
     memoryForget: (botId, entry) => call('memory-forget', { botId, scope: entry.scope, topic: entry.topic, text: entry.text }),
+    jobExperienceView: botId => call('job-experience-view', { botId }),
+    jobExperienceSave: payload => call('job-experience-save', payload),
     diagnostics: payload => call('diagnostics', payload),
     diagnosticsLog: () => call('diagnostics-log'),
     diagnosticsClear: () => call('diagnostics-clear'),
@@ -886,9 +897,27 @@ export function apply(ctx) {
       taskNotices.markRead(item.id); taskNotices.close()
     },
     conversationFiles: (sessionId, options = {}) => call('conversation-files', { sessionId, force: options.force === true }),
+    controlWorkTask: async payload => {
+      try { return await call('control-work-task', payload) }
+      finally { await pull().catch(() => {}) }
+    },
+    startNewTask: async botId => {
+      const bot = roster.getSnapshot().byId[botId]
+      if (!bot) throw new Error(t('This employee is no longer available.'))
+      try { return await call('start-new-task', { botId: bot.id, expectedSessionId: currentPart(bot) }) }
+      finally { await pull().catch(() => {}) }
+    },
+    resolveTaskInput: async payload => {
+      try { return await call('resolve-task-input', payload) }
+      finally { await pull().catch(() => {}) }
+    },
+    downloadWorkTaskFile: async payload => saveTaskSnapshotDownload(await call('work-task-file', payload)),
     openTaskResult: async (item, file) => {
       try {
         const snapshot = roster.getSnapshot()
+        const savedFile = savedWorkTaskFile(snapshot, item, file)
+        if (savedFile) { await actions.downloadWorkTaskFile(savedFile); taskNotices.markRead(item.id); taskNotices.close(); return }
+        if (item.workTaskId || item.deliveryId) throw new Error(t('The saved delivery is unavailable. Refresh the information panel and try again.'))
         if (!snapshot.byId[item.targetId] && !snapshot.roomsById[item.targetId]) throw new Error(t('This conversation is no longer available.'))
         const sessionId = partFor(item.roomId ?? item.targetId)
         const opened = await openTaskFile({ sidebar: ctx.get('sidebarRight'), sessionId, sourceSessionId: item.sessionId ?? sessionId, path: file.path,
@@ -1183,6 +1212,7 @@ export function apply(ctx) {
     shadow('conversation.input.dock', { id: 'bot-members', order: -120, inject: face }, MemberDock),
     shadow('conversation.input.dock', { id: 'bot-model', order: -110, inject: face }, ModelChoiceDock),
     shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
+    shadow('conversation.input.dock', { id: 'bot-task-input', order: -101, inject: face }, TaskInputDock),
     shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
   ]
   // The return button belongs to neither group: it renders only in Agent mode.

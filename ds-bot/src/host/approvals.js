@@ -10,9 +10,10 @@ export function install(rt) {
   const { ctx } = rt
   /** @type {Map<string, {id:string, sessionId:string, botId:string, roomId?:string, tool:string, reason:string, detail:{text?:string, code?:string}, at:number, answer?:(outcome:string)=>void}>} */
   const pending = new Map()
+  const requests = new Map()
 
   // Ahead of DSH's own answerer, which would hold a hidden Session's request unseen.
-  ctx.on('approval/request', (request, next) => {
+  function hold(request, next) {
     const sessionId = request.agent?.session?.id ?? request.agent?.id
     const owner = sessionId === undefined ? undefined : rt.groupOwners.get(sessionId)
     const botId = owner?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
@@ -29,9 +30,11 @@ export function install(rt) {
       at: Date.now(),
     }
     pending.set(id, entry)
+    requests.set(id, request)
     rt.noteApproval?.(sessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
     const settled = () => {
       pending.delete(id)
+      requests.delete(id)
       rt.noteApproval?.(sessionId, undefined)
     }
     if (owner === undefined) return Promise.resolve(next()).finally(settled)
@@ -45,6 +48,11 @@ export function install(rt) {
       if (request.signal?.aborted) entry.answer('cancelled')
       request.signal?.addEventListener('abort', () => entry.answer('cancelled'), { once: true })
     })
+  }
+  ctx.on('approval/request', (request, next) => {
+    if (!rt.chiefPermissionView?.().policy.enabled) return hold(request, next)
+    return Promise.resolve(rt.reviewChiefApproval(request)).catch(() => false)
+      .then(allowed => allowed ? 'allowed-once' : hold(request, next))
   }, { prepend: true })
 
   const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => ({ ...entry, answerable: answer !== undefined }))
@@ -58,6 +66,28 @@ export function install(rt) {
     entry.answer(outcome)
   }
 
+  async function reviewApprovalWithChief(id) {
+    const entry = pending.get(id)
+    if (!entry?.answer) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+    const chief = Object.values(rt.state.bots).find(bot => bot.generalAssistant && !bot.retiredAt)
+    await rt.grantTaskAccess(chief?.id, { botId: entry.botId, roomId: entry.roomId, objective: 'Resume the prospecting task requested by the user' })
+    if (pending.get(id) !== entry) throw new Error('This approval is no longer open')
+    if (!await rt.reviewChiefApproval(requests.get(id))) throw new Error('This operation is outside the prospecting preset. Review it and choose Allow once or Reject.')
+    entry.answer('allowed-once')
+  }
+
+  async function resumeChiefApprovals(sessionId) {
+    let resumed = 0
+    for (const [id, entry] of pending) {
+      if (entry.sessionId !== sessionId || !entry.answer) continue
+      if (await rt.reviewChiefApproval(requests.get(id)) && pending.get(id) === entry) {
+        entry.answer('allowed-once')
+        resumed++
+      }
+    }
+    return resumed
+  }
+
   // A group Session that leaves its group has no card left to answer from.
   const cancelApprovals = (sessionId) => {
     for (const entry of pending.values()) {
@@ -65,5 +95,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { approvalsView, waitsForApproval, answerApproval, cancelApprovals })
+  Object.assign(rt, { approvalsView, waitsForApproval, answerApproval, cancelApprovals, reviewApprovalWithChief, resumeChiefApprovals })
 }

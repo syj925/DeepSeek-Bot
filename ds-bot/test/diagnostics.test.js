@@ -191,6 +191,22 @@ function turnsHost() {
 
 const failed = { kind: 'error', error: { code: 'SERVER', message: 'upstream busy', status: 503 } }
 
+test('real tool result envelopes clear only the finished call and restore thinking', () => {
+  const { rt, emit } = turnsHost()
+  rt.chatOwners.set('b', 'b')
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'tool/call', { callId: 'one', name: 'web_fetch', arguments: '{}' })
+  emit('b', 'tool/call', { callId: 'two', name: 'write', arguments: '{}' })
+  emit('b', 'tool/result', { message: { toolCallId: 'two', isError: false, content: [] } })
+  assert.equal(rt.workView().b.tool, 'web_fetch', 'another concurrent tool is still running')
+  emit('b', 'tool/result', { message: { toolCallId: 'one', isError: true, content: [] } })
+  assert.equal(rt.workView().b.tool, undefined)
+  assert.equal(rt.activityView().b, 'thinking')
+  emit('b', 'tool/call', { callId: 'legacy', name: 'read', arguments: '{}' })
+  emit('b', 'tool/result', { callId: 'legacy' })
+  assert.equal(rt.workView().b.tool, undefined, 'legacy fixtures remain supported')
+})
+
 test('a failed reply to message_bot tells the sender instead of leaving it waiting', () => {
   const { emit, delivered, noted } = turnsHost()
   emit('b', 'turn/start', { turn: 1 })

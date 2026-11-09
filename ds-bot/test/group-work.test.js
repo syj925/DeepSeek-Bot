@@ -128,6 +128,38 @@ const settle = async (check) => {
 const text = message => message.content.map(block => block.text ?? '').join('\n')
 const kinds = result => result.replies.map(reply => [reply.kind ?? 'message', reply.name])
 
+test('task coordinator receives complete invocation counts instead of trusting claimed searches', async t => {
+  const host = await start(t, { task: { status: 'active', originBotId: 'a', objective: 'verify', cycle: 1 } })
+  const result = host.round('audit', host.say('@Writer Check sources'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  for (let n = 0; n < 35; n++) {
+    host.emit('gb', 'tool/call', { callId: `read-${n}`, name: 'read', arguments: '{"file_path":"private-path"}' })
+    host.emit('gb', 'tool/result', { message: { toolCallId: `read-${n}`, content: [{ type: 'text', text: 'private-output' }], isError: false } })
+  }
+  host.emit('gb', 'tool/call', { callId: 'fetch', name: 'web_fetch', arguments: '{}' })
+  host.emit('gb', 'tool/result', { message: { toolCallId: 'fetch', content: [], isError: true } })
+  host.finish('gb', 'I searched the web successfully. @Chief Please review.')
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  const prompt = text(host.begin('ga'))
+  assert.match(prompt, /Host-recorded tool invocations/)
+  assert.match(prompt, /"read":35,"web_fetch":1/)
+  assert.match(prompt, /NOT proof of success/)
+  assert.ok(!prompt.includes('private-path') && !prompt.includes('private-output'))
+  host.finish('ga', '[PASS]')
+  await settle(() => result())
+  assert.deepEqual(result().replies.find(reply => reply.name === 'Writer').toolCalls, { read: 35, web_fetch: 1 })
+  const next = host.round('audit-next', host.say('@Writer A new check'))
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb'); host.finish('gb', 'No tool used this turn. @Chief Please review.')
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  const fresh = text(host.begin('ga'))
+  assert.match(fresh, /"calls":\{\}/)
+  assert.ok(!fresh.includes('"read":35'))
+  host.finish('ga', '[PASS]')
+  await settle(() => next())
+})
+
 test('group questions identify the employee, block completion and answer that employee directly', async t => {
   const host = await start(t, { task: { status: 'active', originBotId: 'a', objective: 'deliver', cycle: 1 } })
   const result = host.round('question-round', host.say('@Writer @Tester Prepare the report'))

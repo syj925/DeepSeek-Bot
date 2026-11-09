@@ -126,6 +126,17 @@ export function install(rt) {
     else next[id] = value
     activity = next
   }
+  rt.pauseTaskInput = agent => {
+    const entry = liveOf(agent.id), token = Symbol('task-input')
+    entry.switched = true
+    entry.taskInputPause = token
+    void agent.whenIdle().then(() => {
+      if (entry.taskInputPause !== token) return
+      entry.turn = undefined
+      entry.since = undefined
+      setActivity(agent.id, undefined)
+    }).catch(error => rt.warn('ds-bot: task input pause deferred: %s', error))
+  }
   // The newest call still running, a program's sub-calls included, is what the Session
   // is doing.
   const showCall = (id, entry) => {
@@ -135,6 +146,7 @@ export function install(rt) {
     else if (entry.turn !== undefined) setActivity(id, 'thinking')
   }
   const startCall = (id, entry, callId, name, args) => {
+    if (entry.toolCalls && typeof name === 'string') entry.toolCalls[name] = (entry.toolCalls[name] ?? 0) + 1
     entry.progress = [...(entry.progress ?? []), { tool: name, at: Date.now() }].slice(-30)
     if (typeof callId === 'string') (entry.calls ??= new Map()).set(callId, { name, args })
     showCall(id, entry)
@@ -276,6 +288,7 @@ export function install(rt) {
     const id = session?.id
     if (id === undefined) return
     if (!rt.isBotSession(id) && !rt.roomOf(id)) return
+      rt.observeToolIssue?.(id, event)
     const entry = liveOf(id)
     if (rt.groupOwners.has(id)) rt.touchRoomTurn?.(id)
     switch (event.type) {
@@ -296,11 +309,13 @@ export function install(rt) {
         endCall(id, entry, event.data?.subCallId)
         break
       case 'tool/result':
-        endCall(id, entry, event.data?.callId)
+        endCall(id, entry, event.data?.message?.toolCallId ?? event.data?.callId)
         break
       case 'turn/start':
+        delete entry.taskInputPause
         entry.taskEpoch = (entry.taskEpoch ?? 0) + 1
         entry.progress = []
+        entry.toolCalls = Object.create(null)
         entry.reasoning = ''
         delete entry.reasoningStream
         delete entry.completion
@@ -423,7 +438,7 @@ export function install(rt) {
         const info = entry.info
         const joined = entry.joined ?? []
         const texts = entry.texts
-        const { lastText, lastCalled, turn, opened } = entry
+        const { lastText, lastCalled, turn, opened, since } = entry
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
         entry.turn = undefined
@@ -438,8 +453,12 @@ export function install(rt) {
         entry.lastCalled = undefined
         const reason = event.data?.reason
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
-        if (!switched) rt.finishRecovery?.(id, reason, info)
+        if (!switched) rt.finishRecovery?.(id, reason, info, { startedAt: since, answered: texts.some(text => text.trim() !== '') })
         if (failure !== undefined) rt.recordModelFailure?.(id, failure)
+        if (!switched && (failure !== undefined || reason?.kind === 'aborted')) {
+          void rt.blockWorkTaskForSession?.(id, { code: failure?.code ?? 'STOPPED', message: failure ? 'Execution failed. Saved checkpoints and delivery versions are retained.' : 'Execution stopped. Continue explicitly when ready.', turn, epoch: entry.taskEpoch })
+            ?.catch(error => rt.warn('ds-bot: saving task interruption failed: %s', error))
+        }
         if (failure !== undefined) noteTurnFailure(id, failure)
         if (switched) { rt.clearRoomStream?.(id, info); delete entry.completion; break }
         // A model that writes its tool call as text ends the turn as if it were done,

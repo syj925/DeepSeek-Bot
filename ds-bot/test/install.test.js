@@ -121,8 +121,13 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: api route',
     'route GET,POST /api/bot',
     'effect ds-bot: load state',
+    'on session/event',
+    'tool authorize_prospecting_task',
     'tool read_task_history',
     'effect ds-bot: task context cleanup',
+    'tool register_task',
+    'tool update_task_progress',
+    'tool read_task_record',
     'effect ds-bot: portrait jobs',
     'effect ds-bot: preset organization',
   ])

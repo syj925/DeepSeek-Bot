@@ -54,7 +54,8 @@ export const TEAM_TOOLS = [
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
   'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
   'list_capabilities', 'save_capability', 'delete_capability',
-  'attach_capability', 'detach_capability', 'complete_task', 'read_task_history',
+  'attach_capability', 'detach_capability', 'complete_task', 'read_task_history', 'authorize_prospecting_task',
+  'register_task', 'read_task_record', 'update_task_progress',
 ]
 // Rounds Bots may start in one group by posting, before the user speaks there again.
 export const ROOM_BOT_ROUNDS = 3

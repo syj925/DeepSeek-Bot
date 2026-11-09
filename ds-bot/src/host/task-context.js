@@ -6,6 +6,11 @@ export function install(rt) {
   rt.botEmployment = bot => bot?.employment === 'temporary' ? 'temporary' : 'long-term'
   rt.isTemporaryBot = id => rt.botEmployment(rt.botOf(id)) === 'temporary'
   const running = new Set()
+  const starting = new Map()
+  rt.isTaskContextIsolated = sessionId => {
+    const group = rt.groupOwners?.get(sessionId)
+    return group ? Boolean(rt.roomOf(group.roomId)?.task) : Boolean(rt.botOf(rt.selfOf(sessionId))?.taskContextIsolation)
+  }
 
   rt.taskSessionBusy = async id => {
     if (state.questions?.[id] || rt.live?.get(id)?.turn !== undefined) return true
@@ -16,6 +21,28 @@ export function install(rt) {
   const unanswered = predicate => {
     const answered = new Set((state.exchanges ?? []).filter(item => item.role === 'reply').map(item => item.replyTo))
     return (state.exchanges ?? []).some(item => item.role === 'request' && item.audience !== 'user' && !answered.has(item.id) && predicate(item))
+  }
+  rt.privateContextBusy = async (sessionId, { ignoreInputId } = {}) => {
+    const botId = rt.chatOwners.get(sessionId)
+    const pending = state.taskInputs?.[botId]
+    if (pending && pending.id !== ignoreInputId) return true
+    if (!botId || await rt.taskSessionBusy(sessionId)) return true
+    return unanswered(item => !item.fromRoomId && !item.toRoomId && (item.from === botId || item.to === botId))
+  }
+  rt.startNewTaskConversation = async ({ botId, expectedSessionId }) => {
+    await rt.load?.()
+    if (rt.readOnly?.() !== undefined) throw new Error('This host is read-only.')
+    const bot = rt.botOf(botId)
+    if (!bot || bot.retiredAt || rt.isTemporaryBot(botId)) throw new Error('Choose an active lasting employee to start a new task.')
+    if (typeof expectedSessionId !== 'string' || rt.chatOf(botId) !== expectedSessionId) throw new Error('This conversation changed. Refresh before starting a new task.')
+    if (starting.has(botId)) throw new Error('A task context switch is already in progress.')
+    const job = (async () => {
+      if (await rt.privateContextBusy(expectedSessionId)) throw new Error('Finish or stop the current work and resolve pending questions, approvals and employee replies before starting a new task.')
+      if (!await rt.resetTaskSession(expectedSessionId, { newTask: true })) throw new Error('The new task context could not be created. Your history and experience are preserved; try again.')
+      return { botId, sessionId: rt.chatOf(botId) }
+    })()
+    starting.set(botId, job)
+    try { return await job } finally { starting.delete(botId) }
   }
   rt.temporaryBotBusy = async id => {
     if (unanswered(item => item.from === id || item.to === id)) return true
@@ -161,6 +188,7 @@ export function install(rt) {
       const bot = rt.botOf(rt.selfOf(exec.agent?.id))
       if (!bot || bot.retiredAt) return 'Only active employees can read their task history.'
       const query = String(args.query ?? '').toLowerCase()
+      if (rt.isTaskContextIsolated(exec.agent?.id) && !query.trim()) return 'Provide a task title or specific keyword to retrieve relevant history. A new task does not load earlier task summaries by default.'
       const records = (bot.taskIndex ?? []).filter(item => (!args.before || item.at < args.before) && `${item.title} ${item.summary}`.toLowerCase().includes(query))
       return JSON.stringify(records.slice(-20).reverse())
     },

@@ -51,6 +51,7 @@ export function NewChat({ mode, roster, actions, initialMembers = [] }) {
     if (choosingAdmin) { chooseAdmin(bot); return }
     if (group || picked.length > 0) { pick(bot); return }
     if (bot.hidden) await actions.setFlags(bot.id, { hidden: false })
+    if (mode === 'new') await actions.startNewTask(bot.id)
     if (message.trim()) await actions.send(bot.id, message.trim())
     actions.openSession(bot.id)
     close()
@@ -83,6 +84,7 @@ export function NewChat({ mode, roster, actions, initialMembers = [] }) {
     if (group) { if (admin !== null) await makeGroup(); return }
     if (text === '' || picked.length === 0) return
     if (picked.length === 1) {
+      if (mode === 'new') await actions.startNewTask(picked[0])
       await actions.send(picked[0], text)
       actions.openSession(picked[0])
       close()

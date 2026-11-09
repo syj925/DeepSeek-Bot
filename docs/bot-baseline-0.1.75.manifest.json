@@ -1,0 +1,409 @@
+{
+  "head": "dea30ab05a291dada11ae8660ecf1b2937db8b64",
+  "candidateSource": "E:\\DSH SingLab\\.review-information-panel-0.1.66",
+  "releasePackage": "E:\\DSH SingLab\\exports\\QibitAI-0.1.75-prospecting-audit\\ds-bot-0.1.75.tgz",
+  "releasePackageSha256": "be9297fab3b8dcb3b085a507d09551bf03e7f5369c99c83cf01ecf5987bde1ad",
+  "copiedCount": 502,
+  "skipped": [
+    "docs/QibitAI-企业竞争力与卖点报告.docx",
+    "qibitai-collaboration-mvp-lint.log",
+    "qibitai-collaboration-mvp-tests.log"
+  ],
+  "excludedUnreleasedPaths": [
+    "ds-bot/src/host/design-workflow.js",
+    "ds-bot/src/host/collaboration.js",
+    "ds-bot/src/shared/collaboration.js",
+    "ds-bot/src/collaboration",
+    "ds-bot/collaboration-server.mjs",
+    "ds-bot/src/client/collaboration-panel.js",
+    "ds-bot/test/design-workflow.test.js",
+    "ds-bot/test/collaboration.test.js"
+  ],
+  "productFiles": [
+    {
+      "path": "LICENSE",
+      "size": 11558,
+      "sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6"
+    },
+    {
+      "path": "NOTICE",
+      "size": 5730,
+      "sha256": "1761a24af2147d2682ae25b4866190b3a5556396aa0d81afa0fce62ca6a52fb4"
+    },
+    {
+      "path": "src/host/agents.js",
+      "size": 7809,
+      "sha256": "d7899aaf0c33ba596c72479284ebfdee17d6db869276b34017c84e629295b2b0"
+    },
+    {
+      "path": "src/host/approvals.js",
+      "size": 4701,
+      "sha256": "1a92ed5e1ffacae0eefd78d3fcbd23e8c96838f97ed11d08030d57e9ac44b5c0"
+    },
+    {
+      "path": "src/shared/assistant-identity.js",
+      "size": 460,
+      "sha256": "3636104ee3c6b027169e6e05d1613f8e9c90d09cc56a7b323ff17b5e9a48c2b9"
+    },
+    {
+      "path": "src/shared/browser-context.js",
+      "size": 776,
+      "sha256": "b67eec5fd77b54452a9570444535257d1170f4e313c0ee7591547bdfa66bb945"
+    },
+    {
+      "path": "src/host/browser.js",
+      "size": 15020,
+      "sha256": "b97ce38aa7e16226547770236bde2799083137129cc099d7c1ff4d31ad6f791b"
+    },
+    {
+      "path": "src/host/capabilities.js",
+      "size": 22704,
+      "sha256": "b49179aadea213cf19d2d93f335a09321e6c55e3e384f8f49c86745d458c21b8"
+    },
+    {
+      "path": "src/host/channel.js",
+      "size": 21646,
+      "sha256": "c5c1c803c2fefa75dd01da6f59e63eb83b8eedb0ece1672092f49be1883ffb7e"
+    },
+    {
+      "path": "src/host/chat-index.js",
+      "size": 14138,
+      "sha256": "179bd5ab618b71312143ad9702f16510d294c066adc52b84bc0429471f8974d0"
+    },
+    {
+      "path": "src/host/chief-permissions.js",
+      "size": 9530,
+      "sha256": "c0fef6cd78532044109517bc5d94ef7cb59ae7163afd323ba6a621f50d5428bd"
+    },
+    {
+      "path": "client.js",
+      "size": 6272478,
+      "sha256": "e6d4d96cba3c366ca4cc6d7a3168e65de155b8b9b08031df6393519d800a6dab"
+    },
+    {
+      "path": "src/host/connectors.js",
+      "size": 6853,
+      "sha256": "3935c63e14115dec2e12dbe2665ac46ca0bca4548e329cce95133c0d60d187f2"
+    },
+    {
+      "path": "src/host/constants.js",
+      "size": 4286,
+      "sha256": "8cce2896d41b26b70d463ea0bd8dd9f554c170ac78dbc217be5af594d5ddfb3d"
+    },
+    {
+      "path": "src/host/conversation-files.js",
+      "size": 10519,
+      "sha256": "809ec800515c06d1495fa6087339a4469de9f86d927c95ed1cd5d3a01857daac"
+    },
+    {
+      "path": "src/host/delivery.js",
+      "size": 5240,
+      "sha256": "972ab6418bf4c0d4ae67d245259495a548a9d9619ff8b2724bbd37464d0f1291"
+    },
+    {
+      "path": "src/host/diagnostics.js",
+      "size": 11436,
+      "sha256": "538e32f6717ed581722230a01dbbb21cd1eca79639d9cb9b8ab62202ba7938b2"
+    },
+    {
+      "path": "src/host/dsh-update.js",
+      "size": 8529,
+      "sha256": "b6bf900dacf92a6c4698f6fb63b1a33b2249b084f3e24af9481b59209bc4b9b9"
+    },
+    {
+      "path": "src/shared/employee-avatar.js",
+      "size": 1324,
+      "sha256": "1f36a3ed60453e9bc9daa5427ae4b301daafd40d65046b6241df163ed24a6828"
+    },
+    {
+      "path": "src/host/employee-portraits.js",
+      "size": 7963,
+      "sha256": "872404267d890a087a8902016ee61e20daa671388e0d1e91faec7db09daafd0f"
+    },
+    {
+      "path": "src/host/folders.js",
+      "size": 7121,
+      "sha256": "2f87fe024ae6ea5d754ee741719f0c525080d9a57c9733caf964a61571c78487"
+    },
+    {
+      "path": "src/host/general-assistant.js",
+      "size": 11126,
+      "sha256": "211bcc95b206010e7c4e9afca8223a0cf74bdc711e7e9499e070dfce0d863b9a"
+    },
+    {
+      "path": "src/host/groups.js",
+      "size": 53884,
+      "sha256": "b103276ef7a8ccf8231f3b0edbc22027223bea43a01716af011dc864d334a02a"
+    },
+    {
+      "path": "src/host/home-lock.js",
+      "size": 3757,
+      "sha256": "5b6c9ea57c750d336d8042d692a672a2a9f929ffa5952da464617c2863c2fb02"
+    },
+    {
+      "path": "src/host/images.js",
+      "size": 9220,
+      "sha256": "4501926f7392989c2fa37bec5d6e4bcc7d9727684f20a335a9381f24c61966c7"
+    },
+    {
+      "path": "index.js",
+      "size": 4039,
+      "sha256": "656f8f26bc80d68aab9b587f7e369fdfa91d33529f9f35d6c68f51759a16e9d0"
+    },
+    {
+      "path": "src/host/memory.js",
+      "size": 82040,
+      "sha256": "6c2cf13634e092cac0817d4536823a71d49bb582eab4115b528021c4e869416b"
+    },
+    {
+      "path": "src/shared/mentions.js",
+      "size": 3537,
+      "sha256": "e4643a2316555bad95218390cbb6de1f8ec7eb5f3ab7822cbc1bd337f0ee10d0"
+    },
+    {
+      "path": "src/host/models.js",
+      "size": 10220,
+      "sha256": "8a3b849e9d47012b4c745837d7467d34b79cc6eb7d335f7f4d51ccab09d0ad5e"
+    },
+    {
+      "path": "src/host/ownership.js",
+      "size": 1464,
+      "sha256": "7d7e2b08369e899a3f7b9cac22f93ac4b5ac6d05c7e52e6b3b2d46b88b59c865"
+    },
+    {
+      "path": "src/host/parts.js",
+      "size": 66068,
+      "sha256": "86fe84ef841950bb8163b3637d968ad0baf318c7f904ad7a5a9a1ce3b6ddbdc7"
+    },
+    {
+      "path": "src/host/permissions.js",
+      "size": 1870,
+      "sha256": "41c567a0500eb6a65965a6f909ededb52cbf0480e4374f4a7272f85bada5baf7"
+    },
+    {
+      "path": "src/host/preset-organization.js",
+      "size": 4454,
+      "sha256": "b569d82dc11457d54f84c12ada902854234519ac30baa61ce3071a7fb0ae1c14"
+    },
+    {
+      "path": "src/host/prompt.js",
+      "size": 18182,
+      "sha256": "d7c0c7c51a99c9429241970db997814c6886153f0afb4b98c98248fda126b533"
+    },
+    {
+      "path": "src/host/recovery.js",
+      "size": 6374,
+      "sha256": "46f78ba8895b71d6ef718ccf3b34849a0216888109c2968856602fbb94e4dea7"
+    },
+    {
+      "path": "src/host/resume.js",
+      "size": 12641,
+      "sha256": "1dd2baf1396f3c34ecbb0b1a17cccf164ef43b23be7bd6ef15ab2e53d15a75c8"
+    },
+    {
+      "path": "src/host/roster.js",
+      "size": 31110,
+      "sha256": "e8c6eeb38c28f8afc50406f4f78028010ba016e317391730e26c78ccce1e6908"
+    },
+    {
+      "path": "src/host/schedules.js",
+      "size": 7393,
+      "sha256": "634527b4669dcff363b9461ae5e0342ef5fa5369616ed7e4f61eed572d1253d4"
+    },
+    {
+      "path": "src/host/secrets.js",
+      "size": 24261,
+      "sha256": "7be41652daf70a10a1b5c75238324bacb5a8df8b422dbb936f279760120aef0d"
+    },
+    {
+      "path": "src/host/steward.js",
+      "size": 10619,
+      "sha256": "d544e54e223d1516b17096a4183e5472a33e25db24f1f06673c6c3e3efd66399"
+    },
+    {
+      "path": "src/host/store.js",
+      "size": 17332,
+      "sha256": "f576ebd479b6b5d69b38d4ef46cc5d41a66ea33b7df5023231fd095dd3d73f73"
+    },
+    {
+      "path": "src/host/task-context.js",
+      "size": 8855,
+      "sha256": "08ad99ad3429e71a83294da8961700465399523bda16a89ea82dc226f4378e9a"
+    },
+    {
+      "path": "src/host/task-groups.js",
+      "size": 5137,
+      "sha256": "be079a3dcf037fb5066c50717848e872953baa515ec00f0e5533445f91cf4440"
+    },
+    {
+      "path": "src/host/task-models.js",
+      "size": 5102,
+      "sha256": "f3f7b75764f0bf0022405de6ad564d292d8ccf29daf5d39d2f6412022fe2cd58"
+    },
+    {
+      "path": "src/host/task-notices.js",
+      "size": 7050,
+      "sha256": "33bf9cc7d7ae05fba873a510c9d93447de8f6924cbb4bae7a0afe78388eef8bd"
+    },
+    {
+      "path": "src/host/teams.js",
+      "size": 10462,
+      "sha256": "792a1be4b59043e09a88bc1cb5863c6d17b7f3fc7fe9f47efcb6753237cd7b85"
+    },
+    {
+      "path": "src/host/text.js",
+      "size": 2359,
+      "sha256": "9c809f8f3b204c4a4cf685f0ed992694c40e4b9cc8c4d842f72b2e63c96ce2fd"
+    },
+    {
+      "path": "src/host/time-context.js",
+      "size": 2198,
+      "sha256": "1290e4afdbacb01c4eb0ddfb7c6556f04c43cec3e1596a7d4904af4bc261c57e"
+    },
+    {
+      "path": "src/host/tool-inspection.js",
+      "size": 6486,
+      "sha256": "6f92cc967c9c4c86d15e26b2f9b2f7f1ba4defa90e7b78f10b2e7ee8600a7797"
+    },
+    {
+      "path": "src/host/tool-issues.js",
+      "size": 2922,
+      "sha256": "9e3bc20c8386ddc1b9bcc3eb697c0c474f911789767768c40c733f40d01b26e8"
+    },
+    {
+      "path": "src/host/tools.js",
+      "size": 48478,
+      "sha256": "dcfb7306d0b0ebd37f291cdfb4b25925745a9ca30aebe563a433b717018b0875"
+    },
+    {
+      "path": "src/host/turns.js",
+      "size": 29044,
+      "sha256": "0cda3489fcd28562395abfaa429b2c5c1b14c2f9c851c7061ff216f6a873dea1"
+    },
+    {
+      "path": "src/shared/ui-font.js",
+      "size": 217,
+      "sha256": "6dc5159fd31e041989b50f0f697459c4c3178b3dc29d4255adb075013a562c31"
+    },
+    {
+      "path": "src/host/update.js",
+      "size": 16476,
+      "sha256": "a0cb46f57c23aa5cc86dd63c24b8e7acfd31b197d56592a79ad5e7942526bc66"
+    },
+    {
+      "path": "src/host/usage.js",
+      "size": 27262,
+      "sha256": "64757fba0eb6d1432f3e3078b0e960aaba7bc942cafae2f67338243b52dc3ebd"
+    },
+    {
+      "path": "web-search.js",
+      "size": 41985,
+      "sha256": "03049adbf42d0942ffe5b412687c8f91337769a4297b49511f06db1c1b33d718"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/artifact-template.json",
+      "size": 154,
+      "sha256": "bb511345f0328b411ec2183f113f6ff01b33f1bb0755780056eb41594269294b"
+    },
+    {
+      "path": "src/shared/company-dock-portraits.json",
+      "size": 446456,
+      "sha256": "33a156dd5db94bda6e6ed81d07d6115ecaaf6d42f074d1e45af6f80aedc1321f"
+    },
+    {
+      "path": "package.json",
+      "size": 1938,
+      "sha256": "0719e4c9f8b715f6e95ec6be9ea718202ddfcce0c691ac4a14c6d2445cfc4cc4"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/references/source-manifest.json",
+      "size": 2190,
+      "sha256": "b51f6c448db1b588e566e6f0da6b1242e1c5ddd0f3269765380c707bec6b6a94"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/references/characters.md",
+      "size": 3072,
+      "sha256": "00902eee9c2a098c1b8ccaa80c51664cba07f3ad84bd4e4899fd9ee19df1f274"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/references/prompt-kit.md",
+      "size": 5587,
+      "sha256": "a966d76607e6472e73cdcf6bf53ed6aefe2556c75809a46e06ff0f9bb4318103"
+    },
+    {
+      "path": "README.md",
+      "size": 33564,
+      "sha256": "60f7e1666faf6e0f4aa3e78d8485dc27e3a4f454e4c39b2bc195e3638452ce41"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/SKILL.md",
+      "size": 7655,
+      "sha256": "86c630748f44ba6ba9b095592a21123cca7ee197dd9cf0c8a3df46c0629e103a"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/characters/01-qibit-coordinator.png",
+      "size": 886948,
+      "sha256": "1e5904971e2dcfd14dd376ab887a6905cf50f871f7607edc33d7bbda5593725d"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/characters/02-engineering.png",
+      "size": 939807,
+      "sha256": "65186555f9b7aff39fe52ce6b63d903a5eeaed3f36dcc086a6242f92c0d207f1"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/characters/03-design.png",
+      "size": 1015302,
+      "sha256": "6996dbf6926116d855fc7873fcd7c4f6a57b5fde7d15f369cfa2133041fa7507"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/characters/04-administration.png",
+      "size": 892652,
+      "sha256": "13fa9ee8e4abba6a470f3b7942690b4c1b8ffb4770194b0423e182deaf0537a6"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/characters/05-operations.png",
+      "size": 920541,
+      "sha256": "df42e9e66884a948cd0322757489c6bb0eac56dad2d1add7ecd0206681a30dcc"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/characters/06-finance.png",
+      "size": 856490,
+      "sha256": "1f18e56d40c6a355a663fb94525b2256191e7c3827ddfa69fb47783c62d6c0d7"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/characters/07-sales.png",
+      "size": 874577,
+      "sha256": "5759dc004e87dfe4b4791985189c895aa0be4be43b1953d241af5e53a33c23f5"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/preview.png",
+      "size": 1788786,
+      "sha256": "e11461c2ae8b065d34b3d4a4b62a0fff15c3e60eb1d1d533acac66bd0cd2935d"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/assets/reference.png",
+      "size": 1788786,
+      "sha256": "e11461c2ae8b065d34b3d4a4b62a0fff15c3e60eb1d1d533acac66bd0cd2935d"
+    },
+    {
+      "path": "assets/fonts/NotoSansSC-VF.ttf",
+      "size": 17772300,
+      "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+    },
+    {
+      "path": "assets/fonts/OFL.txt",
+      "size": 4480,
+      "sha256": "7accca2f29220c9ab44e4950799b821f36ebf5bbe6b5fb5342724b32228a8daf"
+    },
+    {
+      "path": "skills/artifact-template-qibit-3d-human-agents/agents/openai.yaml",
+      "size": 318,
+      "sha256": "45f64702f864e2c2ee18b780778970f943496622b3fc380c7170e920dbe93187"
+    },
+    {
+      "path": "cordis.patch.yml",
+      "size": 694,
+      "sha256": "8e37d31994f5deb35abe779b667f4e4d889ccefb3cf609878ae3df39a4f22126"
+    }
+  ]
+}

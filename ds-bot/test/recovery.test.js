@@ -93,3 +93,39 @@ test('restarting does not silently re-send diagnostics or hide failures', async 
   install(rt)
   assert.equal(rt.failuresView()[0].assistance.status, 'interrupted')
 })
+
+test('marking an old error handled removes pending state without losing its record or starting work', async () => {
+  const { rt, sent, fail } = host()
+  const error = fail()
+  await rt.recoverFailure({ id: error.id, action: 'handled' })
+  assert.deepEqual(rt.failuresView(), [])
+  assert.equal(rt.state.modelFailures[0].resolution, 'user-handled')
+  assert.ok(rt.state.modelFailures[0].handledAt)
+  assert.equal(sent.length, 0)
+  rt.recordModelFailure('b', { code: 'RATE_LIMIT' })
+  assert.equal(rt.failuresView().length, 1)
+  assert.equal(rt.failuresView()[0].count, 1)
+  assert.equal(rt.state.modelFailures.some(item => item.id === error.id && item.handledAt), true)
+})
+
+test('only a later real successful reply clears the same conversation across parts', () => {
+  const { rt, fail } = host()
+  const old = fail('b'), group = fail('gb')
+  rt.chatOf = id => id === 'b' ? 'fresh-b' : id
+  rt.selfOf = id => id === 'fresh-b' ? 'b' : id
+  rt.finishRecovery('fresh-b', { kind: 'completed' }, { handoff: true }, { answered: true })
+  rt.finishRecovery('fresh-b', { kind: 'completed' }, undefined, { answered: false })
+  rt.finishRecovery('fresh-b', { kind: 'completed' }, undefined, { answered: true, startedAt: old.at - 1 })
+  assert.equal(rt.failuresView().length, 2)
+  rt.finishRecovery('fresh-b', { kind: 'completed' }, undefined, { answered: true, startedAt: Date.now() })
+  assert.deepEqual(rt.failuresView().map(item => item.id), [group.id])
+  assert.equal(rt.state.modelFailures.find(item => item.id === old.id).resolution, 'successful-reply')
+})
+
+test('failed handled persistence keeps the error actionable', async () => {
+  const { rt, fail } = host()
+  const error = fail()
+  rt.save = async () => { throw Error('disk full') }
+  await assert.rejects(rt.recoverFailure({ id: error.id, action: 'handled' }), /disk full/)
+  assert.equal(rt.failuresView().length, 1)
+})

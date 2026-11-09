@@ -51,6 +51,7 @@ export function install(rt) {
     }),
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
+    taskInputs: rt.taskInputsView?.() ?? {},
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.
     agents: Object.values(state.agents),
     // Key names and who may use them; values never leave the host.
@@ -77,12 +78,16 @@ export function install(rt) {
   const live = () => ({
     activity: rt.activityView(),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView() },
+    pendingApprovals: rt.approvalsView(),
+    chiefPermissions: rt.chiefPermissionView?.(),
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
     taskNotices: state.taskNotices ?? [],
+    workTasks: rt.workTasksView?.() ?? [],
     modelFailures: rt.failuresView(),
+    toolIssues: state.toolIssues ?? [],
     taskProgress: Object.fromEntries(Object.values(state.rooms).filter(room => room.task).map(room => {
       const rounds = [...rt.roomProgress.values()].filter(round => round.roomId === room.id)
       return [room.id, { slots: rounds.flatMap(round => round.slots.map(({ id, status }) => ({ id, status }))),
@@ -91,7 +96,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'execution', 'tool-inspection', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'work-tasks', 'work-task-file', 'execution', 'tool-inspection', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'job-experience-view', 'browser-pages', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined || body.accent !== undefined) throw invalid('Theme and accent customization is no longer supported')
@@ -143,6 +148,19 @@ export function install(rt) {
         case 'conversation-files':
           await rt.load()
           return ok(await rt.conversationFiles(String(body.sessionId ?? ''), { force: body.force === true }))
+        case 'work-tasks':
+          await rt.load()
+          return ok(rt.workTasksView?.() ?? [])
+        case 'control-work-task':
+          await rt.load()
+          return ok(await rt.controlWorkTask(body))
+        case 'start-new-task':
+          return ok(await rt.startNewTaskConversation(body))
+        case 'resolve-task-input':
+          return ok(await rt.resolveTaskInput(body))
+        case 'work-task-file':
+          await rt.load()
+          return ok(await rt.workTaskFile(body))
         case 'execution':
           await rt.load()
           return ok(rt.executionView(body.sessionId, body.botId))
@@ -242,6 +260,16 @@ export function install(rt) {
         case 'approval-answer':
           rt.answerApproval(body.id, body.choice)
           return ok(true)
+        case 'chief-permissions':
+          await rt.load()
+          return ok(await rt.setChiefPermissionPolicy(body.enabled))
+        case 'chief-approval-review':
+          await rt.load()
+          await rt.reviewApprovalWithChief(String(body.id ?? ''))
+          return ok(true)
+        case 'revoke-task-permission':
+          await rt.revokeTaskAccess(String(body.sessionId ?? ''))
+          return ok(true)
         case 'stop-member-work':
           return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
         case 'dismiss-question':
@@ -277,6 +305,8 @@ export function install(rt) {
         case 'memory-view':
         case 'memory-ask':
         case 'memory-forget':
+        case 'job-experience-view':
+        case 'job-experience-save':
           await rt.load()
           return ok(await rt.memoryEndpoint(endpoint, body))
         case 'answer-question': {

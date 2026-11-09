@@ -101,6 +101,7 @@ export function install(rt) {
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
     state.taskNotices = (Array.isArray(state.taskNotices) ? state.taskNotices : []).filter(item => item && typeof item.id === 'string' && Number.isFinite(item.at)).slice(-100)
+    state.toolIssues = (Array.isArray(state.toolIssues) ? state.toolIssues : []).filter(item => item && typeof item.sessionId === 'string' && typeof item.tool === 'string' && ['WORKSPACE_ACCESS', 'BROWSER_SESSION'].includes(item.code)).slice(-50)
     state.conversationFiles = (Array.isArray(state.conversationFiles) ? state.conversationFiles : []).filter(item => item && typeof item.id === 'string' && typeof item.targetId === 'string' && typeof item.path === 'string' && item.path.length < 4096 && Number.isFinite(item.at)).slice(-500)
     state.prefs ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
@@ -171,6 +172,8 @@ export function install(rt) {
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
     for (const room of stale) room.name = rt.autoRoomName(room.members)
     indexSessions()
+    if (rt.initializeWorkTasks?.()) migrated = true
+    if (rt.initializeTaskInputs?.()) migrated = true
     return { migrated: migrated || stale.length > 0, stale }
   }
 

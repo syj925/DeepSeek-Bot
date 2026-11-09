@@ -84,6 +84,13 @@ const tool = (name, input) => ({
     : input,
 })
 const think = value => ({ type: 'thinking', thinking: value })
+function workTaskScenario(command, tools) {
+  command = command.replace(/^继续当前任务[：:，,]\s*/u, '')
+  if (process.env.MOCK_WORK_TASKS !== '1' || !command.startsWith('smoke:work-task ')) return undefined
+  const { name, input } = JSON.parse(command.slice('smoke:work-task '.length))
+  const allowed = new Set(['register_task', 'update_task_progress', 'read_task_record', 'complete_task', 'create_group', 'remember', 'recall', 'read_task_history'])
+  return allowed.has(name) && tools.has(name) ? [tool(name, input)] : [text(`Work-task smoke tool unavailable: ${name}`)]
+}
 const ESCALATION = '提权测试：用户在群里要求'
 const HANDED_WORK = '群里派的活'
 const WRITTEN_CALL = '我先看一下目录。\n<tool_call>\n<function=pwsh>\n<parameter=command>\nGet-ChildItem\n</parameter>\n</function>\n</tool_call>'
@@ -258,6 +265,10 @@ function decide(body) {
 
   // Workspace guidance appended by the harness is context, not a scripted command.
   const userText = textOf(last?.content).split('\n<system-reminder>')[0].trim()
+  const workTask = workTaskScenario(userText, tools)
+  if (workTask) return workTask
+  if (userText.startsWith('smoke:authorize-prospecting ') && tools.has('authorize_prospecting_task')) return [tool('authorize_prospecting_task', JSON.parse(userText.slice('smoke:authorize-prospecting '.length)))]
+  if (userText.startsWith('smoke:prospecting-write ') && tools.has('write')) return [tool('write', { file_path: userText.slice('smoke:prospecting-write '.length), content: 'company,source\nMOCK COMPANY,https://example.com\n' })]
   if (userText.startsWith('smoke:present-files ') && tools.has('present')) return [tool('present', { files: JSON.parse(userText.slice('smoke:present-files '.length)) })]
   const modelChange = /^smoke:set-model(-unrequested)?\s+(\S+)\s+(\S+)\s*$/.exec(userText)
   if (modelChange) return [tool('update_bot', {
@@ -341,7 +352,12 @@ function decide(body) {
     const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/m.exec(userText)?.[1]?.replace(/ \(admin\)$/, '')
     const room = /^\[Group chat "([^"]+)"/.exec(userText)?.[1] ?? ''
     const leads = /^Members: .* and you \(admin\)\./m.test(userText)
+    if (leads) {
+      const workTask = workTaskScenario(userLine.replace(/^User:\s*/, ''), tools)
+      if (workTask) return workTask
+    }
     if (/smoke:member-question/.test(userLine)) return [tool('ask_user', { question: `${me}：本次交付选择哪个范围？`, options: [{ label: '范围 A' }, { label: '范围 B' }], allowCustom: true })]
+    if (userLine.includes('smoke:prospecting-write ') && tools.has('write')) return [tool('write', { file_path: userLine.split('smoke:prospecting-write ')[1].trim(), content: 'company,source\nMOCK COMPANY,https://example.com\n' })]
     if (/\[Answer to question card\]/.test(userLine)) return [{ ...text(`${me} 已直接收到群内回答，继续处理自己的交付。`), slow: true }]
     if (leads && /smoke:finish-group/.test(userLine)) return [tool('complete_task', { title: room, summary: 'Mock group deliverable verified.' })]
     let ask

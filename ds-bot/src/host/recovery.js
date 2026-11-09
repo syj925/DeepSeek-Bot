@@ -18,29 +18,35 @@ export function install(rt) {
     const owner = rt.groupOwners.get(sessionId)
     const botId = owner?.botId ?? rt.selfOf(sessionId)
     if (!rt.botOf(botId)) return
-    const previous = records().find(item => item.sessionId === sessionId)
+    const previous = records().find(item => item.sessionId === sessionId && !item.handledAt)
     const item = { id: randomUUID(), sessionId, botId, ...(owner ? { roomId: owner.roomId } : {}),
       code: /^[A-Z_]{1,50}$/.test(failure.code) ? failure.code : 'UNKNOWN',
       ...(Number.isInteger(failure.status) ? { status: failure.status } : {}),
       at: Date.now(), count: (previous?.count ?? 0) + 1 }
-    state.modelFailures = [...records().filter(value => value.sessionId !== sessionId), item].slice(-LIMIT)
+    state.modelFailures = [...records().filter(value => value.sessionId !== sessionId || value.handledAt), item].slice(-LIMIT)
     persist()
   }
-  rt.finishRecovery = (sessionId, reason, info) => {
+  rt.finishRecovery = (sessionId, reason, info, outcome = {}) => {
     const job = pending.get(sessionId)
     if (job && (!info?.exchangeId || info.exchangeId === job.exchangeId)) pending.delete(sessionId)
     let changed = false
-    state.modelFailures = records().filter(item => {
-      if (item.sessionId === sessionId && reason?.kind === 'completed') { changed = true; return false }
+    const owner = rt.groupOwners.get(sessionId)
+    const botId = owner?.botId ?? rt.selfOf(sessionId)
+    const recovered = reason?.kind === 'completed' && outcome.answered !== false && !info?.handoff
+    state.modelFailures = records().map(item => {
+      const sameConversation = item.botId === botId && (item.roomId ? owner?.roomId === item.roomId : !owner && rt.chatOf(botId) === sessionId)
+      if (!item.handledAt && item.source !== 'execution' && sameConversation && recovered && (outcome.startedAt === undefined || item.at <= outcome.startedAt)) {
+        item.handledAt = Date.now(); item.resolution = 'successful-reply'; changed = true
+      }
       if (item.assistance?.sessionId === sessionId && item.assistance.exchangeId === info?.exchangeId) {
         item.assistance.status = reason?.kind === 'completed' ? 'replied' : 'failed'
         changed = true
       }
-      return true
+      return item
     })
     if (changed) persist()
   }
-  rt.failuresView = () => records().map(item => ({ ...item,
+  rt.failuresView = () => records().filter(item => !item.handledAt).map(item => ({ ...item,
     retrying: pending.get(item.sessionId)?.action === 'retry',
     busy: busy(item.sessionId), chief: rt.isGeneralAssistant(item.botId),
     ...(item.assistance ? { assistance: { ...item.assistance,
@@ -53,7 +59,14 @@ export function install(rt) {
     await rt.load()
     const failure = records().find(item => item.id === id)
     if (!failure) throw invalid('This error is no longer current. Check the latest conversation.')
-    if (!['retry', 'diagnose'].includes(action)) throw invalid('Unknown recovery action.')
+    if (!['retry', 'diagnose', 'handled'].includes(action)) throw invalid('Unknown recovery action.')
+    if (action === 'handled') {
+      const before = { handledAt: failure.handledAt, resolution: failure.resolution }
+      failure.handledAt = Date.now(); failure.resolution = 'user-handled'
+      try { await rt.save() } catch (error) { Object.assign(failure, before); throw error }
+      return { botId: failure.botId, action }
+    }
+    if (failure.handledAt) throw invalid('This error is no longer current. Check the latest conversation.')
     const chief = action === 'diagnose' ? rt.botOf(state.generalAssistantId) : undefined
     if (action === 'diagnose' && (!chief || chief.id === failure.botId)) throw invalid('The General Assistant is unavailable. Check the model settings.')
     if (action === 'diagnose' && failure.assistance) return { botId: failure.assistance.botId, action: 'diagnose' }
