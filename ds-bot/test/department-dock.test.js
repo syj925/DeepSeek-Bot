@@ -236,6 +236,35 @@ test('temporary collection preserves real membership and lets each member open a
   app.render.unmount()
 })
 
+test('member ellipsis opens actions for that employee without opening chat or changing hidden preferences', () => {
+  const app = fixture(), calls = []
+  const roster = app.props.roster
+  roster.bots[0].hidden = true
+  const before = JSON.stringify(roster)
+  const groups = app.render.groupDockEntities(roster.bots, roster)
+  const group = groups.find(entry => entry.key === 'ops')
+  const actions = { ...app.props.actions, openMenu: menu => calls.push(['menu', menu]),
+    updateCanvas: update => calls.push(['canvas', update]), saveCanvas: () => calls.push(['save']) }
+  const tree = app.render.DockCollaborationPopover({ entity: group.leadEntity, department: group.dept,
+    pos: { x: 300, bottom: 100 }, roster, actions, onClose: () => calls.push(['close']) })
+  const more = find(tree, value => hasClass(value, 'bt-collab-more-btn'))
+  assert.equal(more.props['aria-haspopup'], 'menu')
+  more.props.onClick({ stopPropagation() {}, currentTarget: { getBoundingClientRect: () => ({ left: 220, bottom: 350 }) } })
+  assert.equal(calls.length, 1)
+  const menu = calls[0][1]
+  assert.equal(menu.kind, 'dock-member')
+  assert.equal(menu.id, 'real-ops')
+  assert.equal(menu.x, 220)
+  assert.equal(menu.y, 354)
+  assert.equal(app.opened.length, 0)
+  menu.place()
+  assert.deepEqual(calls.slice(1).map(call => call[0]), ['close', 'canvas', 'save'])
+  const current = { windows: [{ id: 'icon', entityId: 'real-ops', open: false }] }
+  assert.equal(calls[2][1](current).windows[0].open, true)
+  assert.equal(JSON.stringify(roster), before)
+  app.render.unmount()
+})
+
 test('hover preserves each original keyed icon while preview and selected department stay independent', () => {
   const app = fixture()
   const original = ['ops', 'design'].map(key => ({
@@ -468,6 +497,56 @@ test('Dock shows departments only without changing independent employees or grou
   assert.equal(roomMembers[0].avatar.image, product.leadEntity.avatar.image, 'group and General Assistant members use the same actual-team skin')
   assert.equal(roomMembers[1].id, independent.id)
   assert.deepEqual(Array.from(app.render.groupDockEntities([], app.props.roster)), [])
+  app.render.unmount()
+})
+
+test('hiding conversations preserves department tabs, executive contacts and member chat/drag actions', () => {
+  const app = fixture(), roster = app.props.roster
+  const chief = { id: 'chief', name: 'Chief', generalAssistant: true }
+  const worker = { id: 'ops-worker', name: 'Writer', teamId: 'ops' }
+  roster.bots.push(chief, worker)
+  roster.byId[chief.id] = chief; roster.byId[worker.id] = worker
+  roster.teams[0].members.push(worker.id)
+  for (const bot of roster.bots) bot.hidden = true
+  const before = JSON.stringify(roster)
+  app.props.roster = { ...roster }
+  app.draw()
+  assert.ok(app.item('ops'), 'a department with all conversations hidden still has a tab')
+  assert.ok(app.item('design'))
+  assert.ok(app.item('bot:chief'))
+  const management = app.render.getDepartmentForEntity(chief, roster)
+  assert.deepEqual(Array.from(management.agents, bot => bot.id), ['chief', 'real-ops', 'real-designer'])
+
+  app.enter('ops'); app.render.advance(120); app.draw()
+  const tree = app.render.DockCollaborationPopover(app.popover().props)
+  const cards = findAll(tree, node => hasClass(node, 'bt-collab-card'))
+  assert.equal(cards.length, 2, 'hidden members remain in the department popover')
+  const payload = []
+  cards[1].props.onDragStart({ dataTransfer: { setData: (...args) => payload.push(args) } })
+  assert.equal(JSON.parse(payload[0][1]).id, worker.id)
+  find(cards[1], node => hasClass(node, 'bt-collab-chat-btn')).props.onClick({ stopPropagation() {} })
+  assert.equal(app.opened[0][0], worker.id)
+  app.item('ops').props.onPointerDown(app.pointer('ops'))
+  assert.equal(app.starts[0][1].id, 'real-ops')
+  assert.equal(JSON.stringify(roster), before, 'Dock actions must not clear conversation-hidden flags or change membership')
+  app.render.unmount()
+})
+
+test('hidden temporary contacts remain available while retired and removed employees stay absent', () => {
+  const app = fixture(), roster = app.props.roster
+  const coordinator = { id: 'temp-lead', name: 'Coordinator', hidden: true, employment: 'long-term' }
+  const temporary = { id: 'temp-active', name: 'Analyst', hidden: true, employment: 'temporary' }
+  const retired = { id: 'temp-retired', name: 'Retired', hidden: true, employment: 'temporary', retiredAt: 123 }
+  for (const bot of [coordinator, temporary, retired]) { roster.bots.push(bot); roster.byId[bot.id] = bot }
+  roster.teams.push({ id: 'temporary', name: '临时员工部', leaderId: coordinator.id, members: [coordinator.id, temporary.id, retired.id, 'removed'] })
+  const before = JSON.stringify(roster)
+  const groups = app.render.groupDockEntities(roster.bots, roster)
+  const group = groups.find(item => item.key === 'dock:temporary')
+  assert.equal(group.leadEntity.id, coordinator.id)
+  assert.deepEqual(Array.from(group.dept.agents, bot => bot.id), [coordinator.id, temporary.id])
+  const contacts = app.render.getCollaboratorBots({ agents: [...group.dept.agents, retired, { id: 'removed' }] }, roster)
+  assert.deepEqual(Array.from(contacts, bot => bot.id), [coordinator.id, temporary.id])
+  assert.equal(JSON.stringify(roster), before)
   app.render.unmount()
 })
 

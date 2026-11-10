@@ -7,6 +7,7 @@ import { MENTION_ORIGIN, currentPart } from './text.js'
 import { recoveryNotice } from './recovery-state.js'
 import { savedWorkTaskFile, saveTaskSnapshotDownload } from './work-tasks.js'
 import { installUiTypography } from './ui-typography.js'
+import { createEmployeeConversationRestore } from './conversation-visibility.js'
 import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, ConnectPlugins, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
@@ -433,6 +434,7 @@ export function apply(ctx) {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       if (canvasPreferred && (roster.getSnapshot().byId[id] || roster.getSnapshot().roomsById[id])) return actions.openCanvasEntity(id)
+      void actions.restoreEmployeeConversation(id)
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
       setPlain(false)
       const target = partFor(id)
@@ -759,6 +761,10 @@ export function apply(ctx) {
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
   }
   actions.updateCanvas = updateCanvas
+  actions.restoreEmployeeConversation = createEmployeeConversationRestore({
+    roster, setFlags: (id, flags) => actions.setFlags(id, flags),
+    onError: error => actions.reportError(error, 'conversation-visibility'),
+  })
   let openingAssistant
   actions.openGeneralAssistant = () => {
     if (!openingAssistant) openingAssistant = (async () => {
@@ -824,7 +830,9 @@ export function apply(ctx) {
   }
   actions.openCanvasConversation = id => {
     const current = canvas.getSnapshot()
-    if (!current.windows.some(window => window.id === id && window.open)) return
+    const window = current.windows.find(window => window.id === id && window.open)
+    if (!window) return
+    if (window.kind === 'bot') void actions.restoreEmployeeConversation(window.entityId)
     canvasFiles.blur()
     const next = setWindowCompact(setCanvasSelection(current, [id], id), id, false)
     updateCanvas(next)

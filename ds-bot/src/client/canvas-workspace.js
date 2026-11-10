@@ -1,7 +1,7 @@
 import { QiBitCommandCenter } from './qibit-command-center.js'
 import { DesktopWidget } from './desktop-widgets.js'
 import { desktopGrid, snapDesktopWindows } from './canvas-grid.js'
-import { dragGeometry } from './canvas-drag.js'
+import { dragGeometry, paintCanvasDrag } from './canvas-drag.js'
 import { RESTORED_CHAT_CSS } from './restored-chat-styles.js'
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -446,14 +446,14 @@ export function getDepartmentForEntity(entity, roster) {
     const leaders = new Set((roster.teams ?? []).map(team => team.leaderId))
     return { key: `bot:${entity.id}`, name: t('Executive office'), title: t('Executive office'), dockSkinKey: 'management',
       desc: t('Chief and department heads coordinate goals, resources and cross-department work.'),
-      agents: [entity, ...(roster.bots ?? []).filter(bot => bot.id !== entity.id && !bot.hidden && !bot.retiredAt && leaders.has(bot.id))]
+      agents: [entity, ...(roster.bots ?? []).filter(bot => bot.id !== entity.id && !bot.retiredAt && leaders.has(bot.id))]
         .map(bot => ({ ...bot, isLead: true })) }
   }
   return departmentDisplay(departmentFor(entity, roster))
 }
 
 export function getCollaboratorBots(department, roster, customTempBots = []) {
-  const available = new Map((roster.bots ?? []).filter(bot => !bot.hidden).map(bot => [bot.id, bot]))
+  const available = new Map((roster.bots ?? []).filter(bot => !bot.retiredAt).map(bot => [bot.id, bot]))
   const displayed = agent => agent.dockPortraitAssetId ? agent
     : getDepartmentForEntity(available.get(agent.id), roster)?.agents.find(bot => bot.id === agent.id) ?? independentDockDisplay(available.get(agent.id))
   const agents = [...new Map([...(department?.agents ?? []), ...customTempBots]
@@ -467,13 +467,14 @@ export function getCollaboratorBots(department, roster, customTempBots = []) {
 }
 
 export function groupDockEntities(entities, roster) {
+  // `hidden` only controls the conversation list, not department contacts.
   const seen = new Set(), groups = []
   const available = new Set((roster.bots ?? []).map(bot => bot.id))
-  const temporary = entities.filter(entity => available.has(entity.id) && !entity.hidden && !entity.retiredAt && !entity.generalAssistant && entity.employment === 'temporary')
+  const temporary = entities.filter(entity => available.has(entity.id) && !entity.retiredAt && !entity.generalAssistant && entity.employment === 'temporary')
   let temporaryDepartment = null
   for (const entity of entities) {
     const isRoom = Boolean(roster.roomsById?.[entity.id])
-    if (entity.hidden || entity.retiredAt || isRoom || !available.has(entity.id) || temporary.includes(entity)) continue
+    if (entity.retiredAt || isRoom || !available.has(entity.id) || temporary.includes(entity)) continue
     const dept = getDepartmentForEntity(entity, roster)
     if (dept?.dockSkinKey === 'temporary') { temporaryDepartment = dept; continue }
     if (!dept && !entity.generalAssistant) continue
@@ -578,7 +579,13 @@ export function DockCollaborationPopover({ entity, department: initialDept, pos,
               h('div', { className: 'bt-collab-card-role' }, agent.role || t('Employee')))),
           h('div', { className: 'bt-collab-card-actions' },
             h('button', { type: 'button', className: 'bt-collab-mini-btn bt-collab-chat-btn', onClick: event => { event.stopPropagation(); openChat(agent) }, title: t('Open chat') }, h(ChatsIcon), t('Chat')),
-            h('button', { type: 'button', className: 'bt-collab-mini-btn bt-collab-more-btn', onClick: event => { event.stopPropagation(); place(agent) }, title: t('Place on canvas') }, '…')))
+            h('button', { type: 'button', className: 'bt-collab-mini-btn bt-collab-more-btn', title: t('More'), 'aria-label': t('{name} actions', { name: agent.name }), 'aria-haspopup': 'menu',
+              onClick: event => {
+                event.stopPropagation()
+                const box = event.currentTarget.getBoundingClientRect()
+                actions.openMenu({ kind: 'dock-member', id: agent.id, x: box.left, y: box.bottom + 4,
+                  place: () => place(agent), onDeleted: onClose, onMouseEnter, onMouseLeave })
+              } }, '…')))
       })) : h('div', { className: 'bt-dock-subagents-empty' }, t('No sub-agents in team yet'))),
     h('div', { className: 'bt-dock-task-preview', 'aria-label': t('Department introduction') },
       department?.desc || t('No department introduction yet. Ask Chief to add its responsibilities.')),
@@ -598,7 +605,7 @@ const safeSetTimeout = (fn, ms) => {
 export function CanvasDepartmentDock({ roster, work, useSessions, actions, size, canvasRoot, activeDeptKey, onStartDrag, drag, dismissed = false }) {
   const [dockHover, setDockHover] = useState(null)
   const [previewReady, setPreviewReady] = useState(false)
-  const groups = useMemo(() => groupDockEntities([...roster.bots, ...roster.rooms].filter(entity => !entity.hidden), roster), [roster])
+  const groups = useMemo(() => groupDockEntities(roster.bots, roster), [roster])
   const [selectedDeptKey, setSelectedDeptKey] = useState(activeDeptKey ?? groups[0]?.key)
   const hoverRegionRef = useRef(null)
   const dockScrollRef = useRef(null)
@@ -946,6 +953,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
   latest.current = state
   const root = useRef(null)
   const drag = useRef(null)
+  useLayoutEffect(() => { paintCanvasDrag(drag.current, root.current) }, [state])
   const dragFrame = useRef(null)
   const pendingMove = useRef(null)
   const releaseFrame = useRef(null)
@@ -1144,12 +1152,13 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
           win.y = y
           actions.markCanvasWindowMoved?.(win.id)
         }
-        update(nextState, false)
         if (win) {
           const target = groupTargetAt(nextState, [win.id], event.clientX, event.clientY)
           setDropTarget(target?.windowId ?? target?.id ?? null)
           drag.current = { kind: 'avatar', id: win.id, ids: [win.id], startX: event.clientX, startY: event.clientY, state: nextState, latest: nextState, originState: current.originState, target, box: current.box, gridLayout: current.gridLayout, dockBounds: current.dockBounds, moved: true }
         }
+        update(nextState, false)
+        paintCanvasDrag(drag.current, root.current)
       }
       return
     }
@@ -1165,12 +1174,7 @@ export function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessi
       const preview = edge ? null : snap(next, current.ids, current.gridLayout)
       setGridPreview(previous => JSON.stringify(previous?.placements) === JSON.stringify(preview?.placements) ? previous : preview)
       // Move only selected desktop nodes. Commit the observable layout on release.
-      if (!current.nodes) current.nodes = [...(root.current.querySelectorAll?.('.bt-canvas-world > [data-window-id]') ?? [])].filter(node => current.ids.includes(node.dataset.windowId))
-      for (const node of current.kind === 'group' ? [] : current.nodes) {
-        const from = current.state.windows.find(window => window.id === node.dataset.windowId)
-        const to = next.windows.find(window => window.id === node.dataset.windowId)
-        if (from && to) { node.style.transition = 'none'; node.style.transform = `translate3d(${to.x - from.x}px,${to.y - from.y}px,0)`; node.style.willChange = 'transform' }
-      }
+      paintCanvasDrag(current, root.current)
       // A selected group frame also needs its geometry updated.
       if (current.kind === 'group') update(next, false)
       if (root.current.dataset) root.current.dataset.dragging = 'true'

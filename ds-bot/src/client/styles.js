@@ -590,6 +590,15 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-menu[data-leaving]{pointer-events:none;animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards}
 .bt-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-menu-hint{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
+.bt-dock-member-menu{z-index:10020;max-width:min(280px,calc(100vw - 16px));color:var(--bt-ink)}
+.bt-dock-member-menu[data-confirming]{width:280px;padding:12px}
+.bt-dock-member-menu button:disabled{opacity:.45;cursor:default;background:none}
+.bt-dock-member-confirm-title{font-size:14px;font-weight:600;line-height:21px;overflow-wrap:anywhere}
+.bt-dock-member-note{margin:4px 8px 6px;font-size:12px;line-height:19px;color:var(--bt-ink-2)}
+.bt-dock-member-menu[data-confirming] .bt-dock-member-note{margin:6px 0 12px}
+.bt-dock-member-confirm-actions{display:flex;justify-content:flex-end;gap:6px}
+.bt-dock-member-confirm-actions button{width:auto;justify-content:center;padding:6px 12px;background:var(--bt-hover)}
+.bt-dock-member-confirm-actions .bt-danger{background:rgba(194,29,46,.08)}
 .bt-palette-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:70;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 .bt-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.46);animation:bt-fade .22s ease-out}
 .bt-palette{position:absolute;top:50%;left:50%;width:min(560px,92vw);transform:translate(-50%,-50%);display:flex;flex-direction:column;border-radius:12px;background:var(--bt-main);border:1px solid var(--bt-line-2);box-shadow:0 24px 48px -12px rgba(0,0,0,.25);overflow:hidden;color:var(--bt-ink);animation:bt-palette-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}

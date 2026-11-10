@@ -1167,6 +1167,38 @@ test('an employee can join an open sidebar group without a canvas room card or p
 })
 
 
+test('new Dock icons commit their preview or cancel without leaving drag overlays or opening a conversation', () => {
+  for (const end of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    const app = fixture()
+    app.addBot({ id: 'designer', name: 'Designer' }, false)
+    app.roster.teams = [{ id: 'design', name: '设计部', members: ['designer'], leaderId: 'designer' }]
+    app.state = { ...app.state, windows: app.state.windows.filter(win => win.entityId !== 'designer') }
+    const before = JSON.stringify(app.state.windows)
+    let tree = app.draw()
+    const dock = find(app.departmentDock(tree), node => node.type?.name === 'DockItem' && node.props['data-dept-key'] === 'design')
+    dock.props.onPointerDown(pointer({ clientX: 650, clientY: 650 }))
+    tree.props.onPointerMove(pointer({ clientX: 650, clientY: 630 }))
+    tree = app.draw()
+    tree.props.onPointerMove(pointer({ clientX: 250, clientY: 400 }))
+    tree = app.draw()
+    const cell = find(tree, node => node.props.className === 'bt-canvas-snap-cell')
+    assert.ok(cell)
+    const grid = find(tree, node => node.props.className === 'bt-canvas-snap-grid')
+    const expected = [cell.props.style.left + grid.props.style.left, cell.props.style.top + grid.props.style.top]
+    const event = pointer({ type: end, clientX: 250, clientY: 400 })
+    tree.props[end === 'pointerup' ? 'onPointerUp' : end === 'pointercancel' ? 'onPointerCancel' : 'onLostPointerCapture'](event)
+    tree = app.draw()
+    assert.equal(find(tree, node => node.props.className === 'bt-canvas-snap-grid'), undefined)
+    assert.equal(find(tree, node => node.props.className === 'bt-canvas-trash-edge'), undefined)
+    assert.equal(app.captures.size, 0)
+    assert.deepEqual(app.calls.opened, [])
+    if (end === 'pointerup') {
+      const icon = app.state.windows.find(win => win.entityId === 'designer')
+      assert.deepEqual([icon.x, icon.y], expected)
+    } else assert.equal(JSON.stringify(app.state.windows), before)
+  }
+})
+
 test('a Dock employee can join a room after one move event while preserving the original desktop geometry', async () => {
   for (const surface of ['card', 'sidebar']) {
     const app = fixture()

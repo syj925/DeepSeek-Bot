@@ -1269,9 +1269,9 @@ export const canvasStyles = `
   gap: 4px;
   width: max-content;
   max-width: min(860px, calc(100% - 240px));
-  height: 72px;
-  min-height: 72px;
-  max-height: 72px;
+  height: 80px;
+  min-height: 80px;
+  max-height: 80px;
   overflow: visible;
   padding: 6px 12px;
   transform: translateX(-50%);
@@ -1396,11 +1396,13 @@ export const canvasStyles = `
   display: none !important;
 }
 .bt-dock-dept-name {
+  flex: none;
+  min-height: 16px;
   font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary, #64748b);
   white-space: nowrap;
-  line-height: 14px;
+  line-height: 16px;
   transition: color 0.15s ease;
 }
 .bt-dock-dept-tab:hover .bt-dock-dept-name {
@@ -1418,7 +1420,7 @@ export const canvasStyles = `
   gap: 2px;
   width: var(--dock-item-width, 58px);
   min-width: 48px;
-  padding: 4px 2px 2px;
+  padding: 4px 2px 4px;
   border-radius: 16px;
   font-size: 11px;
   font-weight: 500;

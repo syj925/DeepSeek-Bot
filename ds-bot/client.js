@@ -817,6 +817,12 @@ var ZH = {
   "Delete Bot": "删除 Bot",
   "Click again to delete. Its chats are archived.": "再点一次删除，它的对话会归档。",
   "Removes the Bot from the team.": "把这个 Bot 从团队里移除。",
+  "Delete employee": "删除员工",
+  "Deleting…": "正在删除…",
+  "Stops this employee’s tasks and removes them from departments and groups. Chats are archived.": "将停止该员工的任务，并移出部门和群聊。聊天记录保留归档。",
+  "The General Assistant cannot be deleted here.": "总助理不能在此删除。",
+  "Remove the Main Bot role before deleting this employee.": "请先解除该员工的管理员权限。",
+  "Hand over department leadership before deleting this employee.": "请先移交部门负责人，再删除该员工。",
   "Pick a model and {name} can start.": "选好模型，{name} 就能开始工作。",
   "Permissions": "权限",
   "Read only": "仅可查看",
@@ -2666,6 +2672,19 @@ function installUiTypography(installStyles2, doc = document) {
   };
 }
 
+// src/client/conversation-visibility.js
+function createEmployeeConversationRestore({ roster, setFlags, onError }) {
+  const pending = /* @__PURE__ */ new Map();
+  return (id) => {
+    const bot = roster.getSnapshot().byId[id];
+    if (!bot?.hidden || bot.retiredAt) return Promise.resolve();
+    if (pending.has(bot.id)) return pending.get(bot.id);
+    const request = Promise.resolve().then(() => setFlags(bot.id, { hidden: false })).catch((error) => onError(error)).finally(() => pending.delete(bot.id));
+    pending.set(bot.id, request);
+    return request;
+  };
+}
+
 // src/client/motion.js
 var import_react2 = require("react");
 var reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -3589,6 +3608,15 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-menu[data-leaving]{pointer-events:none;animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards}
 .bt-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-menu-hint{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
+.bt-dock-member-menu{z-index:10020;max-width:min(280px,calc(100vw - 16px));color:var(--bt-ink)}
+.bt-dock-member-menu[data-confirming]{width:280px;padding:12px}
+.bt-dock-member-menu button:disabled{opacity:.45;cursor:default;background:none}
+.bt-dock-member-confirm-title{font-size:14px;font-weight:600;line-height:21px;overflow-wrap:anywhere}
+.bt-dock-member-note{margin:4px 8px 6px;font-size:12px;line-height:19px;color:var(--bt-ink-2)}
+.bt-dock-member-menu[data-confirming] .bt-dock-member-note{margin:6px 0 12px}
+.bt-dock-member-confirm-actions{display:flex;justify-content:flex-end;gap:6px}
+.bt-dock-member-confirm-actions button{width:auto;justify-content:center;padding:6px 12px;background:var(--bt-hover)}
+.bt-dock-member-confirm-actions .bt-danger{background:rgba(194,29,46,.08)}
 .bt-palette-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:70;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 .bt-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.46);animation:bt-fade .22s ease-out}
 .bt-palette{position:absolute;top:50%;left:50%;width:min(560px,92vw);transform:translate(-50%,-50%);display:flex;flex-direction:column;border-radius:12px;background:var(--bt-main);border:1px solid var(--bt-line-2);box-shadow:0 24px 48px -12px rgba(0,0,0,.25);overflow:hidden;color:var(--bt-ink);animation:bt-palette-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
@@ -10350,7 +10378,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const away = !running && groups.length > 0;
   const state = botState(running || away, doing, alert);
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0].tool, groups.length - 1) : null;
-  if (bot.hidden && !active && !main) return null;
+  if (bot.hidden && !main) return null;
   const onContextMenu = (event) => {
     event.preventDefault();
     actions.openMenu({ kind: "bot", id, x: event.clientX, y: event.clientY });
@@ -10700,6 +10728,7 @@ function TeamSidebar(props) {
     }, 240);
   };
   const onSelectTeamChat = (id) => {
+    void actions.restoreEmployeeConversation?.(id);
     clearTimeout(chatCloseTimer.current);
     floating.expand();
     setChatClosing(false);
@@ -19390,6 +19419,74 @@ function CanvasContextMenu({ menu, actions, leaving }) {
     ) : null
   );
 }
+function DockMemberMenu({ menu, roster, actions, leaving }) {
+  const ref = (0, import_react60.useRef)(null);
+  const deleting = (0, import_react60.useRef)(false);
+  const [confirming, setConfirming] = (0, import_react60.useState)(false);
+  const [pending, setPending] = (0, import_react60.useState)(false);
+  const [place, setPlace] = (0, import_react60.useState)({ left: menu.x, top: menu.y });
+  const bot = roster.byId[menu.id];
+  const protectedReason = bot?.generalAssistant ? t("The General Assistant cannot be deleted here.") : isMainOf(roster, bot?.id) ? t("Remove the Main Bot role before deleting this employee.") : (roster.teams ?? []).some((team) => team.leaderId === bot?.id) ? t("Hand over department leadership before deleting this employee.") : null;
+  (0, import_react60.useLayoutEffect)(() => {
+    const node = ref.current;
+    if (!node) return;
+    setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - node.offsetWidth - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - node.offsetHeight - 8)) });
+    node.querySelector("button:not(:disabled)")?.focus();
+  }, [menu.x, menu.y, confirming, protectedReason]);
+  if (!bot) return null;
+  const remove = async () => {
+    if (!confirming || protectedReason || deleting.current || leaving) return;
+    deleting.current = true;
+    setPending(true);
+    try {
+      await actions.deleteBot(bot.id);
+      actions.closeMenu();
+      menu.onDeleted?.();
+    } catch (error) {
+      actions.reportError(error, "delete-employee");
+    } finally {
+      deleting.current = false;
+      setPending(false);
+    }
+  };
+  const confirm = confirming && !protectedReason;
+  return (0, import_react60.createElement)(
+    "div",
+    {
+      ref,
+      className: "bt-menu bt-dock-member-menu",
+      role: confirm ? "alertdialog" : "menu",
+      style: place,
+      "aria-label": confirm ? t("Delete {name}?", { name: bot.name }) : t("{name} actions", { name: bot.name }),
+      "data-confirming": confirm || void 0,
+      "data-leaving": leaving || void 0,
+      onMouseEnter: menu.onMouseEnter,
+      onMouseLeave: menu.onMouseLeave
+    },
+    confirm ? (0, import_react60.createElement)(
+      import_react60.Fragment,
+      null,
+      (0, import_react60.createElement)("div", { className: "bt-dock-member-confirm-title" }, t("Delete {name}?", { name: bot.name })),
+      (0, import_react60.createElement)("p", { className: "bt-dock-member-note" }, t("Stops this employee’s tasks and removes them from departments and groups. Chats are archived.")),
+      (0, import_react60.createElement)(
+        "div",
+        { className: "bt-dock-member-confirm-actions" },
+        (0, import_react60.createElement)("button", { type: "button", disabled: pending, onClick: () => setConfirming(false) }, t("Cancel")),
+        (0, import_react60.createElement)("button", { type: "button", className: "bt-danger", disabled: pending, onClick: remove }, t(pending ? "Deleting…" : "Delete employee"))
+      )
+    ) : (0, import_react60.createElement)(
+      import_react60.Fragment,
+      null,
+      (0, import_react60.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
+        actions.closeMenu();
+        menu.place?.();
+      } }, (0, import_react60.createElement)(PlusIcon), t("Place on canvas")),
+      (0, import_react60.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+      (0, import_react60.createElement)("button", { type: "button", role: "menuitem", className: "bt-danger", disabled: Boolean(protectedReason), title: protectedReason ?? void 0, onClick: () => setConfirming(true) }, (0, import_react60.createElement)(TrashIcon), t("Delete employee")),
+      protectedReason ? (0, import_react60.createElement)("p", { className: "bt-dock-member-note" }, protectedReason) : null
+    )
+  );
+}
 function ContextMenu({ menu, roster, actions, leaving = false }) {
   useEscape(() => actions.closeMenu());
   (0, import_react60.useEffect)(() => {
@@ -19407,6 +19504,7 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8)) });
   }, [menu.x, menu.y]);
   if (menu.kind === "canvas") return (0, import_react60.createElement)(CanvasContextMenu, { menu, roster, actions, leaving });
+  if (menu.kind === "dock-member") return (0, import_react60.createElement)(DockMemberMenu, { menu, roster, actions, leaving });
   if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react60.createElement)(AgentMenu, { menu, roster, actions, leaving });
   if (menu.kind === "widget") return (0, import_react60.createElement)(
     "div",
@@ -21587,6 +21685,21 @@ function snapDesktopWindows(state, ids, size, obstacles = []) {
 }
 
 // src/client/canvas-drag.js
+function paintCanvasDrag(current, root) {
+  if (!root || !current?.latest || !["avatar", "window"].includes(current.kind)) return;
+  if (!current.nodes?.length || current.nodes.length !== current.ids.length || current.nodes.some((node) => node.isConnected === false)) {
+    current.nodes = [...root.querySelectorAll?.(".bt-canvas-world > [data-window-id]") ?? []].filter((node) => current.ids.includes(node.dataset.windowId));
+  }
+  for (const node of current.nodes) {
+    const to = current.latest.windows.find((window2) => window2.id === node.dataset.windowId);
+    const x = parseFloat(node.style.left), y = parseFloat(node.style.top);
+    if (!to || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    node.style.transition = "none";
+    node.style.transform = `translate3d(${to.x - x}px,${to.y - y}px,0)`;
+    node.style.willChange = "transform";
+  }
+  if (root.dataset) root.dataset.dragging = "true";
+}
 function dragGeometry(state, ids, dx, dy, bounds, draftId) {
   const selected = new Set(ids);
   const moving = state.windows.filter((window2) => selected.has(window2.id));
@@ -22489,7 +22602,7 @@ function departmentFor(entity, roster) {
     title: team.name,
     desc: team.purpose,
     icon: "",
-    agents: [team.leaderId, ...team.members.filter((id) => id !== team.leaderId)].map((id) => roster.byId[id]).filter((bot) => bot && !bot.hidden).map((bot) => ({ ...bot, isLead: bot.id === team.leaderId, isMain: bot.generalAssistant === true, badge: bot.id === team.leaderId ? "主管" : "员工" }))
+    agents: [team.leaderId, ...team.members.filter((id) => id !== team.leaderId)].map((id) => roster.byId[id]).filter((bot) => bot && !bot.retiredAt).map((bot) => ({ ...bot, isLead: bot.id === team.leaderId, isMain: bot.generalAssistant === true, badge: bot.id === team.leaderId ? "主管" : "员工" }))
   };
 }
 function managerFor(entity, roster) {
@@ -22498,9 +22611,9 @@ function managerFor(entity, roster) {
   return roster.byId[id ?? entity?.ownerId] ?? roster.bots.find((bot) => bot.generalAssistant);
 }
 function reportsFor(entity, roster) {
-  if (entity.generalAssistant) return roster.bots.filter((bot) => bot.id !== entity.id && !bot.hidden);
+  if (entity.generalAssistant) return roster.bots.filter((bot) => bot.id !== entity.id && !bot.retiredAt);
   const team = (roster.teams ?? []).find((team2) => team2.leaderId === entity.id);
-  return roster.bots.filter((bot) => !bot.hidden && bot.id !== entity.id && (team?.members.includes(bot.id) || bot.ownerId === entity.id));
+  return roster.bots.filter((bot) => !bot.retiredAt && bot.id !== entity.id && (team?.members.includes(bot.id) || bot.ownerId === entity.id));
 }
 function chatMessages(list, entity, roster) {
   const id = roster.roomsById?.[entity.id] ? entity.id : currentPart(entity);
@@ -22752,7 +22865,7 @@ var cloneElement = React.cloneElement ?? ((el, props) => el && typeof el === "ob
 var DEFAULT_SPRING = { mass: 0.1, stiffness: 150, damping: 12 };
 var DEFAULT_MAGNIFICATION = 78;
 var DEFAULT_DISTANCE = 140;
-var DEFAULT_PANEL_HEIGHT = 72;
+var DEFAULT_PANEL_HEIGHT = 80;
 var BASE_ITEM_WIDTH = 58;
 var BASE_ICON_SIZE = 36;
 var MAGNIFIED_ICON_SIZE = 50;
@@ -23819,13 +23932,13 @@ function getDepartmentForEntity(entity, roster) {
       title: t("Executive office"),
       dockSkinKey: "management",
       desc: t("Chief and department heads coordinate goals, resources and cross-department work."),
-      agents: [entity, ...(roster.bots ?? []).filter((bot) => bot.id !== entity.id && !bot.hidden && !bot.retiredAt && leaders.has(bot.id))].map((bot) => ({ ...bot, isLead: true }))
+      agents: [entity, ...(roster.bots ?? []).filter((bot) => bot.id !== entity.id && !bot.retiredAt && leaders.has(bot.id))].map((bot) => ({ ...bot, isLead: true }))
     };
   }
   return departmentDisplay(departmentFor(entity, roster));
 }
 function getCollaboratorBots(department, roster, customTempBots = []) {
-  const available = new Map((roster.bots ?? []).filter((bot) => !bot.hidden).map((bot) => [bot.id, bot]));
+  const available = new Map((roster.bots ?? []).filter((bot) => !bot.retiredAt).map((bot) => [bot.id, bot]));
   const displayed = (agent) => agent.dockPortraitAssetId ? agent : getDepartmentForEntity(available.get(agent.id), roster)?.agents.find((bot) => bot.id === agent.id) ?? independentDockDisplay(available.get(agent.id));
   const agents = [...new Map([...department?.agents ?? [], ...customTempBots].filter((agent) => available.has(agent.id)).map((agent) => {
     const appearance = displayed(agent);
@@ -23838,11 +23951,11 @@ function getCollaboratorBots(department, roster, customTempBots = []) {
 function groupDockEntities(entities, roster) {
   const seen = /* @__PURE__ */ new Set(), groups = [];
   const available = new Set((roster.bots ?? []).map((bot) => bot.id));
-  const temporary = entities.filter((entity) => available.has(entity.id) && !entity.hidden && !entity.retiredAt && !entity.generalAssistant && entity.employment === "temporary");
+  const temporary = entities.filter((entity) => available.has(entity.id) && !entity.retiredAt && !entity.generalAssistant && entity.employment === "temporary");
   let temporaryDepartment = null;
   for (const entity of entities) {
     const isRoom = Boolean(roster.roomsById?.[entity.id]);
-    if (entity.hidden || entity.retiredAt || isRoom || !available.has(entity.id) || temporary.includes(entity)) continue;
+    if (entity.retiredAt || isRoom || !available.has(entity.id) || temporary.includes(entity)) continue;
     const dept = getDepartmentForEntity(entity, roster);
     if (dept?.dockSkinKey === "temporary") {
       temporaryDepartment = dept;
@@ -24025,10 +24138,27 @@ function DockCollaborationPopover({ entity, department: initialDept, pos, roster
               event.stopPropagation();
               openChat(agent);
             }, title: t("Open chat") }, (0, import_react70.createElement)(ChatsIcon), t("Chat")),
-            (0, import_react70.createElement)("button", { type: "button", className: "bt-collab-mini-btn bt-collab-more-btn", onClick: (event) => {
-              event.stopPropagation();
-              place(agent);
-            }, title: t("Place on canvas") }, "…")
+            (0, import_react70.createElement)("button", {
+              type: "button",
+              className: "bt-collab-mini-btn bt-collab-more-btn",
+              title: t("More"),
+              "aria-label": t("{name} actions", { name: agent.name }),
+              "aria-haspopup": "menu",
+              onClick: (event) => {
+                event.stopPropagation();
+                const box = event.currentTarget.getBoundingClientRect();
+                actions.openMenu({
+                  kind: "dock-member",
+                  id: agent.id,
+                  x: box.left,
+                  y: box.bottom + 4,
+                  place: () => place(agent),
+                  onDeleted: onClose,
+                  onMouseEnter,
+                  onMouseLeave
+                });
+              }
+            }, "…")
           )
         );
       })) : (0, import_react70.createElement)("div", { className: "bt-dock-subagents-empty" }, t("No sub-agents in team yet"))
@@ -24056,7 +24186,7 @@ var safeSetTimeout = (fn, ms) => {
 function CanvasDepartmentDock({ roster, work, useSessions, actions, size, canvasRoot, activeDeptKey, onStartDrag, drag, dismissed = false }) {
   const [dockHover, setDockHover] = (0, import_react70.useState)(null);
   const [previewReady, setPreviewReady] = (0, import_react70.useState)(false);
-  const groups = (0, import_react70.useMemo)(() => groupDockEntities([...roster.bots, ...roster.rooms].filter((entity) => !entity.hidden), roster), [roster]);
+  const groups = (0, import_react70.useMemo)(() => groupDockEntities(roster.bots, roster), [roster]);
   const [selectedDeptKey, setSelectedDeptKey] = (0, import_react70.useState)(activeDeptKey ?? groups[0]?.key);
   const hoverRegionRef = (0, import_react70.useRef)(null);
   const dockScrollRef = (0, import_react70.useRef)(null);
@@ -24524,6 +24654,9 @@ function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessions, us
   latest.current = state;
   const root = (0, import_react70.useRef)(null);
   const drag = (0, import_react70.useRef)(null);
+  (0, import_react70.useLayoutEffect)(() => {
+    paintCanvasDrag(drag.current, root.current);
+  }, [state]);
   const dragFrame = (0, import_react70.useRef)(null);
   const pendingMove = (0, import_react70.useRef)(null);
   const releaseFrame = (0, import_react70.useRef)(null);
@@ -24741,12 +24874,13 @@ function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessions, us
           win.y = y;
           actions.markCanvasWindowMoved?.(win.id);
         }
-        update(nextState, false);
         if (win) {
           const target = groupTargetAt(nextState, [win.id], event.clientX, event.clientY);
           setDropTarget(target?.windowId ?? target?.id ?? null);
           drag.current = { kind: "avatar", id: win.id, ids: [win.id], startX: event.clientX, startY: event.clientY, state: nextState, latest: nextState, originState: current.originState, target, box: current.box, gridLayout: current.gridLayout, dockBounds: current.dockBounds, moved: true };
         }
+        update(nextState, false);
+        paintCanvasDrag(drag.current, root.current);
       }
       return;
     }
@@ -24761,16 +24895,7 @@ function CanvasWorkspace({ useRoster, useCanvas, useCanvasFiles, useSessions, us
       setDropTarget(current.target?.windowId ?? current.target?.id ?? null);
       const preview = edge ? null : snap(next, current.ids, current.gridLayout);
       setGridPreview((previous) => JSON.stringify(previous?.placements) === JSON.stringify(preview?.placements) ? previous : preview);
-      if (!current.nodes) current.nodes = [...root.current.querySelectorAll?.(".bt-canvas-world > [data-window-id]") ?? []].filter((node) => current.ids.includes(node.dataset.windowId));
-      for (const node of current.kind === "group" ? [] : current.nodes) {
-        const from = current.state.windows.find((window2) => window2.id === node.dataset.windowId);
-        const to = next.windows.find((window2) => window2.id === node.dataset.windowId);
-        if (from && to) {
-          node.style.transition = "none";
-          node.style.transform = `translate3d(${to.x - from.x}px,${to.y - from.y}px,0)`;
-          node.style.willChange = "transform";
-        }
-      }
+      paintCanvasDrag(current, root.current);
       if (current.kind === "group") update(next, false);
       if (root.current.dataset) root.current.dataset.dragging = "true";
     }
@@ -26744,9 +26869,9 @@ var canvasStyles = `
   gap: 4px;
   width: max-content;
   max-width: min(860px, calc(100% - 240px));
-  height: 72px;
-  min-height: 72px;
-  max-height: 72px;
+  height: 80px;
+  min-height: 80px;
+  max-height: 80px;
   overflow: visible;
   padding: 6px 12px;
   transform: translateX(-50%);
@@ -26871,11 +26996,13 @@ var canvasStyles = `
   display: none !important;
 }
 .bt-dock-dept-name {
+  flex: none;
+  min-height: 16px;
   font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary, #64748b);
   white-space: nowrap;
-  line-height: 14px;
+  line-height: 16px;
   transition: color 0.15s ease;
 }
 .bt-dock-dept-tab:hover .bt-dock-dept-name {
@@ -26893,7 +27020,7 @@ var canvasStyles = `
   gap: 2px;
   width: var(--dock-item-width, 58px);
   min-width: 48px;
-  padding: 4px 2px 2px;
+  padding: 4px 2px 4px;
   border-radius: 16px;
   font-size: 11px;
   font-weight: 500;
@@ -29007,6 +29134,7 @@ function apply(ctx) {
       cancelBrowserOpening();
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
       if (canvasPreferred && (roster.getSnapshot().byId[id] || roster.getSnapshot().roomsById[id])) return actions.openCanvasEntity(id);
+      void actions.restoreEmployeeConversation(id);
       ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
       setPlain(false);
       const target = partFor(id);
@@ -29375,6 +29503,11 @@ function apply(ctx) {
     dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state)
   };
   actions.updateCanvas = updateCanvas;
+  actions.restoreEmployeeConversation = createEmployeeConversationRestore({
+    roster,
+    setFlags: (id, flags) => actions.setFlags(id, flags),
+    onError: (error) => actions.reportError(error, "conversation-visibility")
+  });
   let openingAssistant;
   actions.openGeneralAssistant = () => {
     if (!openingAssistant) openingAssistant = (async () => {
@@ -29441,7 +29574,9 @@ function apply(ctx) {
   };
   actions.openCanvasConversation = (id) => {
     const current = canvas.getSnapshot();
-    if (!current.windows.some((window2) => window2.id === id && window2.open)) return;
+    const window2 = current.windows.find((window3) => window3.id === id && window3.open);
+    if (!window2) return;
+    if (window2.kind === "bot") void actions.restoreEmployeeConversation(window2.entityId);
     canvasFiles.blur();
     const next = setWindowCompact(setCanvasSelection(current, [id], id), id, false);
     updateCanvas(next);

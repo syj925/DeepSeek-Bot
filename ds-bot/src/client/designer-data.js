@@ -8,7 +8,7 @@ export function departmentFor(entity, roster) {
   return {
     key: team.id, name: team.name, title: team.name, desc: team.purpose, icon: '',
     agents: [team.leaderId, ...team.members.filter(id => id !== team.leaderId)]
-      .map(id => roster.byId[id]).filter(bot => bot && !bot.hidden)
+      .map(id => roster.byId[id]).filter(bot => bot && !bot.retiredAt)
       .map(bot => ({ ...bot, isLead: bot.id === team.leaderId, isMain: bot.generalAssistant === true, badge: bot.id === team.leaderId ? '主管' : '员工' })),
   }
 }
@@ -20,9 +20,9 @@ export function managerFor(entity, roster) {
 }
 
 export function reportsFor(entity, roster) {
-  if (entity.generalAssistant) return roster.bots.filter(bot => bot.id !== entity.id && !bot.hidden)
+  if (entity.generalAssistant) return roster.bots.filter(bot => bot.id !== entity.id && !bot.retiredAt)
   const team = (roster.teams ?? []).find(team => team.leaderId === entity.id)
-  return roster.bots.filter(bot => !bot.hidden && bot.id !== entity.id && (team?.members.includes(bot.id) || bot.ownerId === entity.id))
+  return roster.bots.filter(bot => !bot.retiredAt && bot.id !== entity.id && (team?.members.includes(bot.id) || bot.ownerId === entity.id))
 }
 
 export function chatMessages(list, entity, roster) {

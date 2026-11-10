@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { createEmployeeConversationRestore } from '../src/client/conversation-visibility.js'
 
 const { outputFiles } = await build({
   stdin: {
@@ -22,7 +23,7 @@ const byLabel = (tree, label) => find(tree, node => node.type === 'button' && no
 function fixture({ folded = true, canvas = true } = {}) {
   const scopes = new Map(), timers = new Map(), listeners = new Map()
   let scope, cursor, layouts, effects, dirty, tree, visited, clock = 0, timerId = 0
-  const calls = { opened: [], canvasOpened: [], canvasOpenHadEmbedded: [], popouts: [], unread: [], visits: [], ended: [] }
+  const calls = { opened: [], canvasOpened: [], canvasOpenHadEmbedded: [], popouts: [], unread: [], visits: [], ended: [], restores: [], visibility: [] }
   const alpha = { id: 'alpha', sessionId: 'alpha-current', name: 'Alpha', createdAt: 10 }
   const beta = { id: 'beta', sessionId: 'beta-current', name: 'Beta', createdAt: 20 }
   const room = { id: 'planning', name: 'Planning', members: ['alpha', 'beta'], createdAt: 30 }
@@ -131,10 +132,16 @@ function fixture({ folded = true, canvas = true } = {}) {
     refreshCanvasSessions: () => assert.fail('the fixture catalog already contains each selected session'),
     readCanvasChat: () => () => {},
   }
+  const restore = createEmployeeConversationRestore({ roster: { getSnapshot: () => roster },
+    setFlags: async (id, flags) => { calls.visibility.push({ id, flags }); Object.assign(roster.byId[id], flags) },
+    onError: error => assert.fail(error),
+  })
+  actions.restoreEmployeeConversation = id => { calls.restores.push(id); return restore(id) }
+  const canvasState = { windows: [] }
   const props = {
     wide: true, actions, useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }),
     useSessions: pick => pick(sessions), usePanelInfo: pick => pick({ activePanelId: canvas ? 'ds-bot-canvas' : null }),
-    useCanvas: pick => pick({ windows: [] }), useRegistry: pick => pick({}),
+    useCanvas: pick => pick(canvasState), useRegistry: pick => pick({}),
     useSessionStatus: pick => pick(new Map()), useSessionRetainInfo: (id, pick) => pick(sessions.byId[id]),
     useCompletions: pick => pick({}), useActivity: pick => pick({}), useWork: pick => pick({ bots: {}, rooms: {}, approvals: [] }),
   }
@@ -204,7 +211,8 @@ function fixture({ folded = true, canvas = true } = {}) {
     preventDefault() { this.defaultPrevented = true }, stopPropagation() { this.stopped = true }, ...extra,
   })
   return {
-    draw, calls, column, roster, sessions, row, chat,
+    draw, calls, column, roster, sessions, row, chat, actions,
+    selectCanvasIcon(id) { canvasState.active = id; canvasState.windows = [{ id, entityId: id, kind: 'bot', open: true, compact: true }]; return draw() },
     pane, doc,
     startPopout(extra) { const next = event(extra); doc.emit('pointerdown', next); pane().props.onPointerDownCapture(next); draw(); return next },
     pointer(name, extra) { const next = event(extra); doc.emit(name, next); draw(); return next },
@@ -249,7 +257,44 @@ test('selecting another avatar changes the title, selected row and session witho
   assert.equal(app.row('alpha').props['aria-current'], undefined)
   assert.ok(app.calls.ended.includes('alpha-current'))
   assert.ok(app.calls.visits.includes('beta-current'))
+  assert.deepEqual(app.calls.restores, ['alpha', 'beta'], 'explicit team chat selection uses the shared visibility action')
   assert.equal(findAll(app.draw(), node => node.type?.name === 'CanvasSession').length, 1)
+  app.unmount()
+})
+
+test('reopening one hidden employee keeps its row after switching to Chief while other hidden chats stay hidden', async () => {
+  const app = fixture({ folded: false })
+  const other = { id: 'other-hidden', sessionId: 'other-current', name: 'Other', hidden: true }
+  app.roster.bots.push(other); app.roster.byId[other.id] = other
+  app.roster.byId.beta.hidden = true
+  app.selectCanvasIcon('beta')
+  assert.equal(app.row('beta'), undefined, 'selecting or restoring a desktop icon does not reveal its hidden chat')
+  assert.equal(app.calls.visibility.length, 0)
+  await app.actions.restoreEmployeeConversation('beta-current')
+  app.draw(); app.clickRow('beta'); app.clickRow('alpha')
+  assert.ok(app.row('beta'), 'the reopened conversation remains after switching')
+  assert.equal(app.row(other.id), undefined)
+  assert.deepEqual(app.calls.visibility, [{ id: 'beta', flags: { hidden: false } }])
+  assert.equal(other.hidden, true)
+  app.close(); app.advance(240)
+  assert.ok(app.row('beta'), 'closing the embedded chat does not undo restored visibility')
+  app.clickRow('beta')
+  app.roster.byId.beta.hidden = true
+  app.draw()
+  assert.equal(app.row('beta'), undefined, 'a later manual hide is respected even while its chat is selected')
+  app.clickRow('alpha'); app.draw()
+  assert.equal(app.row('beta'), undefined)
+  assert.equal(app.calls.visibility.length, 1, 'rendering and switching do not restore a manually hidden employee again')
+  app.unmount()
+})
+
+test('a hidden retained employee stays hidden when classic session state is restored', () => {
+  const app = fixture({ canvas: false })
+  app.roster.byId.beta.hidden = true
+  app.sessions.byId['beta-current'].retainedBy = { mainView: 1 }
+  app.draw()
+  assert.equal(app.row('beta'), undefined)
+  assert.equal(app.calls.visibility.length, 0)
   app.unmount()
 })
 

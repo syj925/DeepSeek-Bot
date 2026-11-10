@@ -9,7 +9,7 @@ const cloneElement = React.cloneElement ?? ((el, props) => (el && typeof el === 
 const DEFAULT_SPRING = { mass: 0.1, stiffness: 150, damping: 12 }
 const DEFAULT_MAGNIFICATION = 78
 const DEFAULT_DISTANCE = 140
-const DEFAULT_PANEL_HEIGHT = 72
+const DEFAULT_PANEL_HEIGHT = 80
 const BASE_ITEM_WIDTH = 58
 const BASE_ICON_SIZE = 36
 const MAGNIFIED_ICON_SIZE = 50

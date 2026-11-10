@@ -68,7 +68,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const away = !running && groups.length > 0
   const state = botState(running || away, doing, alert)
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0].tool, groups.length - 1) : null
-  if (bot.hidden && !active && !main) return null
+  if (bot.hidden && !main) return null
   const onContextMenu = (event) => {
     event.preventDefault()
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
@@ -336,6 +336,7 @@ export function TeamSidebar(props) {
     }, 240)
   }
   const onSelectTeamChat = (id) => {
+    void actions.restoreEmployeeConversation?.(id)
     clearTimeout(chatCloseTimer.current)
     floating.expand()
     setChatClosing(false)

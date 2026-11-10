@@ -6,6 +6,36 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Integrate the supplied 0.1.21 fork source: lasting teams and employee ownership, the singleton Chief assistant, cross-team collaboration, desktop canvas interactions and local role portraits. Keep the fork's hosted update source and release pipeline on `main`.
 
+## [0.1.87] - 2026-11-10
+
+### Fixed
+
+- Keep employee icons under the pointer when dragged out of Dock. Compute temporary movement from the rendered position after desktop bounds correction, paint newly mounted icons before display, and reacquire missing or remounted nodes. Preserve grid drop placement, cancellation, grouping and conversation visibility.
+
+## [0.1.86] - 2026-11-10
+
+### Added
+
+- Open a member menu from department card ellipses with placement and employee deletion. Require a named confirmation, show deletion failures, prevent duplicate submissions, and preserve the existing Chief, Main Bot and department-leader protections. Reuse the existing deletion API, which stops the employee's work, removes memberships and archives conversations.
+
+## [0.1.85] - 2026-11-10
+
+### Fixed
+
+- Restore only the employee conversation explicitly opened from Dock, the canvas, team chat or classic navigation. Persist its visibility across conversation switches, preserve other hidden conversations and respect a later manual hide. Passive icon selection and restored layout no longer make hidden rows appear temporarily.
+
+## [0.1.84] - 2026-11-10
+
+### Fixed
+
+- Reserve the department label's full line height in Dock and increase its vertical spacing so text is not clipped beneath the avatars. Keep icon magnification and the department visibility fix.
+
+## [0.1.83] - 2026-11-10
+
+### Fixed
+
+- Keep department Dock contacts independent of hidden sidebar conversations, including department leads, the executive office and temporary employees. Preserve existing hidden flags and member chat/drag actions; retired employees and removed members stay out of the contact lists.
+
 ## [0.1.82] - 2026-11-09
 
 ### Changed

@@ -14,6 +14,17 @@ test('designer departments use actual membership, never names or demo role defau
   assert.equal(roster.bots.length, 3)
 })
 
+test('organization membership ignores conversation visibility but excludes retired or missing employees', () => {
+  const chief = { id: 'c', generalAssistant: true }, lead = { id: 'l', hidden: true }, worker = { id: 'w', hidden: true }
+  const retired = { id: 'r', hidden: true, retiredAt: 123 }
+  const roster = { bots: [chief, lead, worker, retired], byId: { c: chief, l: lead, w: worker, r: retired }, teams: [{ id: 't', name: 'Sales', leaderId: 'l', members: ['l', 'w', 'r', 'removed'] }] }
+  const before = JSON.stringify(roster)
+  assert.deepEqual(departmentFor(worker, roster).agents.map(bot => bot.id), ['l', 'w'])
+  assert.deepEqual(reportsFor(lead, roster), [worker])
+  assert.deepEqual(reportsFor(chief, roster), [lead, worker])
+  assert.equal(JSON.stringify(roster), before)
+})
+
 const event = (type, seq, data) => ({ event: { type, seq, time: seq * 1000, data } })
 test('designer chat excludes system injections and hidden exchanges, keeps durable images', () => {
   const rows = sessionMessages([

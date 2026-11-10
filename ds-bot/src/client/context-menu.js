@@ -115,6 +115,57 @@ function CanvasContextMenu({ menu, actions, leaving }) {
   )
 }
 
+function DockMemberMenu({ menu, roster, actions, leaving }) {
+  const ref = useRef(null)
+  const deleting = useRef(false)
+  const [confirming, setConfirming] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [place, setPlace] = useState({ left: menu.x, top: menu.y })
+  const bot = roster.byId[menu.id]
+  const protectedReason = bot?.generalAssistant ? t('The General Assistant cannot be deleted here.')
+    : isMainOf(roster, bot?.id) ? t('Remove the Main Bot role before deleting this employee.')
+      : (roster.teams ?? []).some(team => team.leaderId === bot?.id) ? t('Hand over department leadership before deleting this employee.') : null
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (!node) return
+    // Measure the final size, not the entrance animation's scaled rectangle.
+    setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - node.offsetWidth - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - node.offsetHeight - 8)) })
+    node.querySelector('button:not(:disabled)')?.focus()
+  }, [menu.x, menu.y, confirming, protectedReason])
+  if (!bot) return null
+  const remove = async () => {
+    if (!confirming || protectedReason || deleting.current || leaving) return
+    deleting.current = true
+    setPending(true)
+    try {
+      await actions.deleteBot(bot.id)
+      actions.closeMenu()
+      menu.onDeleted?.()
+    } catch (error) {
+      actions.reportError(error, 'delete-employee')
+    } finally {
+      deleting.current = false
+      setPending(false)
+    }
+  }
+  const confirm = confirming && !protectedReason
+  return h('div', { ref, className: 'bt-menu bt-dock-member-menu', role: confirm ? 'alertdialog' : 'menu', style: place,
+    'aria-label': confirm ? t('Delete {name}?', { name: bot.name }) : t('{name} actions', { name: bot.name }),
+    'data-confirming': confirm || undefined, 'data-leaving': leaving || undefined,
+    onMouseEnter: menu.onMouseEnter, onMouseLeave: menu.onMouseLeave },
+    confirm ? h(Fragment, null,
+      h('div', { className: 'bt-dock-member-confirm-title' }, t('Delete {name}?', { name: bot.name })),
+      h('p', { className: 'bt-dock-member-note' }, t('Stops this employee’s tasks and removes them from departments and groups. Chats are archived.')),
+      h('div', { className: 'bt-dock-member-confirm-actions' },
+        h('button', { type: 'button', disabled: pending, onClick: () => setConfirming(false) }, t('Cancel')),
+        h('button', { type: 'button', className: 'bt-danger', disabled: pending, onClick: remove }, t(pending ? 'Deleting…' : 'Delete employee'))))
+      : h(Fragment, null,
+        h('button', { type: 'button', role: 'menuitem', onClick: () => { actions.closeMenu(); menu.place?.() } }, h(PlusIcon), t('Place on canvas')),
+        h('div', { className: 'bt-menu-sep', role: 'separator' }),
+        h('button', { type: 'button', role: 'menuitem', className: 'bt-danger', disabled: Boolean(protectedReason), title: protectedReason ?? undefined, onClick: () => setConfirming(true) }, h(TrashIcon), t('Delete employee')),
+        protectedReason ? h('p', { className: 'bt-dock-member-note' }, protectedReason) : null))
+}
+
 export function ContextMenu({ menu, roster, actions, leaving = false }) {
   useEscape(() => actions.closeMenu())
   useEffect(() => {
@@ -130,6 +181,7 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8)) })
   }, [menu.x, menu.y])
   if (menu.kind === 'canvas') return h(CanvasContextMenu, { menu, roster, actions, leaving })
+  if (menu.kind === 'dock-member') return h(DockMemberMenu, { menu, roster, actions, leaving })
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
   if (menu.kind === 'widget') return h('div', { ref, className: 'bt-menu', role: 'menu', style: place, 'aria-label': t('Widget options'), 'data-leaving': leaving || undefined },
     h('button', { type: 'button', role: 'menuitem', onClick: () => { actions.closeMenu(); setWidgetHidden(menu.id, true) } }, h(TrashIcon), t('Remove widget')))
